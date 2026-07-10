@@ -1,0 +1,192 @@
+import { useState, useEffect, useCallback } from 'react';
+import { UserCheck, Plus, Search, Edit, Loader2, Calendar } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
+import { useToast } from '../../context/ToastContext';
+import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import PageHeader from '../../components/ui/PageHeader';
+import Modal from '../../components/ui/Modal';
+import StatusBadge from '../../components/ui/StatusBadge';
+import api from '../../api/axios';
+
+const EMPTY = {
+  name: '', designation: '', cnic: '', phone: '', address: '',
+  basic_salary: '', hire_date: new Date().toISOString().slice(0, 10),
+  branch_id: '', status: 'active',
+};
+
+export default function Employees() {
+  const { t, lang } = useTheme();
+  const { success, error } = useToast();
+  const { shopParams, branches } = useShopApi();
+  const isRTL = lang === 'ur';
+
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState(EMPTY);
+  const [selected, setSelected] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/employees', { params: { ...shopParams(), search } });
+      setEmployees(data.employees || []);
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setLoading(false);
+    }
+  }, [shopParams, search, error, t]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        basic_salary: parseFloat(form.basic_salary),
+        branch_id: parseInt(form.branch_id, 10),
+        ...shopParams(),
+      };
+      if (modal === 'create') {
+        await api.post('/employees', payload);
+        success(t('employeeCreated'));
+      } else {
+        await api.put(`/employees/${selected.id}`, payload);
+        success(t('employeeUpdated'));
+      }
+      setModal(null);
+      fetchData();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setF = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const openCreate = () => {
+    setForm({ ...EMPTY, branch_id: branches[0]?.id || '' });
+    setModal('create');
+  };
+
+  return (
+    <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
+      <PageHeader
+        icon={UserCheck}
+        accent="cyan"
+        title={t('employees')}
+        subtitle={t('employeesSub')}
+        action={
+          <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" />{t('addEmployee')}
+          </button>
+        }
+      />
+
+      <div className="glass-card p-4">
+        <div className="relative max-w-md">
+          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
+          <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchEmployees')} value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-cyan-400" /></div>
+      ) : (
+        <div className="glass-card overflow-x-auto">
+          <table className="w-full text-sm min-w-[800px]">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                <th className="text-start p-4">{t('name')}</th>
+                <th className="text-start p-4">{t('designation')}</th>
+                <th className="text-start p-4">{t('userBranch')}</th>
+                <th className="text-start p-4">{t('basicSalary')}</th>
+                <th className="text-start p-4">{t('hireDate')}</th>
+                <th className="text-start p-4">{t('status')}</th>
+                <th className="text-end p-4">{t('actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map(emp => (
+                <tr key={emp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                  <td className="p-4">
+                    <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{emp.name}</div>
+                    {emp.phone && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{emp.phone}</div>}
+                  </td>
+                  <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.designation || '—'}</td>
+                  <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.Branch?.name}</td>
+                  <td className="p-4 font-semibold text-cyan-400">{formatPKR(emp.basic_salary, lang)}</td>
+                  <td className="p-4" style={{ color: 'var(--text-secondary)' }}>
+                    {emp.hire_date ? new Date(emp.hire_date).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK') : '—'}
+                  </td>
+                  <td className="p-4"><StatusBadge status={emp.status} /></td>
+                  <td className="p-4 text-end">
+                    <button type="button" onClick={() => { setSelected(emp); setForm({ name: emp.name, designation: emp.designation || '', cnic: emp.cnic || '', phone: emp.phone || '', address: emp.address || '', basic_salary: emp.basic_salary, hire_date: emp.hire_date?.slice(0, 10) || '', branch_id: emp.branch_id, status: emp.status }); setModal('edit'); }} className="icon-btn"><Edit className="w-4 h-4" /></button>
+                  </td>
+                </tr>
+              ))}
+              {employees.length === 0 && (
+                <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEmployees')}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal && (
+        <Modal title={modal === 'create' ? t('addEmployee') : t('editEmployee')} onClose={() => setModal(null)} wide>
+          <form onSubmit={handleSave} className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('name')} *</label>
+                <input className="input" required value={form.name} onChange={setF('name')} />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('designation')}</label>
+                <input className="input" placeholder="Sales Manager" value={form.designation} onChange={setF('designation')} />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')} *</label>
+                <select className="input" required value={form.branch_id} onChange={setF('branch_id')}>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('basicSalary')} *</label>
+                <input className="input" type="number" min="0" required value={form.basic_salary} onChange={setF('basic_salary')} />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('hireDate')}</label>
+                <input className="input" type="date" value={form.hire_date} onChange={setF('hire_date')} />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('cnic')}</label>
+                <input className="input" value={form.cnic} onChange={setF('cnic')} />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('phone')}</label>
+                <input className="input" value={form.phone} onChange={setF('phone')} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('address')}</label>
+                <textarea className="input min-h-[80px]" value={form.address} onChange={setF('address')} />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}{t('save')}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}

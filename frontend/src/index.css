@@ -1,0 +1,415 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Nastaliq+Urdu:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════
+   CSS CUSTOM PROPERTIES — Dark (default) & Light overrides
+   ══════════════════════════════════════════════════════ */
+
+:root {
+  /* Dark mode defaults */
+  --bg-base:       #0f0f1a;
+  --bg-surface:    #16162a;
+  --bg-elevated:   #1e1e35;
+  --bg-input:      #252540;
+  --bg-hover:      rgba(255, 255, 255, 0.05);
+
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-input:  rgba(255, 255, 255, 0.10);
+
+  --text-primary:  #f1f5f9;
+  --text-secondary:#94a3b8;
+  --text-muted:    #475569;
+  --text-faint:    #334155;
+
+  --scrollbar-track:  #16162a;
+  --scrollbar-thumb:  #3a3a60;
+
+  --shadow-glow: 0 0 30px rgba(99, 102, 241, 0.15);
+}
+
+/* Light mode overrides — warm off-white, not harsh white */
+.light {
+  --bg-base:       #f0f2f8;
+  --bg-surface:    #ffffff;
+  --bg-elevated:   #e8ecf6;
+  --bg-input:      #edf0f9;
+  --bg-hover:      rgba(79, 70, 229, 0.06);
+
+  --border-subtle: rgba(0, 0, 0, 0.07);
+  --border-input:  rgba(0, 0, 0, 0.12);
+
+  --text-primary:  #1e1b4b;
+  --text-secondary:#4c5270;
+  --text-muted:    #6b7280;
+  --text-faint:    #9ca3af;
+
+  --scrollbar-track: #e8ecf6;
+  --scrollbar-thumb: #a5b4fc;
+
+  --shadow-glow: 0 0 30px rgba(99, 102, 241, 0.12);
+}
+
+/* ═══════════════════════════════════════════════════════
+   BASE
+   ══════════════════════════════════════════════════════ */
+@layer base {
+  * { box-sizing: border-box; }
+
+  html {
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    @apply font-sans antialiased;
+    margin: 0;
+    padding: 0;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  /* Urdu RTL font */
+  :root[lang="ur"] {
+    font-family: 'Noto Nastaliq Urdu', 'Inter', system-ui, sans-serif;
+  }
+  :root[lang="en"] {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { background: var(--scrollbar-track); }
+  ::-webkit-scrollbar-thumb  { background: var(--scrollbar-thumb); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-brand-500; }
+}
+
+/* ═══════════════════════════════════════════════════════
+   COMPONENTS
+   ══════════════════════════════════════════════════════ */
+@layer components {
+
+  /* ── Glassmorphism card ─────────────────────────────── */
+  .glass-card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    @apply backdrop-blur-xl rounded-2xl;
+    transition: background-color 0.25s ease, border-color 0.25s ease;
+    position: relative;
+    z-index: 0;
+  }
+
+  /* Light-mode card gets a subtle shadow instead of transparent darkness */
+  .light .glass-card {
+    box-shadow: 0 1px 6px rgba(0,0,0,0.07), 0 4px 18px rgba(0,0,0,0.04);
+  }
+
+  /* ── Input ──────────────────────────────────────────── */
+  .input {
+    width: 100%;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-input);
+    color: var(--text-primary);
+    @apply rounded-xl px-4 py-2.5 outline-none transition-all duration-200;
+    &::placeholder { color: var(--text-muted); }
+    &:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 1px #6366f1;
+    }
+  }
+
+  select.input {
+    position: relative;
+    z-index: 20;
+    cursor: pointer;
+  }
+
+  /* ── Buttons ────────────────────────────────────────── */
+  .btn-primary {
+    @apply bg-brand-600 hover:bg-brand-500 text-white font-semibold px-5 py-2.5 rounded-xl
+           transition-all duration-200 hover:shadow-lg hover:shadow-brand-500/30
+           active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    background-color: var(--bg-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-input);
+    @apply font-medium px-5 py-2.5 rounded-xl transition-all duration-200 active:scale-[0.98];
+    &:hover { background-color: var(--bg-input); }
+  }
+
+  .btn-danger {
+    @apply bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white font-medium
+           px-4 py-2 rounded-xl border border-red-500/30 transition-all duration-200;
+  }
+
+  /* ── Badge ──────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-green  { @apply bg-emerald-500/20 text-emerald-600 border border-emerald-500/30; }
+  .badge-red    { @apply bg-red-500/20     text-red-500     border border-red-500/30; }
+  .badge-yellow { @apply bg-yellow-500/20  text-yellow-600  border border-yellow-500/30; }
+  .badge-blue   { @apply bg-blue-500/20    text-blue-600    border border-blue-500/30; }
+  .badge-purple { @apply bg-purple-500/20  text-purple-600  border border-purple-500/30; }
+
+  /* Dark keeps lighter text colours */
+  .dark .badge-green  { color: #34d399; }
+  .dark .badge-red    { color: #f87171; }
+  .dark .badge-yellow { color: #fbbf24; }
+  .dark .badge-blue   { color: #60a5fa; }
+  .dark .badge-purple { color: #c084fc; }
+
+  /* ── Table ──────────────────────────────────────────── */
+  .table-header {
+    background-color: var(--bg-elevated);
+    color: var(--text-muted);
+    @apply text-xs font-semibold uppercase tracking-wider;
+  }
+  .table-row {
+    border-bottom: 1px solid var(--border-subtle);
+    @apply transition-colors duration-100;
+    &:hover { background-color: var(--bg-hover); }
+  }
+
+  /* ── Stat card ──────────────────────────────────────── */
+  .stat-card {
+    @apply glass-card p-5 flex flex-col gap-2 transition-all duration-300;
+    &:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+      box-shadow: 0 8px 32px rgba(99, 102, 241, 0.07);
+    }
+  }
+
+  /* ── Sidebar nav item ───────────────────────────────── */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-decoration: none;
+  }
+  .nav-item:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-hover);
+  }
+  .nav-item.active {
+    @apply bg-brand-600/20 border border-brand-500/20;
+    color: #818cf8;
+  }
+  .light .nav-item.active {
+    @apply bg-brand-100 border border-brand-300/50;
+    color: #4f46e5;
+  }
+
+  /* ── Sidebar itself ─────────────────────────────────── */
+  .sidebar {
+    background-color: var(--bg-surface);
+    border-right: 1px solid var(--border-subtle);
+    transition: background-color 0.25s ease, border-color 0.25s ease;
+  }
+
+  /* ── Header/topbar ──────────────────────────────────── */
+  .topbar {
+    position: relative;
+    z-index: 50;
+    background-color: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    backdrop-filter: blur(12px);
+    transition: background-color 0.25s ease, border-color 0.25s ease;
+  }
+
+  /* ── Search bar ─────────────────────────────────────── */
+  .search-bar {
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-input);
+    @apply rounded-xl px-3 py-2;
+    transition: background-color 0.25s ease;
+  }
+
+  /* ── Icon button in topbar ──────────────────────────── */
+  .topbar-btn {
+    color: var(--text-secondary);
+    @apply p-2 rounded-xl transition-all;
+    &:hover {
+      color: var(--text-primary);
+      background-color: var(--bg-hover);
+    }
+  }
+
+  /* ── Lang / Theme dropdown ──────────────────────────── */
+  .dropdown-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-input);
+    @apply rounded-xl shadow-2xl min-w-[140px] overflow-hidden;
+    z-index: 9999;
+    animation: fadeIn 0.15s ease-out;
+  }
+  .dropdown-wrap {
+    position: relative;
+    z-index: 9999;
+  }
+  .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.1s;
+    white-space: nowrap;
+  }
+  .dropdown-item:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .dropdown-item.active {
+    color: #6366f1;
+    background-color: rgba(99,102,241,0.08);
+    font-weight: 600;
+  }
+
+  /* ── Generic card ───────────────────────────────────── */
+  .card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    @apply rounded-2xl p-5;
+    transition: background-color 0.25s ease, border-color 0.25s ease;
+  }
+  .light .card {
+    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  }
+
+  /* ── Form input field ───────────────────────────────── */
+  .input-field {
+    width: 100%;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-input);
+    color: var(--text-primary);
+    @apply rounded-xl px-4 py-2.5 text-sm outline-none transition-all duration-200;
+    &::placeholder { color: var(--text-muted); }
+    &:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 1px rgba(99,102,241,0.3);
+    }
+  }
+
+  /* ── Form label ─────────────────────────────────────── */
+  .form-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 0.375rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* ── Icon button ─────────────────────────────────────── */
+  .icon-btn {
+    color: var(--text-muted);
+    @apply p-2 rounded-lg transition-all duration-150;
+    &:hover {
+      color: var(--text-primary);
+      background-color: var(--bg-hover);
+    }
+  }
+
+  /* ── Data table ──────────────────────────────────────── */
+  .data-table {
+    @apply w-full text-sm;
+    border-collapse: collapse;
+  }
+  .data-table thead tr {
+    background-color: var(--bg-elevated);
+  }
+  .data-table th {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    @apply px-4 py-3 text-left;
+    white-space: nowrap;
+  }
+  .data-table tbody tr {
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background-color 0.1s ease;
+  }
+  .data-table tbody tr:hover {
+    background-color: var(--bg-hover);
+  }
+  .data-table td {
+    @apply px-4 py-3;
+    color: var(--text-secondary);
+  }
+  .data-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  /* ── Skeleton loader ─────────────────────────────────── */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--bg-elevated) 25%,
+      var(--bg-input) 50%,
+      var(--bg-elevated) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to   { background-position: -200% 0; }
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   UTILITIES
+   ══════════════════════════════════════════════════════ */
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-brand-400 to-purple-400 bg-clip-text text-transparent;
+  }
+  .glow {
+    box-shadow: var(--shadow-glow);
+  }
+  .text-primary-color   { color: var(--text-primary); }
+  .text-secondary-color { color: var(--text-secondary); }
+  .text-muted-color     { color: var(--text-muted); }
+  .bg-base              { background-color: var(--bg-base); }
+  .bg-surface           { background-color: var(--bg-surface); }
+  .bg-elevated          { background-color: var(--bg-elevated); }
+  .border-subtle        { border-color: var(--border-subtle); }
+}
+
+/* ═══════════════════════════════════════════════════════
+   ANIMATIONS
+   ══════════════════════════════════════════════════════ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out;
+}
