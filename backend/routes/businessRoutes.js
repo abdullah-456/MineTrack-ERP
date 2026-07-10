@@ -88,5 +88,6 @@ router.get(   '/bank-accounts',          financialSetupController.listBankAccoun
 router.post(  '/cash-sessions',          financialSetupController.recordCashSession);
 router.get(   '/cash-sessions/today',    financialSetupController.getTodaySession);
 router.get(   '/cash-sessions',          financialSetupController.listSessions);
+router.get(   '/balances',               financialSetupController.getLiveBalances);
 
 module.exports = router;

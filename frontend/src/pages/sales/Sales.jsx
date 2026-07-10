@@ -188,7 +188,7 @@ export default function Sales() {
   const setIP = (k) => (e) => setInstallmentPlan(p => ({ ...p, [k]: e.target.value }));
 
   const saleTypeBadgeColor = {
-    cash: 'badge-green', card: 'badge-blue', credit: 'badge-yellow', installment: 'badge-purple',
+    cash: 'badge-green', bank: 'badge-blue', credit: 'badge-yellow', installment: 'badge-purple', card: 'badge-blue',
   };
 
   return (
@@ -308,7 +308,7 @@ export default function Sales() {
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('saleType')}</label>
                 <div className="grid grid-cols-4 gap-2">
-                  {['cash', 'card', 'credit', 'installment'].map(type => (
+                  {['cash', 'bank', 'credit', 'installment'].map(type => (
                     <button
                       key={type}
                       type="button"
@@ -317,7 +317,7 @@ export default function Sales() {
                         form.sale_type === type
                           ? type === 'installment' ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
                           : type === 'credit' ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400'
-                          : type === 'card' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
+                          : type === 'bank' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
                           : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
                           : 'hover:bg-white/5'
                       }`}

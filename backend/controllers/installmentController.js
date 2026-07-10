@@ -229,6 +229,20 @@ exports.recordPayment = async (req, res) => {
     }, { transaction });
 
     const paidVal = parseFloat(amount_paid);
+
+    if (['card', 'bank', 'mobile_wallet'].includes(method) && paidVal > 0) {
+      const bankAcc = await db.BankAccount.findOne({
+        where: { shop_id: shopId, is_active: true },
+        order: [['id', 'ASC']],
+        transaction,
+        lock: transaction.LOCK.UPDATE
+      });
+      if (bankAcc) {
+        await bankAcc.update({
+          current_balance: parseFloat(bankAcc.current_balance || 0) + paidVal
+        }, { transaction });
+      }
+    }
     const currentDue = parseFloat(schedule.due_amount);
     
     if (paidVal >= currentDue) {

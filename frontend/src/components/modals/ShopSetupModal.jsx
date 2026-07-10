@@ -109,7 +109,6 @@ function BankRow({ acct, idx, onChange, onRemove, isOnly }) {
 
 /* ── Main Component ───────────────────────────────────────────────────────────── */
 export default function ShopSetupModal({ shopName, onComplete }) {
-  const { shopParams } = useShopApi();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

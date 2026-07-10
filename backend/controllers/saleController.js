@@ -337,12 +337,27 @@ exports.create = async (req, res) => {
     if (!(payAmount >= 0)) payAmount = 0;
     if (payAmount > total) payAmount = total;
 
+    const finalPaymentMethod = mapPaymentMethod(payment_method || (sale_type === 'installment' ? 'cash' : sale_type) || 'cash');
     await db.Payment.create({
       sale_id: sale.id,
       amount: payAmount,
-      payment_method: mapPaymentMethod(payment_method || (sale_type === 'installment' ? 'cash' : sale_type) || 'cash'),
+      payment_method: finalPaymentMethod,
       payment_date: new Date(),
     }, { transaction });
+
+    if (['card', 'bank', 'mobile_wallet'].includes(finalPaymentMethod) && payAmount > 0) {
+      const bankAcc = await db.BankAccount.findOne({
+        where: { shop_id: shopId, is_active: true },
+        order: [['id', 'ASC']],
+        transaction,
+        lock: transaction.LOCK.UPDATE
+      });
+      if (bankAcc) {
+        await bankAcc.update({
+          current_balance: parseFloat(bankAcc.current_balance || 0) + payAmount
+        }, { transaction });
+      }
+    }
 
     if (customer_id && sale_type === 'credit') {
       const customer = await db.Customer.findOne({ where: { id: customer_id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE });
@@ -479,7 +494,7 @@ exports.stats = async (req, res) => {
         where: { shop_id: shopId },
         attributes: ['id', 'cost_price'],
       }],
-      attributes: ['quantity', 'created_at', 'product_id'],
+      attributes: ['quantity', 'createdAt', 'product_id'],
     });
 
     const dayLabels = last7DayLabels();
@@ -489,7 +504,7 @@ exports.stats = async (req, res) => {
         .reduce((sum, s) => sum + parseFloat(s.total), 0);
 
       const purchasesTotal = weekMovements
-        .filter(m => new Date(m.created_at).toISOString().slice(0, 10) === date)
+        .filter(m => new Date(m.createdAt).toISOString().slice(0, 10) === date)
         .reduce((sum, m) => {
           const cost = m.Product?.cost_price ?? productCostMap[m.product_id] ?? 0;
           return sum + (m.quantity * parseFloat(cost));

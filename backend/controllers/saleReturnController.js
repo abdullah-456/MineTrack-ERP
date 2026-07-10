@@ -492,6 +492,40 @@ exports.create = async (req, res) => {
       await db.SaleReturnItem.create({ ...rl, return_id: ret.id }, { transaction });
     }
 
+    // ── Bank balance adjustments ─────────────────────────────────────────────
+    // Refund paid out via bank/card → bank balance DECREASES
+    if (return_type === 'refund' && ['card', 'bank', 'mobile_wallet'].includes(effectiveRefundMethod) && refundAmount > 0) {
+      const bankAcc = await db.BankAccount.findOne({
+        where: { shop_id: shopId, is_active: true },
+        order: [['id', 'ASC']],
+        transaction,
+        lock: transaction.LOCK.UPDATE
+      });
+      if (bankAcc) {
+        await bankAcc.update({
+          current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) - refundAmount) * 100) / 100
+        }, { transaction });
+      }
+    }
+    // Exchange settlement received via bank/card → bank balance INCREASES
+    if (return_type === 'exchange' && settlementAmount > 0) {
+      const settleMethod = ['cash', 'card', 'bank', 'mobile_wallet'].includes(settlement_payment_method)
+        ? settlement_payment_method : 'cash';
+      if (['card', 'bank', 'mobile_wallet'].includes(settleMethod)) {
+        const bankAcc = await db.BankAccount.findOne({
+          where: { shop_id: shopId, is_active: true },
+          order: [['id', 'ASC']],
+          transaction,
+          lock: transaction.LOCK.UPDATE
+        });
+        if (bankAcc) {
+          await bankAcc.update({
+            current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) + settlementAmount) * 100) / 100
+          }, { transaction });
+        }
+      }
+    }
+
     await transaction.commit();
 
     const full = await db.SaleReturn.findByPk(ret.id, { include: returnIncludes });

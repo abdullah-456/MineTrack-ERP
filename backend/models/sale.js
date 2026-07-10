@@ -50,7 +50,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     sale_type: {
-      type: DataTypes.ENUM('cash', 'card', 'credit', 'installment'),
+      type: DataTypes.ENUM('cash', 'card', 'bank', 'credit', 'installment'),
       allowNull: false
     },
     subtotal: {

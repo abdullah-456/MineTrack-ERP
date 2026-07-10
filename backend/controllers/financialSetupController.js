@@ -147,3 +147,110 @@ exports.listSessions = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+// ── GET /api/balances ─────────────────────────────────────────────────────────
+// Returns live cash-in-hand and total bank balance for the shop's dashboard.
+//
+// Cash-in-hand = today's opening_cash (cash session)
+//              + cash received from sales & installment payments today
+//              - cash refunds paid out today
+//
+// Bank balance = sum of bank_accounts.current_balance
+// (current_balance is updated when bank transactions are recorded later)
+exports.getLiveBalances = async (req, res) => {
+  const shopId = req.user.shop_id;
+  if (!shopId) return res.status(403).json({ message: 'No shop context' });
+
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const dayStart = new Date(today + 'T00:00:00.000Z');
+
+    // ── Opening cash from today's session ────────────────────────────────
+    const session = await db.CashSession.findOne({
+      where: { shop_id: shopId, session_date: today }
+    });
+    const openingCash = parseFloat(session?.opening_cash || 0);
+
+    // ── Cash IN: cash / mobile_wallet sales payments today ────────────────
+    const cashSalesPayments = await db.Payment.findAll({
+      where: {
+        payment_method: { [Op.in]: ['cash', 'mobile_wallet'] },
+        payment_date:   { [Op.gte]: dayStart },
+      },
+      include: [{
+        model: db.Sale,
+        where: { shop_id: shopId },
+        attributes: [],
+        required: true
+      }],
+      attributes: ['amount'],
+    });
+    const cashIn = cashSalesPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
+
+    // ── Cash IN: cash installment payments received today ─────────────────
+    const cashInstallments = await db.InstallmentPayment.findAll({
+      where: {
+        method:       { [Op.in]: ['cash', 'mobile_wallet'] },
+        payment_date: { [Op.gte]: dayStart },
+      },
+      include: [{
+        model: db.InstallmentSchedule,
+        required: true,
+        include: [{
+          model: db.InstallmentPlan,
+          required: true,
+          include: [{
+            model: db.Sale,
+            where: { shop_id: shopId },
+            required: true,
+            attributes: []
+          }],
+          attributes: []
+        }],
+        attributes: []
+      }],
+      attributes: ['amount_paid'],
+    });
+    const installmentCashIn = cashInstallments.reduce((s, p) => s + parseFloat(p.amount_paid || 0), 0);
+
+    // ── Cash OUT: cash refunds paid today ─────────────────────────────────
+    const cashRefunds = await db.SaleReturn.findAll({
+      where: {
+        shop_id:     shopId,
+        status:      'completed',
+        refund_method: { [Op.in]: ['cash', 'mobile_wallet'] },
+        return_date: { [Op.gte]: dayStart },
+      },
+      attributes: ['refund_amount'],
+    });
+    const cashOut = cashRefunds.reduce((s, r) => s + parseFloat(r.refund_amount || 0), 0);
+
+    // ── Cash expenses paid in cash today (if Expense model is used) ───────
+    // We'll add expense tracking later; for now cash expenses = 0
+
+    const liveCash = Math.round((openingCash + cashIn + installmentCashIn - cashOut) * 100) / 100;
+
+    // ── Bank balance = sum of all active bank_accounts for the shop ───────
+    const bankAccounts = await db.BankAccount.findAll({
+      where: { shop_id: shopId, is_active: true },
+      attributes: ['account_name', 'current_balance', 'bank_name'],
+    });
+    const totalBank = bankAccounts.reduce((s, a) => s + parseFloat(a.current_balance || 0), 0);
+
+    return res.json({
+      cash_in_hand:       liveCash,
+      bank_balance:       Math.round(totalBank * 100) / 100,
+      bank_accounts:      bankAccounts.map(a => ({
+        name:    a.account_name,
+        bank:    a.bank_name,
+        balance: parseFloat(a.current_balance || 0),
+      })),
+      opening_cash:       openingCash,
+      session_exists:     !!session,
+      as_of:              new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('getLiveBalances error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};

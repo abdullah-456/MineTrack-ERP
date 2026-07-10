@@ -8,7 +8,7 @@ import {
   Package, AlertTriangle, CreditCard,
   ShoppingCart, DollarSign, ArrowUpRight,
   ArrowDownRight, Activity, Loader2, RefreshCw,
-  Calendar, Clock, TrendingUp, Users
+  Calendar, Clock, TrendingUp, Users, Wallet, Banknote
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
@@ -71,6 +71,7 @@ export default function Dashboard() {
   const [recentSales, setRecentSales] = useState([]);
   const [lowStock, setLowStock] = useState([]);
   const [installStats, setInstallStats] = useState({ overdue_count: 0, overdue_amount: 0, active_plans: 0, overdue_items: [] });
+  const [balances, setBalances] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -79,9 +80,10 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [salesRes, installRes] = await Promise.all([
+      const [salesRes, installRes, balancesRes] = await Promise.all([
         api.get('/sales/stats', { params: shopParams() }),
         api.get('/installments/stats', { params: shopParams() }).catch(() => ({ data: { overdue_count: 0, overdue_amount: 0, active_plans: 0, overdue_items: [] } })),
+        api.get('/balances').catch(() => ({ data: null })),
       ]);
 
       const d = salesRes.data;
@@ -101,6 +103,7 @@ export default function Dashboard() {
         reorder: row.Product?.reorder_level || 5,
       })));
       setInstallStats(installRes.data || { overdue_count: 0, overdue_amount: 0, active_plans: 0, overdue_items: [] });
+      if (balancesRes.data) setBalances(balancesRes.data);
       setLastUpdated(d.fetched_at ? new Date(d.fetched_at) : new Date());
     } catch {
       // keep previous data on silent refresh failure
@@ -155,7 +158,38 @@ export default function Dashboard() {
             })}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* Balance Pills — cash & bank shown inline next to Updated-at */}
+          {balances && user?.role === 'admin' && (
+            <>
+              <div
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+                style={{
+                  background: 'rgba(16,185,129,0.10)',
+                  border: '1px solid rgba(16,185,129,0.25)',
+                  color: 'rgb(16,185,129)',
+                }}
+                title="Live cash in hand (today's opening + cash collected - cash refunds)"
+              >
+                <Wallet className="w-3.5 h-3.5" />
+                Cash: Rs. {(balances.cash_in_hand || 0).toLocaleString()}
+              </div>
+              {(balances.bank_balance > 0 || (balances.bank_accounts?.length > 0)) && (
+                <div
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+                  style={{
+                    background: 'rgba(99,102,241,0.10)',
+                    border: '1px solid rgba(99,102,241,0.25)',
+                    color: 'rgb(99,102,241)',
+                  }}
+                  title={balances.bank_accounts?.map(a => `${a.name}: Rs. ${a.balance?.toLocaleString()}`).join(' | ')}
+                >
+                  <Banknote className="w-3.5 h-3.5" />
+                  Bank: Rs. {(balances.bank_balance || 0).toLocaleString()}
+                </div>
+              )}
+            </>
+          )}
           {lastUpdated && (
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
               {t('lastUpdated')}: {lastUpdated.toLocaleTimeString(lang === 'ur' ? 'ur-PK' : 'en-PK')}

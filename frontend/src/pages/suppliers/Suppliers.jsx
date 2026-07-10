@@ -10,7 +10,7 @@ import api from '../../api/axios';
 
 const EMPTY = {
   company_name: '', contact_person: '', phone: '', email: '', address: '',
-  tax_number: '', payment_terms: '', credit_limit: '', status: 'active',
+  tax_number: '', payment_terms: '', credit_limit: '', status: 'active', cnic: '',
 };
 
 export default function Suppliers() {
@@ -49,6 +49,7 @@ export default function Suppliers() {
       phone: s.phone || '', email: s.email || '', address: s.address || '',
       tax_number: s.tax_number || '', payment_terms: s.payment_terms || '',
       credit_limit: s.credit_limit || '', status: s.status || 'active',
+      cnic: s.cnic || '',
     });
     setModal('edit');
   };
@@ -122,6 +123,7 @@ export default function Suppliers() {
               <div className="space-y-1.5 text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
                 {s.phone && <p className="flex items-center gap-2"><Phone className="w-3.5 h-3.5" />{s.phone}</p>}
                 {s.email && <p className="flex items-center gap-2"><Mail className="w-3.5 h-3.5" />{s.email}</p>}
+                {s.cnic && <p><span className="font-semibold">{t('cnic')}:</span> {s.cnic}</p>}
                 {s.payment_terms && <p>{t('paymentTerms')}: {s.payment_terms}</p>}
                 <p>{t('creditLimit')}: {formatPKR(s.credit_limit, lang)}</p>
                 <p className="flex items-center gap-1.5">
@@ -160,6 +162,10 @@ export default function Suppliers() {
               <div>
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('taxNumber')}</label>
                 <input className="input" value={form.tax_number} onChange={setF('tax_number')} />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('cnic')}</label>
+                <input className="input" value={form.cnic} onChange={setF('cnic')} placeholder="e.g. 37405-1234567-1" />
               </div>
               <div>
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('paymentTerms')}</label>

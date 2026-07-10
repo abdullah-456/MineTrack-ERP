@@ -59,7 +59,7 @@ exports.create = async (req, res) => {
 
     const {
       company_name, contact_person, phone, email, address,
-      tax_number, payment_terms, credit_limit, status,
+      tax_number, payment_terms, credit_limit, status, cnic,
     } = req.body;
 
     if (!company_name) {
@@ -80,6 +80,7 @@ exports.create = async (req, res) => {
       tax_number,
       payment_terms,
       credit_limit: credit_limit || 0,
+      cnic: cnic || null,
       status: status || 'active',
     });
 
@@ -103,7 +104,7 @@ exports.update = async (req, res) => {
 
     const fields = [
       'company_name', 'contact_person', 'phone', 'email', 'address',
-      'tax_number', 'payment_terms', 'credit_limit', 'status',
+      'tax_number', 'payment_terms', 'credit_limit', 'cnic', 'status',
     ];
     fields.forEach(f => { if (req.body[f] !== undefined) supplier[f] = req.body[f]; });
     await supplier.save();
