@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+// In dev this falls back to the local backend; in a deployed build, set
+// VITE_API_URL (e.g. https://your-backend.onrender.com/api) as a build-time
+// env var on the hosting platform — Vite inlines it at build time.
+const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000/api';
+
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:5000/api',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -20,7 +25,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
       try {
-        const { data } = await axios.post('http://127.0.0.1:5000/api/auth/refresh', {}, { withCredentials: true });
+        const { data } = await axios.post(`${API_BASE}/auth/refresh`, {}, { withCredentials: true });
         localStorage.setItem('accessToken', data.accessToken);
         original.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(original);

@@ -1,0 +1,28 @@
+# Fly.io app config. Non-secret only — real secrets (JWT_SECRET, CORS_ORIGINS,
+# etc.) are set separately via `fly secrets set`, never committed here.
+#
+# Rename `app` below to whatever name you pick when running `fly launch`
+# (Fly assigns/checks the name interactively; this file's value must match).
+app = "esms-v3-backend"
+primary_region = "sin"
+
+[build]
+
+[env]
+  PORT = "5000"
+
+[mounts]
+  source = "esms_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 5000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
