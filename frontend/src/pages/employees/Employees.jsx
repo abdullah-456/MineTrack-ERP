@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { UserCheck, Plus, Search, Edit, Loader2, Calendar } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { UserCheck, Plus, Search, Edit, Loader2, Calendar, BookOpen } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -15,6 +16,7 @@ const EMPTY = {
 };
 
 export default function Employees() {
+  const navigate = useNavigate();
   const { t, lang } = useTheme();
   const { success, error } = useToast();
   const { shopParams, branches } = useShopApi();
@@ -108,6 +110,7 @@ export default function Employees() {
                 <th className="text-start p-4">{t('userBranch')}</th>
                 <th className="text-start p-4">{t('basicSalary')}</th>
                 <th className="text-start p-4">{t('hireDate')}</th>
+                <th className="text-start p-4">{t('currentPayable') || 'Current Payable'}</th>
                 <th className="text-start p-4">{t('status')}</th>
                 <th className="text-end p-4">{t('actions')}</th>
               </tr>
@@ -125,14 +128,20 @@ export default function Employees() {
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>
                     {emp.hire_date ? new Date(emp.hire_date).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK') : '—'}
                   </td>
+                  <td className="p-4 font-semibold" style={{ color: parseFloat(emp.current_payable) < 0 ? '#f87171' : 'var(--text-secondary)' }}>
+                    {formatPKR(emp.current_payable, lang)}
+                  </td>
                   <td className="p-4"><StatusBadge status={emp.status} /></td>
                   <td className="p-4 text-end">
-                    <button type="button" onClick={() => { setSelected(emp); setForm({ name: emp.name, designation: emp.designation || '', cnic: emp.cnic || '', phone: emp.phone || '', address: emp.address || '', basic_salary: emp.basic_salary, hire_date: emp.hire_date?.slice(0, 10) || '', branch_id: emp.branch_id, status: emp.status }); setModal('edit'); }} className="icon-btn"><Edit className="w-4 h-4" /></button>
+                    <div className="flex justify-end gap-1.5">
+                      <button type="button" onClick={() => navigate(`/employees/${emp.id}`)} className="icon-btn" title={t('viewLedger') || 'Ledger'}><BookOpen className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => { setSelected(emp); setForm({ name: emp.name, designation: emp.designation || '', cnic: emp.cnic || '', phone: emp.phone || '', address: emp.address || '', basic_salary: emp.basic_salary, hire_date: emp.hire_date?.slice(0, 10) || '', branch_id: emp.branch_id, status: emp.status }); setModal('edit'); }} className="icon-btn"><Edit className="w-4 h-4" /></button>
+                    </div>
                   </td>
                 </tr>
               ))}
               {employees.length === 0 && (
-                <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEmployees')}</td></tr>
+                <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEmployees')}</td></tr>
               )}
             </tbody>
           </table>
@@ -177,6 +186,16 @@ export default function Employees() {
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('address')}</label>
                 <textarea className="input min-h-[80px]" value={form.address} onChange={setF('address')} />
               </div>
+              {modal === 'edit' && (
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('status')}</label>
+                  <select className="input" value={form.status} onChange={setF('status')}>
+                    <option value="active">{t('active') || 'Active'}</option>
+                    <option value="suspended">{t('suspended') || 'Suspended'}</option>
+                    <option value="terminated">{t('terminated') || 'Terminated'}</option>
+                  </select>
+                </div>
+              )}
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>

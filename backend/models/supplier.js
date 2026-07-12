@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
       Supplier.hasMany(models.ProductSupplier,  { foreignKey: 'supplier_id', as: 'ProductSuppliers' });
       Supplier.hasMany(models.PurchaseOrder,    { foreignKey: 'supplier_id' });
       Supplier.hasMany(models.PurchaseInvoice,  { foreignKey: 'supplier_id' });
+      Supplier.hasMany(models.SupplierTransaction, { foreignKey: 'supplier_id' });
     }
   }
   Supplier.init({
@@ -63,6 +64,14 @@ module.exports = (sequelize, DataTypes) => {
     status: {
       type: DataTypes.ENUM('active', 'disabled'),
       defaultValue: 'active'
+    },
+    current_payable: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0.00
+    },
+    credit_balance: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0.00
     },
     // Legacy columns kept for DB compatibility
     name: {

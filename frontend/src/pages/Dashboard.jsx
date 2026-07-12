@@ -397,7 +397,7 @@ export default function Dashboard() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className={`text-lg font-bold ${item.stock === 0 ? 'text-red-500' : 'text-yellow-500'}`}>
-                    {item.stock}
+                    {item.stock} {t('kg') || 'kg'}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--text-faint)' }}>/ {item.reorder} min</p>
                 </div>

@@ -2,9 +2,11 @@ const express = require('express');
 const router  = express.Router();
 const userController = require('../controllers/userController');
 const { authenticate, authorize } = require('../middleware/auth');
+const auditLog = require('../middleware/auditLog');
 
 // All user routes require authentication
 router.use(authenticate);
+router.use(auditLog);
 
 router.get( '/roles',              userController.listRoles);
 router.get( '/',                   authorize('users', 'read'),   userController.listUsers);

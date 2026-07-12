@@ -22,11 +22,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     quantity_on_hand: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(12, 3),
       defaultValue: 0
     },
     quantity_reserved: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(12, 3),
       defaultValue: 0
     }
   }, {

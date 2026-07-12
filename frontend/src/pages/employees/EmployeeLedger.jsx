@@ -1,0 +1,433 @@
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { ArrowLeft, UserCheck, Wallet, CreditCard, Loader2, Printer, Download, Plus, HandCoins, PiggyBank } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
+import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
+import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import PageHeader from '../../components/ui/PageHeader';
+import Modal from '../../components/ui/Modal';
+import api from '../../api/axios';
+import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
+
+// Transaction types that represent an actual physical hand-off of money —
+// these get a printable/downloadable slip. Accounting-only legs (salary_due
+// accrual, deduction, adjustment, opening_balance) have no counterpart slip.
+const SLIP_TYPES = new Set(['advance_given', 'loan_given', 'loan_repayment', 'payment_made']);
+
+export default function EmployeeLedger() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { t, lang } = useTheme();
+  const { success, error } = useToast();
+  const { shopName } = useAuth();
+  const { shopParams } = useShopApi();
+  const isRTL = lang === 'ur';
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  const handleDownloadSlip = async (txnId) => {
+    setDownloadingId(txnId);
+    try {
+      await downloadEmployeeSlip(id, txnId, shopName);
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const TXN_LABELS = {
+    salary_due: t('salaryDue') || 'Salary Due',
+    advance_given: t('advanceGiven') || 'Advance Given',
+    loan_given: t('loanGivenLabel') || 'Loan Given',
+    payment_made: t('salaryPaid') || 'Salary Paid',
+    loan_repayment: t('loanPaymentReceived') || 'Loan Payment Received',
+    deduction: t('deduction') || 'Deduction',
+    opening_balance: t('openingBalance') || 'Opening Balance',
+    adjustment: t('adjustment') || 'Adjustment',
+  };
+
+  const [ledger, setLedger] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('history');
+  const [modal, setModal] = useState(null); // advance | loan | receivable
+  const [saving, setSaving] = useState(false);
+
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const [advanceForm, setAdvanceForm] = useState({ amount: '', method: 'cash', for_month: currentMonth, notes: '' });
+  const [loanForm, setLoanForm] = useState({ amount: '', method: 'cash', notes: '' });
+  const [receivableForm, setReceivableForm] = useState({ amount: '', method: 'cash', notes: '' });
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get(`/employees/${id}/ledger`, { params: shopParams() });
+      setLedger(data);
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setLoading(false);
+    }
+  }, [id, shopParams, error, t]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const runAction = async (fn, successMsg) => {
+    setSaving(true);
+    try {
+      await fn();
+      success(successMsg);
+      setModal(null);
+      fetchData();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitAdvance = (e) => {
+    e.preventDefault();
+    runAction(() => api.post(`/employees/${id}/advances`, { ...advanceForm, amount: parseFloat(advanceForm.amount), ...shopParams() }), t('advanceRecorded') || 'Advance recorded');
+  };
+
+  const submitLoan = (e) => {
+    e.preventDefault();
+    runAction(() => api.post(`/employees/${id}/loans`, { ...loanForm, amount: parseFloat(loanForm.amount), ...shopParams() }), t('loanRecorded') || 'Loan recorded');
+  };
+
+  const submitReceivable = (e) => {
+    e.preventDefault();
+    runAction(() => api.post(`/employees/${id}/receive-loan-payment`, { ...receivableForm, amount: parseFloat(receivableForm.amount), ...shopParams() }), t('loanPaymentReceivedMsg') || 'Loan payment received');
+  };
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-cyan-400" /></div>;
+  if (!ledger) return null;
+
+  const { employee, summary, payroll_history, transaction_history } = ledger;
+
+  const payableToEmployee = Math.max(0, summary.current_payable);
+  const loanReceivable = summary.loan_receivable || 0;
+
+  // If the current month's salary was already given, an advance can no
+  // longer target it (it would never get auto-cleared) — push the earliest
+  // selectable month to the next one instead.
+  const nextMonthStr = (m) => {
+    const [y, mo] = m.split('-').map(Number);
+    return new Date(Date.UTC(y, mo, 1)).toISOString().slice(0, 7);
+  };
+  const currentMonthPaid = (payroll_history || []).some(p => p.month === currentMonth);
+  const minAdvanceMonth = currentMonthPaid ? nextMonthStr(currentMonth) : currentMonth;
+
+  const slips = (transaction_history || []).filter(txn => SLIP_TYPES.has(txn.type));
+
+  const pills = [
+    { label: t('loanGivenLabel') || 'Loan Given', value: summary.loan_given || 0, icon: HandCoins, tone: 'amber' },
+    { label: t('receivable') || 'Receivable', value: loanReceivable, icon: CreditCard, tone: loanReceivable > 0 ? 'red' : 'emerald' },
+    { label: t('payable') || 'Payable', value: payableToEmployee, icon: Wallet, tone: payableToEmployee > 0 ? 'red' : 'emerald' },
+  ];
+  const PILL_COLORS = {
+    emerald: { bg: 'rgba(16,185,129,0.10)', border: 'rgba(16,185,129,0.25)', fg: 'rgb(16,185,129)' },
+    red:     { bg: 'rgba(239,68,68,0.10)',  border: 'rgba(239,68,68,0.25)',  fg: 'rgb(239,68,68)' },
+    amber:   { bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.25)', fg: 'rgb(245,158,11)' },
+  };
+
+  return (
+    <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
+      <PageHeader
+        icon={UserCheck}
+        accent="cyan"
+        title={employee.name}
+        subtitle={employee.designation}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => navigate('/employees')} className="btn-secondary flex items-center gap-2">
+              <ArrowLeft className="w-4 h-4" />{t('back') || 'Back'}
+            </button>
+            <button type="button" onClick={() => window.open(`/employees/${id}/statement`, '_blank', 'noopener,noreferrer')} className="btn-secondary flex items-center gap-2">
+              <Printer className="w-4 h-4" />{t('printStatement') || 'Print Statement'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAdvanceForm({ amount: '', method: 'cash', for_month: minAdvanceMonth, notes: '' }); setModal('advance'); }}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />{t('giveAdvance') || 'Advance'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLoanForm({ amount: '', method: 'cash', notes: '' }); setModal('loan'); }}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <HandCoins className="w-4 h-4" />{t('giveLoan') || 'Loan'}
+            </button>
+            {loanReceivable > 0 && (
+              <button
+                type="button"
+                onClick={() => { setReceivableForm({ amount: '', method: 'cash', notes: '' }); setModal('receivable'); }}
+                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg text-sm transition-colors flex items-center gap-2"
+              >
+                <PiggyBank className="w-4 h-4" />{t('receiveLoanPayment') || 'Receive Loan Payment'}
+              </button>
+            )}
+          </div>
+        }
+      />
+
+      <div className="flex flex-wrap items-center gap-2">
+        {pills.map(({ label, value, icon: Icon, tone }) => {
+          const c = PILL_COLORS[tone];
+          return (
+            <div
+              key={label}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+              style={{ background: c.bg, border: `1px solid ${c.border}`, color: c.fg }}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}: {formatPKR(value, lang)}
+            </div>
+          );
+        })}
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          {t('totalSalaryAccrued') || 'Total Salary Accrued'}: {formatPKR(summary.total_salary_accrued, lang)} · {t('totalPaid') || 'Total Paid'}: {formatPKR(summary.total_paid, lang)}
+          {summary.advance_pending > 0 && <> · {t('pendingAdvance') || 'Pending Advance'}: {formatPKR(summary.advance_pending, lang)}</>}
+        </span>
+      </div>
+
+      <div className="flex border-b border-white/10 gap-4">
+        {[
+          ['history', t('auditLog') || 'Audit Log'],
+          ['payroll', t('payrollHistory') || 'Payroll History'],
+          ['slips', t('slips') || 'Slips'],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === key ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-white/50 hover:text-white'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'history' && (
+        <div className="glass-card overflow-x-auto">
+          <table className="w-full text-sm min-w-[850px]">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                <th className="text-start p-4">{t('date') || 'Date'}</th>
+                <th className="text-start p-4">{t('type') || 'Type'}</th>
+                <th className="text-end p-4">{t('amount') || 'Amount'}</th>
+                <th className="text-start p-4">{t('method') || 'Method'}</th>
+                <th className="text-start p-4">{t('notes') || 'Notes'}</th>
+                <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transaction_history.map(txn => (
+                <tr key={txn.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                  <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(txn.date).toLocaleDateString('en-PK')}</td>
+                  <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {TXN_LABELS[txn.type] || txn.type}
+                    {txn.type === 'advance_given' && txn.for_month && (
+                      <span className={`badge ms-1.5 text-[10px] ${txn.cleared ? 'badge-green' : 'badge-yellow'}`}>
+                        {txn.for_month}{txn.cleared ? ` · ${t('cleared') || 'Cleared'}` : ` · ${t('pending') || 'Pending'}`}
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-4 text-end font-semibold" style={{ color: 'var(--text-primary)' }}>{formatPKR(txn.amount, lang)}</td>
+                  <td className="p-4 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>{txn.method || '—'}</td>
+                  <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{txn.notes || '—'}</td>
+                  <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(txn.running_balance, lang)}</td>
+                </tr>
+              ))}
+              {transaction_history.length === 0 && (
+                <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'payroll' && (
+        <div className="glass-card overflow-x-auto">
+          <table className="w-full text-sm min-w-[700px]">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                <th className="text-start p-4">{t('month') || 'Month'}</th>
+                <th className="text-end p-4">{t('basicSalary')}</th>
+                <th className="text-end p-4">{t('bonus') || 'Bonus'}</th>
+                <th className="text-end p-4">{t('deductions') || 'Deductions'}</th>
+                <th className="text-end p-4">{t('netPay') || 'Net Pay'}</th>
+                <th className="text-start p-4">{t('status') || 'Status'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payroll_history.map(p => (
+                <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                  <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{p.month}</td>
+                  <td className="p-4 text-end">{formatPKR(p.basic_salary, lang)}</td>
+                  <td className="p-4 text-end text-emerald-400">{formatPKR(p.bonus, lang)}</td>
+                  <td className="p-4 text-end text-red-400">{formatPKR(p.deductions, lang)}</td>
+                  <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(p.net_pay, lang)}</td>
+                  <td className="p-4"><span className={`badge ${p.status === 'paid' ? 'badge-green' : 'badge-yellow'}`}>{p.status}</span></td>
+                </tr>
+              ))}
+              {payroll_history.length === 0 && (
+                <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noPayrollRuns') || 'No payroll runs yet'}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'slips' && (
+        <div className="glass-card overflow-x-auto">
+          <table className="w-full text-sm min-w-[700px]">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                <th className="text-start p-4">{t('date') || 'Date'}</th>
+                <th className="text-start p-4">{t('type') || 'Type'}</th>
+                <th className="text-end p-4">{t('amount') || 'Amount'}</th>
+                <th className="text-start p-4">{t('method') || 'Method'}</th>
+                <th className="text-end p-4">{t('actions') || 'Actions'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {slips.map(txn => (
+                <tr key={txn.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                  <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(txn.date).toLocaleDateString('en-PK')}</td>
+                  <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{TXN_LABELS[txn.type] || txn.type}</td>
+                  <td className="p-4 text-end font-semibold" style={{ color: 'var(--text-primary)' }}>{formatPKR(txn.amount, lang)}</td>
+                  <td className="p-4 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>{txn.method || '—'}</td>
+                  <td className="p-4 text-end">
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        title={t('printStatement') || 'Print'}
+                        onClick={() => window.open(`/employees/${id}/slip/${txn.id}?auto_print=1`, '_blank', 'noopener,noreferrer')}
+                        className="icon-btn"
+                      >
+                        <Printer className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title={t('download') || 'Download'}
+                        disabled={downloadingId === txn.id}
+                        onClick={() => handleDownloadSlip(txn.id)}
+                        className="icon-btn"
+                      >
+                        {downloadingId === txn.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {slips.length === 0 && (
+                <tr><td colSpan={5} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noSlipsYet') || 'No slips yet'}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal === 'advance' && (
+        <Modal title={t('giveAdvance') || 'Give Advance'} onClose={() => setModal(null)}>
+          <form onSubmit={submitAdvance} className="space-y-3">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {t('advanceHint') || 'An advance is deducted automatically from the salary of the month you pick below — no separate collection needed.'}
+            </p>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <input className="input" type="number" step="0.01" min="0.01" required value={advanceForm.amount} onChange={e => setAdvanceForm(f => ({ ...f, amount: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('forMonth') || 'For Salary Month'} *</label>
+              <input className="input" type="month" min={minAdvanceMonth} required value={advanceForm.for_month} onChange={e => setAdvanceForm(f => ({ ...f, for_month: e.target.value }))} />
+              {currentMonthPaid && (
+                <p className="text-xs text-amber-400 mt-1">{t('currentMonthPaidHint') || "This month's salary was already given — pick a later month."}</p>
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
+              <select className="input" value={advanceForm.method} onChange={e => setAdvanceForm(f => ({ ...f, method: e.target.value }))}>
+                <option value="cash">{t('cash') || 'Cash'}</option>
+                <option value="bank">{t('bank') || 'Bank'}</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <textarea className="input min-h-[60px]" value={advanceForm.notes} onChange={e => setAdvanceForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">{saving && <Loader2 className="w-4 h-4 animate-spin" />}{t('save')}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'loan' && (
+        <Modal title={t('giveLoan') || 'Give Loan'} onClose={() => setModal(null)}>
+          <form onSubmit={submitLoan} className="space-y-3">
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <input className="input" type="number" step="0.01" min="0.01" required value={loanForm.amount} onChange={e => setLoanForm(f => ({ ...f, amount: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
+              <select className="input" value={loanForm.method} onChange={e => setLoanForm(f => ({ ...f, method: e.target.value }))}>
+                <option value="cash">{t('cash') || 'Cash'}</option>
+                <option value="bank">{t('bank') || 'Bank'}</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <textarea className="input min-h-[60px]" value={loanForm.notes} onChange={e => setLoanForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">{saving && <Loader2 className="w-4 h-4 animate-spin" />}{t('save')}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'receivable' && (
+        <Modal title={t('receiveLoanPayment') || 'Receive Loan Payment'} onClose={() => setModal(null)}>
+          <form onSubmit={submitReceivable} className="space-y-3">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {t('receiveLoanPaymentHint') || 'Record cash/bank actually received from the employee against their outstanding loan(s).'}
+            </p>
+            <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
+              {t('receivable') || 'Receivable'}: {formatPKR(loanReceivable, lang)}
+            </p>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <input
+                className="input" type="number" step="0.01" min="0.01" max={loanReceivable} required
+                value={receivableForm.amount}
+                onChange={e => setReceivableForm(f => ({ ...f, amount: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
+              <select className="input" value={receivableForm.method} onChange={e => setReceivableForm(f => ({ ...f, method: e.target.value }))}>
+                <option value="cash">{t('cash') || 'Cash'}</option>
+                <option value="bank">{t('bank') || 'Bank'}</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <textarea className="input min-h-[60px]" value={receivableForm.notes} onChange={e => setReceivableForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">{saving && <Loader2 className="w-4 h-4 animate-spin" />}{t('save')}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}

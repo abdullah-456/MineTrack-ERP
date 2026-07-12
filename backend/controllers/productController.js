@@ -1,6 +1,8 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
+const { applySupplierStockPayment } = require('../utils/supplierPayment');
+const { postVoucher } = require('../utils/postVoucher');
 
 const productIncludes = [
   { model: db.Category, attributes: ['id', 'name'] },
@@ -16,7 +18,7 @@ async function ensureStockRecord(productId, branchId, quantity, transaction) {
   });
 
   if (quantity > 0) {
-    const newQty = stock.quantity_on_hand + quantity;
+    const newQty = Math.round((parseFloat(stock.quantity_on_hand || 0) + quantity) * 1000) / 1000;
     await stock.update({ quantity_on_hand: newQty }, { transaction });
     await db.StockMovement.create({
       product_id: productId,
@@ -88,11 +90,26 @@ exports.create = async (req, res) => {
       sku, barcode, name, category_id, brand, unit, tax_rate,
       reorder_level, cost_price, sale_price, status, image_url,
       supplier_id, initial_quantity, branch_id, purchase_price,
+      payment_status, paid_amount, payment_method, notes,
     } = req.body;
 
-    if (!name || !category_id || cost_price === undefined || sale_price === undefined) {
+    if (!name || !category_id || sale_price === undefined) {
       await transaction.rollback();
-      return res.status(400).json({ message: 'Name, category, cost price and sale price are required' });
+      return res.status(400).json({ message: 'Name, category and sale price are required' });
+    }
+
+    const initialQty = parseFloat(initial_quantity) || 0;
+
+    let supplierRow = null;
+    if (supplier_id) {
+      supplierRow = await db.Supplier.findOne({
+        where: { id: parseInt(supplier_id, 10), shop_id: shopId },
+        transaction, lock: transaction.LOCK.UPDATE,
+      });
+      if (!supplierRow) {
+        await transaction.rollback();
+        return res.status(400).json({ message: 'Invalid supplier for this shop' });
+      }
     }
 
     const count = await db.Product.count({ where: { shop_id: shopId } });
@@ -108,7 +125,7 @@ exports.create = async (req, res) => {
       unit: unit || 'Pcs',
       tax_rate: tax_rate || 0,
       reorder_level: reorder_level ?? 5,
-      cost_price,
+      cost_price: parseFloat(cost_price) || 0,
       sale_price,
       status: status || 'active',
       image_url,
@@ -123,11 +140,13 @@ exports.create = async (req, res) => {
       targetBranchId = defaultBranch?.id;
     }
 
-    if (targetBranchId && initial_quantity > 0) {
-      await ensureStockRecord(product.id, targetBranchId, parseInt(initial_quantity, 10), transaction);
+    if (targetBranchId && initialQty > 0) {
+      await ensureStockRecord(product.id, targetBranchId, initialQty, transaction);
     } else if (targetBranchId) {
       await ensureStockRecord(product.id, targetBranchId, 0, transaction);
     }
+
+    let voucherId = null;
 
     if (supplier_id) {
       await db.ProductSupplier.findOrCreate({
@@ -139,12 +158,52 @@ exports.create = async (req, res) => {
         },
         transaction,
       });
+
+      // Bringing in initial stock tied to a supplier goes through the same
+      // payable/payment path as inventoryController.receiveStock, so it
+      // always hits the supplier ledger + GL — not just a silent stock bump.
+      if (initialQty > 0) {
+        try {
+          const { voucher } = await applySupplierStockPayment({
+            shopId,
+            supplierRow,
+            totalAmount: (parseFloat(cost_price) || 0) * initialQty,
+            paymentStatus: payment_status,
+            paidAmountInput: paid_amount,
+            paymentMethod: payment_method,
+            notes,
+            createdBy: req.user.id,
+          }, transaction);
+          voucherId = voucher.id;
+        } catch (err) {
+          await transaction.rollback();
+          return res.status(err.statusCode || 500).json({ message: err.message || 'Internal server error' });
+        }
+      }
+    } else if (initialQty > 0) {
+      // No supplier attached — stock is still being introduced into the
+      // business, so it still needs a voucher (Dr Stock, Cr Capital & Equity)
+      // rather than a silent, unaccounted stock bump.
+      const stockValue = Math.round((parseFloat(cost_price) || 0) * initialQty * 100) / 100;
+      if (stockValue > 0) {
+        const voucher = await postVoucher(shopId, {
+          type: 'journal',
+          date: new Date(),
+          narration: `New product stock — ${name}`,
+          createdBy: req.user.id,
+          lines: [
+            { accountCode: '05-STOCK', debit: stockValue },
+            { accountCode: '01-CAPITAL', credit: stockValue },
+          ],
+        }, transaction);
+        voucherId = voucher.id;
+      }
     }
 
     await transaction.commit();
 
     const full = await db.Product.findByPk(product.id, { include: productIncludes });
-    return res.status(201).json({ product: full });
+    return res.status(201).json({ product: full, voucher_id: voucherId });
   } catch (error) {
     await transaction.rollback();
     console.error('createProduct error:', error);

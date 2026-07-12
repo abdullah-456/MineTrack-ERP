@@ -15,6 +15,8 @@ export default function StatusBadge({ status }) {
     overdue:    'badge-red',
     paid:       'badge-green',
     closed:     'badge-green',
+    partial:    'badge-yellow',
+    void:       'badge-red',
   };
 
   const labelMap = {
@@ -29,6 +31,8 @@ export default function StatusBadge({ status }) {
     overdue:    t('overdue') || 'Overdue',
     paid:       t('paid') || 'Paid',
     closed:     t('closedPlan') || 'Completed',
+    partial:    t('partial') || 'Partial',
+    void:       t('void') || 'Void',
   };
 
   const normalized = (status || '').toLowerCase();
@@ -39,7 +43,9 @@ export default function StatusBadge({ status }) {
 }
 
 export function StockBadge({ qty, reorder = 5 }) {
-  if (qty === 0) return <span className="badge badge-red">0</span>;
-  if (qty <= reorder) return <span className="badge badge-yellow">{qty}</span>;
-  return <span className="badge badge-green">{qty}</span>;
+  const { t } = useTheme();
+  const unit = t('kg') || 'kg';
+  if (qty === 0) return <span className="badge badge-red">0 {unit}</span>;
+  if (qty <= reorder) return <span className="badge badge-yellow">{qty} {unit}</span>;
+  return <span className="badge badge-green">{qty} {unit}</span>;
 }

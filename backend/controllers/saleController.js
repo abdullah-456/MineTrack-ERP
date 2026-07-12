@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
+const { postVoucher } = require('../utils/postVoucher');
 
 const saleIncludes = [
   { model: db.Customer, attributes: ['id', 'name', 'phone'] },
@@ -213,10 +214,10 @@ exports.create = async (req, res) => {
     const qtyByProduct = new Map();
     for (const item of items) {
       const pid = item.product_id;
-      const q = parseInt(item.quantity, 10);
-      if (!pid || !q || q < 1) {
+      const q = parseFloat(item.quantity);
+      if (!pid || !(q > 0)) {
         await transaction.rollback();
-        return res.status(400).json({ message: 'Each item needs a valid product_id and quantity >= 1' });
+        return res.status(400).json({ message: 'Each item needs a valid product_id and a quantity greater than 0' });
       }
       qtyByProduct.set(pid, (qtyByProduct.get(pid) || 0) + q);
     }
@@ -234,7 +235,7 @@ exports.create = async (req, res) => {
         return res.status(400).json({ message: `Product ${item.product_id} not found` });
       }
 
-      const qty = parseInt(item.quantity, 10);
+      const qty = parseFloat(item.quantity);
 
       // Lock the stock row and check availability against the TOTAL requested
       // for this product (covers duplicate line items).
@@ -243,7 +244,7 @@ exports.create = async (req, res) => {
         transaction,
         lock: transaction.LOCK.UPDATE,
       });
-      const available = stock?.quantity_on_hand || 0;
+      const available = parseFloat(stock?.quantity_on_hand || 0);
       if (available < (qtyByProduct.get(product.id) || qty)) {
         await transaction.rollback();
         return res.status(400).json({ message: `Insufficient stock for ${product.name}. Available: ${available}` });
@@ -293,6 +294,7 @@ exports.create = async (req, res) => {
       status: 'completed',
     }, { transaction });
 
+    let cogsTotal = 0;
     for (const line of lineItems) {
       await db.SaleItem.create({
         sale_id: sale.id,
@@ -309,7 +311,7 @@ exports.create = async (req, res) => {
         defaults: { quantity_on_hand: 0, quantity_reserved: 0 },
         transaction,
       });
-      const newQty = stock.quantity_on_hand - line.qty;
+      const newQty = Math.round((parseFloat(stock.quantity_on_hand || 0) - line.qty) * 1000) / 1000;
       await stock.update({ quantity_on_hand: newQty }, { transaction });
 
       await db.StockMovement.create({
@@ -320,7 +322,10 @@ exports.create = async (req, res) => {
         quantity: -line.qty,
         balance_after: newQty,
       }, { transaction });
+
+      cogsTotal += line.qty * parseFloat(line.product.cost_price || 0);
     }
+    cogsTotal = Math.round(cogsTotal * 100) / 100;
 
     // Determine how much was actually paid now.
     // - installment: the down payment
@@ -359,30 +364,22 @@ exports.create = async (req, res) => {
       }
     }
 
-    if (customer_id && sale_type === 'credit') {
-      const customer = await db.Customer.findOne({ where: { id: customer_id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE });
-      if (customer) {
-        await customer.update({
-          current_balance: parseFloat(customer.current_balance || 0) + (total - payAmount),
-        }, { transaction });
-      }
-    }
+    // GL receivable leg: any shortfall between total and payAmount is owed to
+    // the business regardless of sale_type — keeps the voucher balanced even
+    // for an explicit partial payment_amount on a non-credit sale_type.
+    const arDebitAmount = Math.round((total - payAmount) * 100) / 100;
+    const revenueCreditAmount = total;
 
     // Create installment plan if this is an installment sale
     if (sale_type === 'installment' && installment_plan) {
       const {
-        down_payment: dp, number_of_installments, frequency, markup_rate, start_date,
+        down_payment: dp, number_of_installments, frequency, start_date,
       } = installment_plan;
 
       const numInstCheck = parseInt(number_of_installments, 10);
-      const markupCheck = parseFloat(markup_rate || 0);
       if (!Number.isInteger(numInstCheck) || numInstCheck < 1) {
         await transaction.rollback();
         return res.status(400).json({ message: 'number_of_installments must be an integer >= 1' });
-      }
-      if (!(markupCheck >= 0)) {
-        await transaction.rollback();
-        return res.status(400).json({ message: 'markup_rate must be >= 0' });
       }
       if (!start_date) {
         await transaction.rollback();
@@ -396,17 +393,15 @@ exports.create = async (req, res) => {
         down_payment: parseFloat(dp || 0),
         number_of_installments: parseInt(number_of_installments, 10),
         frequency: frequency || 'monthly',
-        markup_rate: parseFloat(markup_rate || 0),
         start_date: new Date(start_date),
         status: 'active',
       }, { transaction });
 
-      // Auto-generate schedule
+      // Auto-generate schedule (no markup/interest — installments split the
+      // remaining principal evenly).
       const principal = total - parseFloat(dp || 0);
-      const markup = parseFloat(markup_rate || 0) / 100;
-      const totalWithMarkup = principal * (1 + markup);
       const numInst = parseInt(number_of_installments, 10);
-      const perInstallment = Math.round((totalWithMarkup / numInst) * 100) / 100;
+      const perInstallment = Math.round((principal / numInst) * 100) / 100;
 
       const scheduleRows = [];
       for (let i = 1; i <= numInst; i++) {
@@ -419,22 +414,66 @@ exports.create = async (req, res) => {
           installment_no: i,
           due_date: d,
           due_amount: i === numInst
-            ? Math.round((totalWithMarkup - perInstallment * (numInst - 1)) * 100) / 100
+            ? Math.round((principal - perInstallment * (numInst - 1)) * 100) / 100
             : perInstallment,
           status: 'pending',
           late_fee: 0,
         });
       }
       await db.InstallmentSchedule.bulkCreate(scheduleRows, { transaction });
+    }
 
-      // Update customer balance with the outstanding installment amount (including markup)
-      const customer = await db.Customer.findByPk(customer_id, { transaction });
+    // Ledger trail for the customer: EVERY sale tied to a registered customer
+    // gets a full-value charge entry plus (if anything was paid now) a payment
+    // entry — not just credit/installment sales — so the audit log shows every
+    // flow in & out, not only the ones that change the running balance. Net
+    // effect on current_balance is (total - payAmount), which for a cash sale
+    // paid in full is 0 (charge and payment cancel out) and for credit/
+    // installment sales equals exactly what the old sale_type-specific code
+    // computed (down_payment IS payAmount for installment sales — see above).
+    if (customer_id) {
+      const customer = await db.Customer.findOne({ where: { id: customer_id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE });
       if (customer) {
-        await customer.update({
-          current_balance: parseFloat(customer.current_balance || 0) + totalWithMarkup,
-        }, { transaction });
+        const chargeAmount = Math.round((total - payAmount) * 100) / 100;
+        if (chargeAmount !== 0) {
+          await customer.update({
+            current_balance: Math.round((parseFloat(customer.current_balance || 0) + chargeAmount) * 100) / 100,
+          }, { transaction });
+        }
+        if (total > 0) {
+          await db.CustomerTransaction.create({
+            shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
+            type: sale_type === 'installment' ? 'installment_charge' : 'sale_charge',
+            amount: total, method: null,
+            related_sale_id: sale.id, notes: `Sale ${invoice_number}`, created_by: req.user.id,
+          }, { transaction });
+        }
+        if (payAmount > 0) {
+          await db.CustomerTransaction.create({
+            shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
+            type: 'payment_received', amount: payAmount, method: finalPaymentMethod,
+            related_sale_id: sale.id, notes: `Sale ${invoice_number}`, created_by: req.user.id,
+          }, { transaction });
+        }
       }
     }
+
+    const paymentLine = payAmount > 0
+      ? { accountCode: ['card', 'bank', 'mobile_wallet'].includes(finalPaymentMethod) ? '05-BANK' : '05-CASH', debit: payAmount }
+      : null;
+
+    await postVoucher(shopId, {
+      type: 'receipt',
+      date: sale.sale_date,
+      narration: `Sale ${invoice_number}`,
+      createdBy: req.user.id,
+      lines: [
+        ...(paymentLine ? [paymentLine] : []),
+        ...(arDebitAmount > 0 ? [{ accountCode: '05-AR', debit: arDebitAmount }] : []),
+        { accountCode: '06-SALES', credit: revenueCreditAmount },
+        ...(cogsTotal > 0 ? [{ accountCode: '07-COGS', debit: cogsTotal }, { accountCode: '05-STOCK', credit: cogsTotal }] : []),
+      ],
+    }, transaction);
 
     await transaction.commit();
 

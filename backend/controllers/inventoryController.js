@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
+const { applySupplierStockPayment } = require('../utils/supplierPayment');
 
 const stockIncludes = [
   {
@@ -88,15 +89,15 @@ exports.summary = async (req, res) => {
     saleMovements.forEach(m => {
       // Since sales are negative and returns are positive, net_sales will be negative.
       // We take the absolute value of net_sales if it is negative to represent positive net units sold.
-      const val = parseInt(m.net_sales || 0, 10);
+      const val = parseFloat(m.net_sales || 0);
       netSalesMap[m.product_id] = val < 0 ? -val : 0;
     });
 
     const summary = products.map(p => {
       const stocks = p.Stock || [];
-      const currentInventory = stocks.reduce((sum, s) => sum + s.quantity_on_hand, 0);
+      const currentInventory = Math.round(stocks.reduce((sum, s) => sum + parseFloat(s.quantity_on_hand || 0), 0) * 1000) / 1000;
       const netSold = netSalesMap[p.id] || 0;
-      const totalStock = currentInventory + netSold;
+      const totalStock = Math.round((currentInventory + netSold) * 1000) / 1000;
 
       return {
         product_id: p.id,
@@ -106,7 +107,7 @@ exports.summary = async (req, res) => {
         reorder_level: p.reorder_level,
         total_stock: totalStock,
         current_inventory: currentInventory,
-        stock_value: currentInventory * parseFloat(p.cost_price),
+        stock_value: Math.round(currentInventory * parseFloat(p.cost_price) * 100) / 100,
         low_stock: currentInventory <= p.reorder_level,
         branches: stocks.length,
       };
@@ -161,9 +162,9 @@ exports.adjust = async (req, res) => {
       transaction,
     });
 
-    const absQty = Math.abs(parseInt(quantity, 10));
+    const absQty = Math.abs(parseFloat(quantity));
     const delta = direction === 'decrease' ? -absQty : absQty;
-    const newQty = Math.max(0, stock.quantity_on_hand + delta);
+    const newQty = Math.max(0, Math.round((parseFloat(stock.quantity_on_hand || 0) + delta) * 1000) / 1000);
     await stock.update({ quantity_on_hand: newQty }, { transaction });
 
     // Record in stock_movements
@@ -202,7 +203,10 @@ exports.receiveStock = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
-    const { product_id, branch_id, quantity, supplier_id, purchase_price, notes } = req.body;
+    const {
+      product_id, branch_id, quantity, supplier_id, purchase_price, notes,
+      payment_status, paid_amount, payment_method,
+    } = req.body;
     if (!product_id || !branch_id || !quantity) {
       await transaction.rollback();
       return res.status(400).json({ message: 'product_id, branch_id and quantity are required' });
@@ -220,9 +224,13 @@ exports.receiveStock = async (req, res) => {
       return res.status(400).json({ message: 'Invalid branch for this shop' });
     }
 
+    let supplierRow = null;
     if (supplier_id) {
-      const supOk = await db.Supplier.findOne({ where: { id: parseInt(supplier_id, 10), shop_id: shopId }, transaction });
-      if (!supOk) {
+      supplierRow = await db.Supplier.findOne({
+        where: { id: parseInt(supplier_id, 10), shop_id: shopId },
+        transaction, lock: transaction.LOCK.UPDATE,
+      });
+      if (!supplierRow) {
         await transaction.rollback();
         return res.status(400).json({ message: 'Invalid supplier for this shop' });
       }
@@ -234,8 +242,8 @@ exports.receiveStock = async (req, res) => {
       transaction,
     });
 
-    const qty = parseInt(quantity, 10);
-    const newQty = stock.quantity_on_hand + qty;
+    const qty = parseFloat(quantity);
+    const newQty = Math.round((parseFloat(stock.quantity_on_hand || 0) + qty) * 1000) / 1000;
     await stock.update({ quantity_on_hand: newQty }, { transaction });
 
     // Record in stock_movements
@@ -252,7 +260,7 @@ exports.receiveStock = async (req, res) => {
     // historical valuation stays consistent.
     const unitCost = purchase_price ? parseFloat(purchase_price) : parseFloat(product.cost_price || 0);
     if (purchase_price) {
-      const oldQty = stock.quantity_on_hand - qty; // qty already added above
+      const oldQty = newQty - qty; // qty already added above
       const oldCost = parseFloat(product.cost_price || 0);
       const denom = oldQty + qty;
       const avgCost = denom > 0
@@ -273,21 +281,24 @@ exports.receiveStock = async (req, res) => {
         purchase_price: unitCost,
       }, { transaction });
 
-      // Auto-create PurchaseInvoice for the stock receipt (grn_id is nullable now)
-      const pinvCount = await db.PurchaseInvoice.count({ transaction });
-      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const invoice_number = `PINV-${dateStr}-${String(pinvCount + 1).padStart(4, '0')}`;
-      const totalAmount = unitCost * qty;
-
-      await db.PurchaseInvoice.create({
-        supplier_id: parseInt(supplier_id, 10),
-        grn_id: null,
-        invoice_number,
-        invoice_date: new Date(),
-        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days default
-        amount: totalAmount,
-        status: 'unpaid', // receiving goods does NOT mean the supplier has been paid
-      }, { transaction });
+      // Payment panel (Paid? Yes/No/Partial → amount, method) + PurchaseInvoice
+      // + SupplierTransaction + GL voucher — shared with productController.create.
+      const totalAmount = Math.round(unitCost * qty * 100) / 100;
+      try {
+        await applySupplierStockPayment({
+          shopId,
+          supplierRow,
+          totalAmount,
+          paymentStatus: payment_status,
+          paidAmountInput: paid_amount,
+          paymentMethod: payment_method,
+          notes,
+          createdBy: req.user.id,
+        }, transaction);
+      } catch (err) {
+        await transaction.rollback();
+        return res.status(err.statusCode || 500).json({ message: err.message || 'Internal server error' });
+      }
     }
 
     await transaction.commit();
@@ -296,7 +307,7 @@ exports.receiveStock = async (req, res) => {
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
     console.error('receiveStock error:', error);
-    return res.status(500).json({ message: error.message || 'Internal server error' });
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 };
 

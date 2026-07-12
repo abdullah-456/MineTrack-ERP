@@ -283,7 +283,6 @@ export default function Installments() {
                   { label: t('downPayment'),    value: formatPKR(planDetail.down_payment, lang), color: 'text-emerald-400' },
                   { label: t('numInstallments'), value: planDetail.number_of_installments, color: '' },
                   { label: t('frequency'),       value: t(planDetail.frequency), color: '' },
-                  { label: t('markupRate'),      value: `${planDetail.markup_rate}%`, color: '' },
                 ].map((item, i) => (
                   <div key={i} className="rounded-lg p-3" style={{ background: 'var(--bg-elevated)' }}>
                     <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>{item.label}</p>

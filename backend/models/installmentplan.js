@@ -38,10 +38,6 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.ENUM('weekly', 'monthly'),
       defaultValue: 'monthly'
     },
-    markup_rate: {
-      type: DataTypes.DECIMAL(5, 2),
-      defaultValue: 0.00 // percentage rate
-    },
     start_date: {
       type: DataTypes.DATE,
       allowNull: false

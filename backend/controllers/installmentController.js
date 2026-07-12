@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
+const { postVoucher } = require('../utils/postVoucher');
 
 const planIncludes = [
   { model: db.Sale, attributes: ['id', 'invoice_number', 'total', 'sale_date'] },
@@ -12,11 +13,9 @@ const planIncludes = [
   },
 ];
 
-function computeSchedule(plan_id, total_amount, down_payment, markup_rate, num, frequency, start_date) {
+function computeSchedule(plan_id, total_amount, down_payment, num, frequency, start_date) {
   const principal = (parseFloat(total_amount) - parseFloat(down_payment || 0));
-  const markup = parseFloat(markup_rate || 0) / 100;
-  const totalWithMarkup = principal * (1 + markup);
-  const perInstallment = Math.round((totalWithMarkup / num) * 100) / 100;
+  const perInstallment = Math.round((principal / num) * 100) / 100;
 
   const rows = [];
   for (let i = 1; i <= num; i++) {
@@ -29,7 +28,7 @@ function computeSchedule(plan_id, total_amount, down_payment, markup_rate, num, 
       installment_no: i,
       due_date: d,
       due_amount: i === num
-        ? Math.round((totalWithMarkup - perInstallment * (num - 1)) * 100) / 100
+        ? Math.round((principal - perInstallment * (num - 1)) * 100) / 100
         : perInstallment,
       status: 'pending',
       late_fee: 0,
@@ -143,7 +142,7 @@ exports.createPlan = async (req, res) => {
 
     const {
       sale_id, customer_id, total_amount, down_payment,
-      number_of_installments, frequency, markup_rate, start_date,
+      number_of_installments, frequency, start_date,
     } = req.body;
 
     if (!sale_id || !customer_id || !total_amount || !number_of_installments || !start_date) {
@@ -162,13 +161,12 @@ exports.createPlan = async (req, res) => {
       down_payment: parseFloat(down_payment || 0),
       number_of_installments: parseInt(number_of_installments, 10),
       frequency: frequency || 'monthly',
-      markup_rate: parseFloat(markup_rate || 0),
       start_date: new Date(start_date),
       status: 'active',
     }, { transaction });
 
     const scheduleRows = computeSchedule(
-      plan.id, total_amount, down_payment, markup_rate,
+      plan.id, total_amount, down_payment,
       parseInt(number_of_installments, 10), frequency || 'monthly', start_date,
     );
     await db.InstallmentSchedule.bulkCreate(scheduleRows, { transaction });
@@ -281,7 +279,7 @@ exports.recordPayment = async (req, res) => {
       await plan.update({ status: 'closed' }, { transaction });
     }
 
-    // Update customer balance. Only the principal+markup portion reduces debt —
+    // Update customer balance. Only the principal portion reduces debt —
     // a late fee is income, not a reduction of what the customer owed.
     const lateFee = parseFloat(late_fee_charged || 0);
     const debtReduction = Math.max(0, paidVal - lateFee);
@@ -289,7 +287,31 @@ exports.recordPayment = async (req, res) => {
     if (customer) {
       const newBal = Math.max(0, parseFloat(customer.current_balance || 0) - debtReduction);
       await customer.update({ current_balance: newBal }, { transaction });
+      if (debtReduction > 0) {
+        await db.CustomerTransaction.create({
+          shop_id: shopId, customer_id: customer.id,
+          date: payment_date ? new Date(payment_date) : new Date(),
+          type: 'payment_received', amount: debtReduction, method,
+          related_sale_id: plan.sale_id, notes: `Installment payment — plan #${planId}, slot ${scheduleId}`,
+          created_by: req.user.id,
+        }, { transaction });
+      }
     }
+
+    // lateFeeCredit (not the raw lateFee) keeps the voucher balanced even if
+    // late_fee_charged was entered larger than amount_paid.
+    const lateFeeCredit = Math.round((paidVal - debtReduction) * 100) / 100;
+    await postVoucher(shopId, {
+      type: 'receipt',
+      date: payment_date ? new Date(payment_date) : new Date(),
+      narration: `Installment payment — plan #${planId}, slot ${scheduleId}`,
+      createdBy: req.user.id,
+      lines: [
+        { accountCode: ['card', 'bank', 'mobile_wallet'].includes(method) ? '05-BANK' : '05-CASH', debit: paidVal },
+        ...(debtReduction > 0 ? [{ accountCode: '05-AR', credit: debtReduction }] : []),
+        ...(lateFeeCredit > 0 ? [{ accountCode: '06-LATEFEE', credit: lateFeeCredit }] : []),
+      ],
+    }, transaction);
 
     await transaction.commit();
 

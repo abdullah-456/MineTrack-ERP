@@ -44,6 +44,9 @@ export default function Inventory() {
     supplier_id: '',
     purchase_price: '',
     notes: '',
+    payment_status: 'unpaid',
+    paid_amount: '',
+    payment_method: 'cash',
   });
 
   const [formAdjust, setFormAdjust] = useState({
@@ -127,6 +130,9 @@ export default function Inventory() {
       supplier_id: '',
       purchase_price: p ? p.cost_price || '' : '',
       notes: '',
+      payment_status: 'unpaid',
+      paid_amount: '',
+      payment_method: 'cash',
     });
     setModal('receive');
   };
@@ -151,12 +157,19 @@ export default function Inventory() {
       const payload = {
         product_id: parseInt(formReceive.product_id, 10),
         branch_id: parseInt(formReceive.branch_id, 10),
-        quantity: parseInt(formReceive.quantity, 10),
+        quantity: parseFloat(formReceive.quantity),
         supplier_id: formReceive.supplier_id ? parseInt(formReceive.supplier_id, 10) : undefined,
         purchase_price: formReceive.purchase_price ? parseFloat(formReceive.purchase_price) : undefined,
         notes: formReceive.notes.trim() || undefined,
         ...shopParams(),
       };
+      if (formReceive.supplier_id) {
+        payload.payment_status = formReceive.payment_status;
+        payload.payment_method = formReceive.payment_method;
+        if (formReceive.payment_status === 'partial') {
+          payload.paid_amount = parseFloat(formReceive.paid_amount) || 0;
+        }
+      }
       await api.post('/inventory/receive', payload);
       success(t('stockReceived') || 'Stock received successfully');
       setModal(null);
@@ -176,7 +189,7 @@ export default function Inventory() {
       const payload = {
         product_id: parseInt(formAdjust.product_id, 10),
         branch_id: parseInt(formAdjust.branch_id, 10),
-        quantity: parseInt(formAdjust.quantity, 10),
+        quantity: parseFloat(formAdjust.quantity),
         direction: formAdjust.direction,
         reason: formAdjust.reason,
         notes: formAdjust.notes.trim() || undefined,
@@ -232,6 +245,9 @@ export default function Inventory() {
                   supplier_id: '',
                   purchase_price: '',
                   notes: '',
+                  payment_status: 'unpaid',
+                  paid_amount: '',
+                  payment_method: 'cash',
                 });
                 setModal('receive');
               }}
@@ -345,13 +361,13 @@ export default function Inventory() {
                         </td>
                         <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{row.Branch?.name}</td>
                         <td className="p-4">
-                          <StockBadge qty={row.quantity_on_hand} reorder={row.Product?.reorder_level} />
+                          <StockBadge qty={parseFloat(row.quantity_on_hand) || 0} reorder={row.Product?.reorder_level} />
                         </td>
                         <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
                           {row.Product?.ProductSuppliers?.[0]?.Supplier?.company_name || '—'}
                         </td>
                         <td className="p-4" style={{ color: 'var(--text-secondary)' }}>
-                          {formatPKR(row.quantity_on_hand * parseFloat(row.Product?.cost_price || 0), lang)}
+                          {formatPKR((parseFloat(row.quantity_on_hand) || 0) * parseFloat(row.Product?.cost_price || 0), lang)}
                         </td>
                         <td className="p-4 text-end">
                           <div className="flex justify-end gap-1.5">
@@ -404,7 +420,7 @@ export default function Inventory() {
                       <tr key={row.product_id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                         <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{row.name}</td>
                         <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{row.category}</td>
-                        <td className="p-4 font-mono text-emerald-400">{row.total_stock}</td>
+                        <td className="p-4 font-mono text-emerald-400">{row.total_stock} {t('kg') || 'kg'}</td>
                         <td className="p-4"><StockBadge qty={row.current_inventory} reorder={row.reorder_level} /></td>
                         <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{row.reorder_level}</td>
                         <td className="p-4">
@@ -486,9 +502,9 @@ export default function Inventory() {
                       <td className="p-4 text-white/80">{m.Branch?.name}</td>
                       <td className="p-4">{getMovementBadge(m.ref_type)}</td>
                       <td className={`p-4 text-end font-bold text-base ${m.quantity > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {m.quantity > 0 ? `+${m.quantity}` : m.quantity}
+                        {m.quantity > 0 ? `+${m.quantity}` : m.quantity} {t('kg') || 'kg'}
                       </td>
-                      <td className="p-4 text-end font-bold text-white/80">{m.balance_after}</td>
+                      <td className="p-4 text-end font-bold text-white/80">{m.balance_after} {t('kg') || 'kg'}</td>
                     </tr>
                   ))}
                   {movements.length === 0 && (
@@ -546,15 +562,16 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('quantity')} *</label>
+                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('quantity')} ({t('kg') || 'kg'}) *</label>
                 <input
                   className="input"
                   type="number"
-                  min="1"
+                  min="0.001"
+                  step="0.001"
                   required
                   value={formReceive.quantity}
                   onChange={e => setFormReceive(f => ({ ...f, quantity: e.target.value }))}
-                  placeholder="e.g. 10"
+                  placeholder="e.g. 10.5"
                 />
               </div>
               <div>
@@ -570,6 +587,63 @@ export default function Inventory() {
                 />
               </div>
             </div>
+
+            {formReceive.supplier_id && (() => {
+              const sup = suppliers.find(s => String(s.id) === String(formReceive.supplier_id));
+              const availableCredit = parseFloat(sup?.credit_balance || 0);
+              const totalCost = (parseFloat(formReceive.quantity) || 0) * (parseFloat(formReceive.purchase_price) || 0);
+              return (
+                <div className="rounded-lg border border-white/10 p-3 space-y-3 bg-white/5">
+                  <label className="text-xs font-semibold text-white/70 block">{t('paid') || 'Paid?'}</label>
+                  <div className="flex gap-2">
+                    {['unpaid', 'paid', 'partial'].map(opt => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => setFormReceive(f => ({ ...f, payment_status: opt }))}
+                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-colors ${
+                          formReceive.payment_status === opt ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white/60 hover:bg-white/20'
+                        }`}
+                      >
+                        {opt === 'unpaid' ? (t('no') || 'No') : opt === 'paid' ? (t('yes') || 'Yes') : (t('partial') || 'Partial')}
+                      </button>
+                    ))}
+                  </div>
+
+                  {formReceive.payment_status !== 'unpaid' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      {formReceive.payment_status === 'partial' && (
+                        <div>
+                          <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('amountPaid') || 'Amount Paid'}</label>
+                          <input
+                            className="input" type="number" step="0.01" min="0" max={totalCost || undefined}
+                            value={formReceive.paid_amount}
+                            onChange={e => setFormReceive(f => ({ ...f, paid_amount: e.target.value }))}
+                          />
+                        </div>
+                      )}
+                      <div className={formReceive.payment_status === 'partial' ? '' : 'col-span-2'}>
+                        <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('method') || 'Method'}</label>
+                        <select
+                          className="input"
+                          value={formReceive.payment_method}
+                          onChange={e => setFormReceive(f => ({ ...f, payment_method: e.target.value }))}
+                        >
+                          <option value="cash">{t('cash') || 'Cash'}</option>
+                          <option value="bank">{t('bank') || 'Bank'}</option>
+                          <option value="supplier_credit" disabled={availableCredit <= 0}>
+                            {(t('supplierCredit') || 'Supplier Credit')} ({formatPKR(availableCredit, lang)} {t('available') || 'available'})
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                  {formReceive.payment_status !== 'unpaid' && totalCost > 0 && (
+                    <p className="text-xs text-white/50">{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
+                  )}
+                </div>
+              );
+            })()}
 
             <div>
               <label className="text-xs font-semibold text-white/70 mb-1.5 block">Notes / Remarks</label>
@@ -637,15 +711,16 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('quantity')} *</label>
+                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('quantity')} ({t('kg') || 'kg'}) *</label>
                 <input
                   className="input"
                   type="number"
-                  min="1"
+                  min="0.001"
+                  step="0.001"
                   required
                   value={formAdjust.quantity}
                   onChange={e => setFormAdjust(f => ({ ...f, quantity: e.target.value }))}
-                  placeholder="e.g. 5"
+                  placeholder="e.g. 5.5"
                 />
               </div>
               <div>

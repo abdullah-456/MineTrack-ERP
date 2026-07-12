@@ -9,9 +9,10 @@ import StatusBadge, { StockBadge } from '../../components/ui/StatusBadge';
 import api from '../../api/axios';
 
 const EMPTY = {
-  name: '', sku: '', barcode: '', category_id: '', brand: '', unit: 'Pcs',
-  cost_price: '', sale_price: '', tax_rate: '0', reorder_level: '5',
+  name: '', sku: '', barcode: '', category_id: '', brand: '',
+  cost_price: '0', sale_price: '', tax_rate: '0', reorder_level: '5',
   supplier_id: '', initial_quantity: '0', branch_id: '', status: 'active',
+  payment_status: 'unpaid', paid_amount: '', payment_method: 'cash',
 };
 
 export default function Products() {
@@ -51,7 +52,7 @@ export default function Products() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const totalStock = (p) => (p.Stock || []).reduce((s, x) => s + x.quantity_on_hand, 0);
+  const totalStock = (p) => (p.Stock || []).reduce((s, x) => s + (parseFloat(x.quantity_on_hand) || 0), 0);
 
   const openCreate = () => {
     setForm({ ...EMPTY, branch_id: branches[0]?.id || '' });
@@ -63,9 +64,10 @@ export default function Products() {
     setSelected(p);
     setForm({
       name: p.name, sku: p.sku, barcode: p.barcode || '', category_id: p.category_id,
-      brand: p.brand || '', unit: p.unit || 'Pcs', cost_price: p.cost_price,
+      brand: p.brand || '', cost_price: p.cost_price,
       sale_price: p.sale_price, tax_rate: p.tax_rate, reorder_level: p.reorder_level,
       status: p.status, supplier_id: '', initial_quantity: '0', branch_id: '',
+      payment_status: 'unpaid', paid_amount: '', payment_method: 'cash',
     });
     setModal('edit');
   };
@@ -74,20 +76,43 @@ export default function Products() {
     e.preventDefault();
     setSaving(true);
     try {
+      const initialQty = parseFloat(form.initial_quantity) || 0;
       const payload = {
         ...form,
-        cost_price: parseFloat(form.cost_price),
+        cost_price: parseFloat(form.cost_price) || 0,
         sale_price: parseFloat(form.sale_price),
         tax_rate: parseFloat(form.tax_rate) || 0,
         reorder_level: parseInt(form.reorder_level, 10) || 5,
-        initial_quantity: parseInt(form.initial_quantity, 10) || 0,
+        initial_quantity: initialQty,
         supplier_id: form.supplier_id || undefined,
         branch_id: form.branch_id || undefined,
         ...shopParams(),
       };
+      if (form.supplier_id && initialQty > 0) {
+        payload.payment_status = form.payment_status;
+        payload.payment_method = form.payment_method;
+        if (form.payment_status === 'partial') {
+          payload.paid_amount = parseFloat(form.paid_amount) || 0;
+        }
+      } else {
+        delete payload.payment_status;
+        delete payload.paid_amount;
+        delete payload.payment_method;
+      }
       if (modal === 'create') {
-        await api.post('/products', payload);
+        // Open the tab synchronously (still inside the click gesture) and
+        // navigate it once the response arrives — opening it only after the
+        // `await` below would get silently blocked as a non-user-initiated popup.
+        // Must NOT pass noopener/noreferrer: both make window.open() return
+        // null, silently breaking this open-now-navigate-later pattern.
+        const printTab = window.open('', '_blank');
+        const { data } = await api.post('/products', payload);
         success(t('productCreated'));
+        if (data.voucher_id && printTab) {
+          printTab.location.href = `/vouchers/${data.voucher_id}?auto_print=1`;
+        } else if (printTab) {
+          printTab.close();
+        }
       } else {
         await api.put(`/products/${selected.id}`, payload);
         success(t('productUpdated'));
@@ -196,7 +221,7 @@ export default function Products() {
               </div>
               <div>
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('costPrice')} *</label>
-                <input className="input" type="number" min="0" step="0.01" required value={form.cost_price} onChange={setF('cost_price')} />
+                <input className="input" type="number" min="0" step="0.01" value={form.cost_price} onChange={setF('cost_price')} />
               </div>
               <div>
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('salePrice')} *</label>
@@ -205,10 +230,6 @@ export default function Products() {
               <div>
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('reorderLevel')}</label>
                 <input className="input" type="number" min="0" value={form.reorder_level} onChange={setF('reorder_level')} />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('unit')}</label>
-                <input className="input" value={form.unit} onChange={setF('unit')} />
               </div>
               {modal === 'create' && (
                 <>
@@ -220,8 +241,8 @@ export default function Products() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('initialStock')}</label>
-                    <input className="input" type="number" min="0" value={form.initial_quantity} onChange={setF('initial_quantity')} />
+                    <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('initialStock')} ({t('kg') || 'kg'})</label>
+                    <input className="input" type="number" min="0" step="0.001" value={form.initial_quantity} onChange={setF('initial_quantity')} />
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')}</label>
@@ -232,6 +253,59 @@ export default function Products() {
                 </>
               )}
             </div>
+
+            {modal === 'create' && form.supplier_id && (parseFloat(form.initial_quantity) || 0) > 0 && (() => {
+              const sup = suppliers.find(s => String(s.id) === String(form.supplier_id));
+              const availableCredit = parseFloat(sup?.credit_balance || 0);
+              const totalCost = (parseFloat(form.initial_quantity) || 0) * (parseFloat(form.cost_price) || 0);
+              return (
+                <div className="rounded-lg border border-white/10 p-3 space-y-3 bg-white/5">
+                  <label className="text-xs font-semibold text-white/70 block">{t('paid') || 'Paid?'}</label>
+                  <div className="flex gap-2">
+                    {['unpaid', 'paid', 'partial'].map(opt => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, payment_status: opt }))}
+                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-colors ${
+                          form.payment_status === opt ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white/60 hover:bg-white/20'
+                        }`}
+                      >
+                        {opt === 'unpaid' ? (t('no') || 'No') : opt === 'paid' ? (t('yes') || 'Yes') : (t('partial') || 'Partial')}
+                      </button>
+                    ))}
+                  </div>
+
+                  {form.payment_status !== 'unpaid' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      {form.payment_status === 'partial' && (
+                        <div>
+                          <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('amountPaid') || 'Amount Paid'}</label>
+                          <input
+                            className="input" type="number" step="0.01" min="0" max={totalCost || undefined}
+                            value={form.paid_amount} onChange={setF('paid_amount')}
+                          />
+                        </div>
+                      )}
+                      <div className={form.payment_status === 'partial' ? '' : 'col-span-2'}>
+                        <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('method') || 'Method'}</label>
+                        <select className="input" value={form.payment_method} onChange={setF('payment_method')}>
+                          <option value="cash">{t('cash') || 'Cash'}</option>
+                          <option value="bank">{t('bank') || 'Bank'}</option>
+                          <option value="supplier_credit" disabled={availableCredit <= 0}>
+                            {(t('supplierCredit') || 'Supplier Credit')} ({formatPKR(availableCredit, lang)} {t('available') || 'available'})
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                  {form.payment_status !== 'unpaid' && totalCost > 0 && (
+                    <p className="text-xs text-white/50">{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
               <button type="submit" disabled={saving} className="btn-primary flex-1">{t('save')}</button>

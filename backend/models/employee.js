@@ -8,6 +8,8 @@ module.exports = (sequelize, DataTypes) => {
       Employee.hasMany(models.Attendance,   { foreignKey: 'employee_id' });
       Employee.hasMany(models.Payroll,      { foreignKey: 'employee_id' });
       Employee.hasOne(models.User,          { foreignKey: 'employee_id' });
+      Employee.hasMany(models.EmployeeTransaction, { foreignKey: 'employee_id' });
+      Employee.hasMany(models.EmployeeLoan,        { foreignKey: 'employee_id' });
     }
   }
   Employee.init({
@@ -56,6 +58,10 @@ module.exports = (sequelize, DataTypes) => {
     status: {
       type: DataTypes.ENUM('active', 'suspended', 'terminated'),
       defaultValue: 'active'
+    },
+    current_payable: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0.00
     }
   }, {
     sequelize,

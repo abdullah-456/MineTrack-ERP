@@ -12,9 +12,16 @@ const installmentController = require('../controllers/installmentController');
 const invoiceController = require('../controllers/invoiceController');
 const saleReturnController = require('../controllers/saleReturnController');
 const financialSetupController = require('../controllers/financialSetupController');
+const supplierLedgerController = require('../controllers/supplierLedgerController');
+const employeeLedgerController = require('../controllers/employeeLedgerController');
+const customerLedgerController = require('../controllers/customerLedgerController');
+const generalLedgerController = require('../controllers/generalLedgerController');
+const auditLogController = require('../controllers/auditLogController');
+const auditLog = require('../middleware/auditLog');
 
 router.use(authenticate);
 router.use(tenantScope);
+router.use(auditLog);
 
 // Suppliers
 router.get(   '/suppliers',              authorize('suppliers', 'read'),   supplierController.list);
@@ -23,6 +30,9 @@ router.post(  '/suppliers',              authorize('suppliers', 'create'), suppl
 router.put(   '/suppliers/:id',          authorize('suppliers', 'update'), supplierController.update);
 router.delete('/suppliers/:id',          authorize('suppliers', 'delete'), supplierController.remove);
 router.post(  '/suppliers/:id/products', authorize('suppliers', 'update'), supplierController.linkProduct);
+router.get(   '/suppliers/:id/ledger',   authorize('suppliers', 'read'),   supplierLedgerController.getLedger);
+router.post(  '/suppliers/:id/payments', authorize('suppliers', 'update'), supplierLedgerController.recordPayment);
+router.post(  '/suppliers/:id/opening-balance', authorize('suppliers', 'update'), supplierLedgerController.recordOpeningBalance);
 
 // Categories
 router.get(   '/categories',             authorize('products', 'read'),   categoryController.list);
@@ -50,13 +60,23 @@ router.get(   '/customers/:id',          authorize('customers', 'read'),   custo
 router.post(  '/customers',              authorize('customers', 'create'), customerController.create);
 router.put(   '/customers/:id',          authorize('customers', 'update'), customerController.update);
 router.delete('/customers/:id',          authorize('customers', 'delete'), customerController.remove);
+router.get(   '/customers/:id/ledger',   authorize('customers', 'read'),   customerLedgerController.getLedger);
+router.post(  '/customers/:id/payments', authorize('customers', 'update'), customerLedgerController.recordPayment);
 
 // Employees
 router.get(   '/employees',              authorize('employees', 'read'),   employeeController.list);
+router.get(   '/employees/latest-payslips', authorize('employees', 'read'), employeeLedgerController.getLatestPayslips);
 router.get(   '/employees/:id',          authorize('employees', 'read'),   employeeController.get);
 router.post(  '/employees',              authorize('employees', 'create'), employeeController.create);
 router.put(   '/employees/:id',          authorize('employees', 'update'), employeeController.update);
 router.delete('/employees/:id',          authorize('employees', 'delete'), employeeController.remove);
+router.get(   '/employees/:id/ledger',   authorize('employees', 'read'),   employeeLedgerController.getLedger);
+router.get(   '/employees/:id/slips/:txnId', authorize('employees', 'read'), employeeLedgerController.getTransactionSlip);
+router.post(  '/employees/:id/advances', authorize('employees', 'update'), employeeLedgerController.recordAdvance);
+router.post(  '/employees/:id/loans',    authorize('employees', 'update'), employeeLedgerController.recordLoan);
+router.post(  '/employees/:id/receive-loan-payment', authorize('employees', 'update'), employeeLedgerController.receiveLoanPayment);
+router.post(  '/employees/:id/opening-balance', authorize('employees', 'update'), employeeLedgerController.recordOpeningBalance);
+router.post(  '/employees/:id/give-salary', authorize('employees', 'update'), employeeLedgerController.giveSalary);
 
 // Sales
 router.get(   '/sales',                  authorize('sales', 'read'),   saleController.list);
@@ -82,6 +102,11 @@ router.post(  '/returns/:id/void',       authorize('returns', 'delete'), saleRet
 router.get(   '/invoices',               authorize('sales', 'read'),   invoiceController.list);
 router.get(   '/invoices/:id',           authorize('sales', 'read'),   invoiceController.get);
 
+// Accounting (Chart of Accounts + General Ledger)
+router.get(   '/accounting/chart-of-accounts', authorize('accounting', 'read'), generalLedgerController.listChartOfAccounts);
+router.get(   '/accounting/general-ledger',    authorize('accounting', 'read'), generalLedgerController.listEntries);
+router.get(   '/accounting/vouchers/:id',       authorize('accounting', 'read'), generalLedgerController.getVoucher);
+
 // Financial Setup (first-time wizard) & Cash Sessions
 router.post(  '/financial-setup',        financialSetupController.completeSetup);
 router.get(   '/bank-accounts',          financialSetupController.listBankAccounts);
@@ -89,5 +114,9 @@ router.post(  '/cash-sessions',          financialSetupController.recordCashSess
 router.get(   '/cash-sessions/today',    financialSetupController.getTodaySession);
 router.get(   '/cash-sessions',          financialSetupController.listSessions);
 router.get(   '/balances',               financialSetupController.getLiveBalances);
+
+// Admin — Audit Log
+router.get(   '/admin/audit-log',        authorize('users', 'read'), auditLogController.list);
+router.get(   '/admin/audit-log/modules', authorize('users', 'read'), auditLogController.listModules);
 
 module.exports = router;

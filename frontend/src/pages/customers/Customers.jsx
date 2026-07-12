@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, Plus, Search, Edit, Loader2, CreditCard, UserCheck, ShoppingBag, Calendar } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Users, Plus, Search, Edit, Loader2, CreditCard, UserCheck, ShoppingBag, Calendar, BookOpen } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -18,6 +19,7 @@ export default function Customers() {
   const { t, lang } = useTheme();
   const { success, error } = useToast();
   const { shopParams } = useShopApi();
+  const navigate = useNavigate();
   const isRTL = lang === 'ur';
 
   const [customers, setCustomers] = useState([]);
@@ -141,22 +143,31 @@ export default function Customers() {
                   <p>{t('balance')}: <span className={parseFloat(c.current_balance) > 0 ? 'text-red-400 font-semibold' : 'text-emerald-400'}>{formatPKR(c.current_balance, lang)}</span></p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelected(c);
-                    setForm({
-                      name: c.name, cnic: c.cnic || '', phone: c.phone || '',
-                      address: c.address || '', credit_limit: c.credit_limit,
-                      current_balance: c.current_balance, status: c.status,
-                      customer_type: 'registered',
-                    });
-                    setModal('edit');
-                  }}
-                  className="btn-secondary w-full flex items-center justify-center gap-2 text-sm"
-                >
-                  <Edit className="w-3.5 h-3.5" />{t('edit')}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelected(c);
+                      setForm({
+                        name: c.name, cnic: c.cnic || '', phone: c.phone || '',
+                        address: c.address || '', credit_limit: c.credit_limit,
+                        current_balance: c.current_balance, status: c.status,
+                        customer_type: 'registered',
+                      });
+                      setModal('edit');
+                    }}
+                    className="btn-secondary flex-1 flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Edit className="w-3.5 h-3.5" />{t('edit')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/customers/${c.id}`)}
+                    className="btn-secondary flex-1 flex items-center justify-center gap-2 text-sm"
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />{t('viewLedger') || 'Ledger'}
+                  </button>
+                </div>
               </div>
             );
           })}

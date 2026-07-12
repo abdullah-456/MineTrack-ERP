@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Building2, Plus, Search, Edit, Loader2, Link2, Phone, Mail } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Building2, Plus, Search, Edit, Loader2, Link2, Phone, Mail, BookOpen } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -14,6 +15,7 @@ const EMPTY = {
 };
 
 export default function Suppliers() {
+  const navigate = useNavigate();
   const { t, lang } = useTheme();
   const { success, error } = useToast();
   const { shopParams } = useShopApi();
@@ -126,14 +128,49 @@ export default function Suppliers() {
                 {s.cnic && <p><span className="font-semibold">{t('cnic')}:</span> {s.cnic}</p>}
                 {s.payment_terms && <p>{t('paymentTerms')}: {s.payment_terms}</p>}
                 <p>{t('creditLimit')}: {formatPKR(s.credit_limit, lang)}</p>
-                <p className="flex items-center gap-1.5">
-                  <Link2 className="w-3.5 h-3.5" />
-                  {s.ProductSuppliers?.length || 0} {t('linkedProducts')}
-                </p>
               </div>
-              <button type="button" onClick={() => openEdit(s)} className="btn-secondary w-full flex items-center justify-center gap-2 text-sm">
-                <Edit className="w-3.5 h-3.5" />{t('edit')}
-              </button>
+
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {parseFloat(s.current_payable) > 0 && (
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                    {t('payable') || 'Payable'}: {formatPKR(s.current_payable, lang)}
+                  </span>
+                )}
+                {parseFloat(s.credit_balance) > 0 && (
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    {t('creditBalance') || 'Credit'}: {formatPKR(s.credit_balance, lang)}
+                  </span>
+                )}
+                {!(parseFloat(s.current_payable) > 0) && !(parseFloat(s.credit_balance) > 0) && (
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-white/10 text-white/50">
+                    {t('paid') || 'Paid'}
+                  </span>
+                )}
+              </div>
+
+              {(s.ProductSuppliers?.length || 0) > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {s.ProductSuppliers.slice(0, 4).map(ps => (
+                    <span key={ps.id} className="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1">
+                      <Link2 className="w-3 h-3" />{ps.Product?.name}
+                    </span>
+                  ))}
+                  {s.ProductSuppliers.length > 4 && (
+                    <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-white/10 text-white/50">
+                      +{s.ProductSuppliers.length - 4} {t('more') || 'more'}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button type="button" onClick={() => navigate(`/suppliers/${s.id}`)} className="btn-secondary flex-1 flex items-center justify-center gap-2 text-sm">
+                  <BookOpen className="w-3.5 h-3.5" />{t('viewDetails') || 'Details'}
+                </button>
+                <button type="button" onClick={() => openEdit(s)} className="btn-secondary flex-1 flex items-center justify-center gap-2 text-sm">
+                  <Edit className="w-3.5 h-3.5" />{t('edit')}
+                </button>
+              </div>
             </div>
           ))}
         </div>

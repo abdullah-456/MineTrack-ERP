@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
+const { postVoucher } = require('../utils/postVoucher');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sales Returns & Exchange
@@ -52,7 +53,7 @@ async function priorReturnedBySaleItem(saleId, transaction) {
     transaction,
   });
   const map = {};
-  rows.forEach(r => { map[r.sale_item_id] = parseInt(r.qty, 10) || 0; });
+  rows.forEach(r => { map[r.sale_item_id] = parseFloat(r.qty) || 0; });
   return map;
 }
 
@@ -85,9 +86,9 @@ exports.returnable = async (req, res) => {
         product_name: si.product_name || si.Product?.name,
         sku: si.Product?.sku,
         unit_price: parseFloat(si.unit_price),
-        sold_qty: si.quantity,
+        sold_qty: parseFloat(si.quantity),
         already_returned: already,
-        returnable_qty: Math.max(0, si.quantity - already),
+        returnable_qty: Math.max(0, parseFloat(si.quantity) - already),
       };
     });
 
@@ -207,12 +208,12 @@ exports.create = async (req, res) => {
         await transaction.rollback();
         return res.status(400).json({ message: `Sale item ${line.sale_item_id} does not belong to this sale` });
       }
-      const qty = parseInt(line.quantity, 10);
-      if (!Number.isInteger(qty) || qty < 1) {
+      const qty = parseFloat(line.quantity);
+      if (!(qty > 0)) {
         await transaction.rollback();
-        return res.status(400).json({ message: 'Return quantity must be an integer >= 1' });
+        return res.status(400).json({ message: 'Return quantity must be greater than 0' });
       }
-      const maxReturnable = si.quantity - (alreadyReturned[si.id] || 0);
+      const maxReturnable = parseFloat(si.quantity || 0) - (alreadyReturned[si.id] || 0);
       if (qty > maxReturnable) {
         await transaction.rollback();
         return res.status(400).json({
@@ -237,6 +238,7 @@ exports.create = async (req, res) => {
     returnedValue = Math.round(returnedValue * 100) / 100;
 
     // ── Restock resellable returned items (locked) ──────────────────────────
+    let restockCogsAmount = 0;
     for (const rl of returnLines) {
       if (!(rl.restock && rl.condition === 'resellable')) continue;
       const [stock] = await db.Stock.findOrCreate({
@@ -245,7 +247,7 @@ exports.create = async (req, res) => {
         transaction,
         lock: transaction.LOCK.UPDATE,
       });
-      const newQty = stock.quantity_on_hand + rl.quantity;
+      const newQty = Math.round((parseFloat(stock.quantity_on_hand || 0) + rl.quantity) * 1000) / 1000;
       await stock.update({ quantity_on_hand: newQty }, { transaction });
       await db.StockMovement.create({
         product_id: rl.product_id,
@@ -255,12 +257,18 @@ exports.create = async (req, res) => {
         quantity: rl.quantity,
         balance_after: newQty,
       }, { transaction });
+
+      const returnedProduct = await db.Product.findByPk(rl.product_id, { transaction, attributes: ['cost_price'] });
+      restockCogsAmount += rl.quantity * parseFloat(returnedProduct?.cost_price || 0);
     }
+    restockCogsAmount = Math.round(restockCogsAmount * 100) / 100;
 
     let refundAmount = 0;
     let settlementAmount = 0;
     let exchangeSale = null;
     let effectiveRefundMethod = refund_method || 'cash';
+    let creditApplied = 0;
+    let exchangeCogsAmount = 0;
 
     if (return_type === 'refund') {
       refundAmount = returnedValue;
@@ -268,10 +276,8 @@ exports.create = async (req, res) => {
       if (sale.sale_type === 'credit' || sale.sale_type === 'installment') {
         // The returned value first reduces what the customer still owes.
         // Any EXCESS (e.g. a full return where a down payment was already paid
-        // in cash) is refunded in cash. The financing markup is treated as a
-        // non-refundable fee.
+        // in cash) is refunded in cash.
         effectiveRefundMethod = 'store_credit';
-        let creditApplied = 0;
         if (sale.customer_id) {
           const customer = await db.Customer.findOne({
             where: { id: sale.customer_id, shop_id: shopId },
@@ -283,6 +289,14 @@ exports.create = async (req, res) => {
             await customer.update({
               current_balance: Math.round((outstanding - creditApplied) * 100) / 100,
             }, { transaction });
+            if (creditApplied > 0) {
+              await db.CustomerTransaction.create({
+                shop_id: shopId, customer_id: customer.id, date: new Date(),
+                type: 'return_credit', amount: creditApplied, method: null,
+                related_sale_id: sale.id, notes: `Return of sale ${sale.invoice_number}`,
+                created_by: req.user.id,
+              }, { transaction });
+            }
           }
         }
         const cashExcess = Math.round((returnedValue - creditApplied) * 100) / 100;
@@ -340,10 +354,10 @@ exports.create = async (req, res) => {
       // Aggregate duplicates for a correct availability check.
       const qtyByProduct = new Map();
       for (const item of exchange_items) {
-        const q = parseInt(item.quantity, 10);
-        if (!item.product_id || !Number.isInteger(q) || q < 1) {
+        const q = parseFloat(item.quantity);
+        if (!item.product_id || !(q > 0)) {
           await transaction.rollback();
-          return res.status(400).json({ message: 'Each exchange item needs product_id and quantity >= 1' });
+          return res.status(400).json({ message: 'Each exchange item needs product_id and a quantity greater than 0' });
         }
         qtyByProduct.set(item.product_id, (qtyByProduct.get(item.product_id) || 0) + q);
       }
@@ -359,14 +373,14 @@ exports.create = async (req, res) => {
           await transaction.rollback();
           return res.status(400).json({ message: `Product ${item.product_id} not found` });
         }
-        const qty = parseInt(item.quantity, 10);
+        const qty = parseFloat(item.quantity);
 
         const stock = await db.Stock.findOne({
           where: { product_id: product.id, branch_id: sale.branch_id },
           transaction,
           lock: transaction.LOCK.UPDATE,
         });
-        const available = stock?.quantity_on_hand || 0;
+        const available = parseFloat(stock?.quantity_on_hand || 0);
         if (available < (qtyByProduct.get(product.id) || qty)) {
           await transaction.rollback();
           return res.status(400).json({ message: `Insufficient stock for ${product.name}. Available: ${available}` });
@@ -386,6 +400,9 @@ exports.create = async (req, res) => {
         exLines.push({ product, qty, unitPrice, lineTotal });
       }
       exSubtotal = Math.round(exSubtotal * 100) / 100;
+      exchangeCogsAmount = Math.round(
+        exLines.reduce((s, l) => s + l.qty * parseFloat(l.product.cost_price || 0), 0) * 100,
+      ) / 100;
 
       // ── Business rule: exchange must be same value or ABOVE, never below ──
       if (exSubtotal < returnedValue) {
@@ -432,7 +449,7 @@ exports.create = async (req, res) => {
           transaction,
           lock: transaction.LOCK.UPDATE,
         });
-        const newQty = stock.quantity_on_hand - line.qty;
+        const newQty = Math.round((parseFloat(stock.quantity_on_hand || 0) - line.qty) * 1000) / 1000;
         await stock.update({ quantity_on_hand: newQty }, { transaction });
         await db.StockMovement.create({
           product_id: line.product.id,
@@ -526,6 +543,49 @@ exports.create = async (req, res) => {
       }
     }
 
+    // ── GL voucher ────────────────────────────────────────────────────────────
+    const glLines = [];
+    if (restockCogsAmount > 0) {
+      glLines.push({ accountCode: '05-STOCK', debit: restockCogsAmount });
+      glLines.push({ accountCode: '07-COGS', credit: restockCogsAmount });
+    }
+    if (return_type === 'refund' && returnedValue > 0) {
+      glLines.push({ accountCode: '06-RETURNS', debit: returnedValue });
+      if (creditApplied > 0) glLines.push({ accountCode: '05-AR', credit: creditApplied });
+      if (refundAmount > 0) {
+        glLines.push({
+          accountCode: ['card', 'bank', 'mobile_wallet'].includes(effectiveRefundMethod) ? '05-BANK' : '05-CASH',
+          credit: refundAmount,
+        });
+      }
+    }
+    if (return_type === 'exchange') {
+      const exSubtotalRebuilt = Math.round((returnedValue + settlementAmount) * 100) / 100;
+      glLines.push({ accountCode: '06-RETURNS', debit: returnedValue });
+      if (settlementAmount > 0) {
+        const settleMethod = ['cash', 'card', 'bank', 'mobile_wallet'].includes(settlement_payment_method)
+          ? settlement_payment_method : 'cash';
+        glLines.push({
+          accountCode: ['card', 'bank', 'mobile_wallet'].includes(settleMethod) ? '05-BANK' : '05-CASH',
+          debit: settlementAmount,
+        });
+      }
+      glLines.push({ accountCode: '06-SALES', credit: exSubtotalRebuilt });
+      if (exchangeCogsAmount > 0) {
+        glLines.push({ accountCode: '07-COGS', debit: exchangeCogsAmount });
+        glLines.push({ accountCode: '05-STOCK', credit: exchangeCogsAmount });
+      }
+    }
+    if (glLines.length > 0) {
+      await postVoucher(shopId, {
+        type: return_type === 'exchange' ? 'journal' : 'payment',
+        date: ret.return_date,
+        narration: `${return_type === 'exchange' ? 'Exchange' : 'Return'} ${return_number} (sale ${sale.invoice_number})`,
+        createdBy: req.user.id,
+        lines: glLines,
+      }, transaction);
+    }
+
     await transaction.commit();
 
     const full = await db.SaleReturn.findByPk(ret.id, { include: returnIncludes });
@@ -562,6 +622,7 @@ exports.void = async (req, res) => {
     }
 
     // Pull restocked goods back out of stock.
+    let voidCogsAmount = 0;
     for (const rl of ret.ReturnItems || []) {
       if (!(rl.restock && rl.condition === 'resellable')) continue;
       const stock = await db.Stock.findOne({
@@ -569,7 +630,7 @@ exports.void = async (req, res) => {
         transaction, lock: transaction.LOCK.UPDATE,
       });
       if (stock) {
-        const newQty = Math.max(0, stock.quantity_on_hand - rl.quantity);
+        const newQty = Math.max(0, parseFloat(stock.quantity_on_hand || 0) - parseFloat(rl.quantity || 0));
         await stock.update({ quantity_on_hand: newQty }, { transaction });
         await db.StockMovement.create({
           product_id: rl.product_id,
@@ -579,10 +640,15 @@ exports.void = async (req, res) => {
           quantity: -rl.quantity,
           balance_after: newQty,
         }, { transaction });
+
+        const voidedProduct = await db.Product.findByPk(rl.product_id, { transaction, attributes: ['cost_price'] });
+        voidCogsAmount += rl.quantity * parseFloat(voidedProduct?.cost_price || 0);
       }
     }
+    voidCogsAmount = Math.round(voidCogsAmount * 100) / 100;
 
     // Reverse a balance credit if the refund was applied to a credit/installment sale.
+    let reinstatedCredit = 0;
     if (ret.refund_method === 'store_credit' && ret.customer_id) {
       const customer = await db.Customer.findOne({
         where: { id: ret.customer_id, shop_id: shopId },
@@ -592,7 +658,36 @@ exports.void = async (req, res) => {
         await customer.update({
           current_balance: parseFloat(customer.current_balance || 0) + parseFloat(ret.returned_value),
         }, { transaction });
+        reinstatedCredit = parseFloat(ret.returned_value);
+        await db.CustomerTransaction.create({
+          shop_id: shopId, customer_id: customer.id, date: new Date(),
+          type: 'adjustment', amount: reinstatedCredit, method: null,
+          related_sale_id: ret.sale_id, notes: `Void return ${ret.return_number} — reinstated credit`,
+          created_by: req.user.id,
+        }, { transaction });
       }
+    }
+
+    // Reverses exactly what createReturn's refund voucher posted for this
+    // return — mirrors the two effects void() actually performs above (stock
+    // pulled back out; store-credit reinstated), nothing more.
+    const voidGlLines = [];
+    if (voidCogsAmount > 0) {
+      voidGlLines.push({ accountCode: '07-COGS', debit: voidCogsAmount });
+      voidGlLines.push({ accountCode: '05-STOCK', credit: voidCogsAmount });
+    }
+    if (reinstatedCredit > 0) {
+      voidGlLines.push({ accountCode: '05-AR', debit: reinstatedCredit });
+      voidGlLines.push({ accountCode: '06-RETURNS', credit: reinstatedCredit });
+    }
+    if (voidGlLines.length > 0) {
+      await postVoucher(shopId, {
+        type: 'journal',
+        date: new Date(),
+        narration: `Void return ${ret.return_number}`,
+        createdBy: req.user.id,
+        lines: voidGlLines,
+      }, transaction);
     }
 
     await ret.update({ status: 'void' }, { transaction });

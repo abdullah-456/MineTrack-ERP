@@ -13,7 +13,7 @@ module.exports = (sequelize, DataTypes) => {
     return_id:    { type: DataTypes.INTEGER, allowNull: false },
     sale_item_id: { type: DataTypes.INTEGER, allowNull: false },
     product_id:   { type: DataTypes.INTEGER, allowNull: false },
-    quantity:     { type: DataTypes.INTEGER, allowNull: false },
+    quantity:     { type: DataTypes.DECIMAL(12, 3), allowNull: false },
     unit_price:   { type: DataTypes.DECIMAL(15, 2), allowNull: false },
     line_total:   { type: DataTypes.DECIMAL(15, 2), allowNull: false },
     restock:      { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },

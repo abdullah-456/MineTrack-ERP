@@ -12,7 +12,6 @@ const EMPTY_INSTALLMENT = {
   down_payment: '0',
   number_of_installments: '6',
   frequency: 'monthly',
-  markup_rate: '0',
   start_date: new Date().toISOString().slice(0, 10),
 };
 
@@ -73,9 +72,9 @@ export default function Sales() {
     const bid = branchId || form.branch_id;
     if (bid) {
       const row = p.Stock.find(s => String(s.branch_id) === String(bid));
-      return row?.quantity_on_hand ?? 0;
+      return parseFloat(row?.quantity_on_hand ?? 0);
     }
-    return p.Stock.reduce((sum, s) => sum + s.quantity_on_hand, 0);
+    return p.Stock.reduce((sum, s) => sum + (parseFloat(s.quantity_on_hand) || 0), 0);
   };
 
   const addLine = () => setForm(f => ({ ...f, items: [...f.items, { product_id: '', quantity: 1, unit_price: '' }] }));
@@ -95,7 +94,7 @@ export default function Sales() {
   const subtotal = useMemo(() =>
     form.items.reduce((sum, it) => {
       if (!it.product_id || !it.unit_price) return sum;
-      return sum + (parseFloat(it.unit_price) || 0) * (parseInt(it.quantity, 10) || 0);
+      return sum + (parseFloat(it.unit_price) || 0) * (parseFloat(it.quantity) || 0);
     }, 0),
   [form.items]);
   const total = useMemo(() =>
@@ -108,11 +107,9 @@ export default function Sales() {
     const dp = parseFloat(installmentPlan.down_payment || 0);
     const principal = total - dp;
     if (principal <= 0 || !installmentPlan.number_of_installments) return [];
-    const markup = parseFloat(installmentPlan.markup_rate || 0) / 100;
-    const totalWithMarkup = principal * (1 + markup);
     const num = parseInt(installmentPlan.number_of_installments, 10);
     if (!num || num <= 0) return [];
-    const perInst = Math.round((totalWithMarkup / num) * 100) / 100;
+    const perInst = Math.round((principal / num) * 100) / 100;
     const rows = [];
     for (let i = 1; i <= num; i++) {
       const d = new Date(installmentPlan.start_date || new Date());
@@ -121,7 +118,7 @@ export default function Sales() {
       rows.push({
         no: i,
         due_date: d.toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK'),
-        amount: i === num ? Math.round((totalWithMarkup - perInst * (num - 1)) * 100) / 100 : perInst,
+        amount: i === num ? Math.round((principal - perInst * (num - 1)) * 100) / 100 : perInst,
       });
     }
     return rows;
@@ -133,7 +130,7 @@ export default function Sales() {
     try {
       const items = form.items.filter(i => i.product_id).map(i => ({
         product_id: parseInt(i.product_id, 10),
-        quantity: parseInt(i.quantity, 10),
+        quantity: parseFloat(i.quantity),
         unit_price: parseFloat(i.unit_price),
       }));
       if (!items.length) { error(t('addAtLeastOneItem')); setSaving(false); return; }
@@ -159,7 +156,6 @@ export default function Sales() {
           down_payment: parseFloat(installmentPlan.down_payment || 0),
           number_of_installments: parseInt(installmentPlan.number_of_installments, 10),
           frequency: installmentPlan.frequency,
-          markup_rate: parseFloat(installmentPlan.markup_rate || 0),
           start_date: installmentPlan.start_date,
         };
       }
@@ -253,6 +249,9 @@ export default function Sales() {
                     {s.sale_type === 'installment' && s.InstallmentPlan && (
                       <span className="ms-1 text-xs text-purple-400">({s.InstallmentPlan.status})</span>
                     )}
+                    {parseFloat(s.tax) > 0 && (
+                      <span className="badge badge-yellow ms-1">{t('tax') || 'Tax'}</span>
+                    )}
                   </td>
                   <td className="p-4 font-bold text-emerald-400">{formatPKR(s.total, lang)}</td>
                   <td className="p-4"><StatusBadge status={s.status} /></td>
@@ -338,6 +337,8 @@ export default function Sales() {
               </div>
               {form.items.map((item, i) => {
                 const avail = item.product_id ? stockForProduct(item.product_id, form.branch_id) : null;
+                const lineQty = parseFloat(item.quantity) || 0;
+                const linePrice = parseFloat(item.unit_price) || 0;
                 return (
                   <div key={i} className="space-y-1">
                     <div className="grid grid-cols-3 gap-2 items-center">
@@ -347,15 +348,32 @@ export default function Sales() {
                           <option key={p.id} value={p.id}>{p.name} ({stockForProduct(p.id, form.branch_id)} {t('inStock')})</option>
                         ))}
                       </select>
-                      <div className="flex gap-1.5">
-                        <input className="input w-16" type="number" min="1" max={avail || undefined} value={item.quantity} onChange={e => updateLine(i, 'quantity', e.target.value)} />
+                      <div className="flex gap-1.5 items-center">
+                        <div className="relative w-20">
+                          <input
+                            className="input w-full pe-7" type="number" min="0.001" step="0.001"
+                            max={avail || undefined} value={item.quantity}
+                            onChange={e => updateLine(i, 'quantity', e.target.value)}
+                          />
+                          <span
+                            className="absolute top-1/2 -translate-y-1/2 text-[10px] font-bold px-1 py-0.5 rounded bg-white/10"
+                            style={{ [isRTL ? 'left' : 'right']: '4px', color: 'var(--text-muted)' }}
+                          >
+                            {t('kg') || 'kg'}
+                          </span>
+                        </div>
                         <input className="input flex-1" type="number" min="0" step="0.01" placeholder={t('price')} value={item.unit_price} onChange={e => updateLine(i, 'unit_price', e.target.value)} />
                         {form.items.length > 1 && (
                           <button type="button" onClick={() => removeLine(i)} className="px-2 text-red-400 hover:text-red-300 text-lg">×</button>
                         )}
                       </div>
                     </div>
-                    {avail !== null && item.quantity > avail && (
+                    {lineQty > 0 && linePrice > 0 && (
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {lineQty} {t('kg') || 'kg'} × {formatPKR(linePrice, lang)} = <span className="font-semibold text-emerald-400">{formatPKR(lineQty * linePrice, lang)}</span>
+                      </p>
+                    )}
+                    {avail !== null && lineQty > avail && (
                       <p className="text-xs text-red-400">{t('insufficientStock')}: {avail}</p>
                     )}
                   </div>
@@ -420,10 +438,6 @@ export default function Sales() {
                       <option value="monthly">{t('monthly')}</option>
                       <option value="weekly">{t('weekly')}</option>
                     </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('markupRate')}</label>
-                    <input className="input" type="number" min="0" step="0.1" value={installmentPlan.markup_rate} onChange={setIP('markup_rate')} />
                   </div>
                   <div className="col-span-2">
                     <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('startDate')}</label>
@@ -496,7 +510,10 @@ export default function Sales() {
               </div>
               <div className="ms-auto text-end">
                 <p className="text-2xl font-bold text-emerald-400">{formatPKR(detail.total, lang)}</p>
-                <StatusBadge status={detail.status} />
+                <div className="flex items-center gap-1.5 justify-end mt-1">
+                  <StatusBadge status={detail.status} />
+                  {parseFloat(detail.tax) > 0 && <span className="badge badge-yellow">{t('tax') || 'Tax'}</span>}
+                </div>
               </div>
             </div>
 
@@ -528,7 +545,7 @@ export default function Sales() {
                 {(detail.SaleItems || []).map(item => (
                   <tr key={item.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                     <td className="p-2" style={{ color: 'var(--text-primary)' }}>{item.Product?.name || item.product_name}</td>
-                    <td className="p-2" style={{ color: 'var(--text-secondary)' }}>{item.quantity}</td>
+                    <td className="p-2" style={{ color: 'var(--text-secondary)' }}>{item.quantity} {t('kg') || 'kg'}</td>
                     <td className="p-2 text-end text-emerald-400">{formatPKR(item.line_total, lang)}</td>
                   </tr>
                 ))}
@@ -559,10 +576,6 @@ export default function Sales() {
                   <div>
                     <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('frequency')}</p>
                     <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{t(detail.InstallmentPlan.frequency)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('markupRate')}</p>
-                    <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{detail.InstallmentPlan.markup_rate}%</p>
                   </div>
                 </div>
                 {detail.InstallmentPlan.InstallmentSchedules?.length > 0 && (

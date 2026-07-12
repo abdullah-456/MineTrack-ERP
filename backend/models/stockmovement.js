@@ -30,11 +30,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     quantity: {
-      type: DataTypes.INTEGER,
-      allowNull: false // Signed integer representation of the change
+      type: DataTypes.DECIMAL(12, 3),
+      allowNull: false // Signed quantity representation of the change
     },
     balance_after: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(12, 3),
       allowNull: false
     }
   }, {

@@ -234,7 +234,7 @@ export default function SalesReturns() {
   };
 
   const setQty = (item, qty) => {
-    const q = Math.max(0, Math.min(parseInt(qty || 0, 10), item.returnable_qty));
+    const q = Math.max(0, Math.min(parseFloat(qty || 0), item.returnable_qty));
     setPicked((prev) => {
       const next = { ...prev };
       if (q > 0) next[item.sale_item_id] = q;
@@ -676,15 +676,16 @@ export default function SalesReturns() {
                     <div className="flex-1">
                       <p className="text-sm font-medium">{it.product_name}</p>
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                        {formatPKR(it.unit_price, lang)} · sold {it.sold_qty} · returnable{' '}
-                        {it.returnable_qty}
+                        {formatPKR(it.unit_price, lang)} · sold {it.sold_qty} kg · returnable{' '}
+                        {it.returnable_qty} kg
                       </p>
                     </div>
                     <input
                       type="number"
                       min="0"
+                      step="0.001"
                       max={it.returnable_qty}
-                      className="w-20 px-2 py-1 rounded text-sm text-center"
+                      className="w-24 px-2 py-1 rounded text-sm text-center"
                       style={inputStyle}
                       value={picked[it.sale_item_id] || ''}
                       placeholder="0"
@@ -779,17 +780,19 @@ export default function SalesReturns() {
                           <span className="flex-1 text-sm">{x.product.name}</span>
                           <input
                             type="number"
-                            min="1"
-                            className="w-16 px-2 py-1 rounded text-sm text-center"
+                            min="0.001"
+                            step="0.001"
+                            className="w-20 px-2 py-1 rounded text-sm text-center"
                             style={inputStyle}
                             value={x.quantity}
                             onChange={(e) => {
-                              const q = Math.max(1, parseInt(e.target.value || 1, 10));
+                              const q = Math.max(0.001, parseFloat(e.target.value || 1));
                               setExchangeItems((prev) =>
                                 prev.map((y, j) => (j === i ? { ...y, quantity: q } : y)),
                               );
                             }}
                           />
+                          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>kg</span>
                           <span className="text-sm w-28 text-right">
                             {formatPKR(x.quantity * x.product.sale_price, lang)}
                           </span>
@@ -934,7 +937,7 @@ export default function SalesReturns() {
                     style={{ borderColor: 'var(--border-subtle)' }}
                   >
                     <td className="py-1.5">{it.Product?.name || `#${it.product_id}`}</td>
-                    <td className="py-1.5 text-center">{it.quantity}</td>
+                    <td className="py-1.5 text-center">{it.quantity} kg</td>
                     <td className="py-1.5 text-right">{formatPKR(it.line_total, lang)}</td>
                   </tr>
                 ))}

@@ -15,6 +15,10 @@ module.exports = (sequelize, DataTypes) => {
       primaryKey: true,
       autoIncrement: true
     },
+    shop_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
     voucher_number: {
       type: DataTypes.STRING,
       allowNull: false,
