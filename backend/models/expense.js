@@ -5,6 +5,8 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       Expense.belongsTo(models.Voucher, { foreignKey: 'voucher_id' });
       Expense.belongsTo(models.Branch, { foreignKey: 'branch_id' });
+      Expense.belongsTo(models.Shop, { foreignKey: 'shop_id' });
+      Expense.belongsTo(models.User, { as: 'Creator', foreignKey: 'created_by' });
     }
   }
   Expense.init({
@@ -13,9 +15,17 @@ module.exports = (sequelize, DataTypes) => {
       primaryKey: true,
       autoIncrement: true
     },
+    shop_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
     category: {
       type: DataTypes.STRING,
       allowNull: false // e.g. Rent, Utilities, Office Supplies
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true
     },
     amount: {
       type: DataTypes.DECIMAL(15, 2),
@@ -36,6 +46,14 @@ module.exports = (sequelize, DataTypes) => {
     branch_id: {
       type: DataTypes.INTEGER,
       allowNull: false
+    },
+    created_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    status: {
+      type: DataTypes.ENUM('posted', 'void'),
+      defaultValue: 'posted'
     }
   }, {
     sequelize,

@@ -103,9 +103,21 @@ async function computeLiveCash(shopId, { transaction } = {}) {
   });
   const employeeCashIn = employeeCashInRows.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
 
+  const expenseCashOutRows = await db.Expense.findAll({
+    where: {
+      shop_id: shopId,
+      paid_via: 'cash',
+      status: { [Op.ne]: 'void' },
+      expense_date: { [Op.gte]: dayStart },
+    },
+    attributes: ['amount'],
+    transaction,
+  });
+  const expenseCashOut = expenseCashOutRows.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
+
   const liveCash = Math.round((
     openingCash + cashIn + installmentCashIn + employeeCashIn
-    - cashOut - supplierCashOut - employeeCashOut
+    - cashOut - supplierCashOut - employeeCashOut - expenseCashOut
   ) * 100) / 100;
 
   return { liveCash, openingCash, session };

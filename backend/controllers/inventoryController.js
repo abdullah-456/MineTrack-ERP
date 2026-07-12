@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { applySupplierStockPayment } = require('../utils/supplierPayment');
+const { postVoucher } = require('../utils/postVoucher');
 
 const stockIncludes = [
   {
@@ -298,6 +299,24 @@ exports.receiveStock = async (req, res) => {
       } catch (err) {
         await transaction.rollback();
         return res.status(err.statusCode || 500).json({ message: err.message || 'Internal server error' });
+      }
+    } else {
+      // No supplier attached — stock is still being introduced into the
+      // business, so it still needs a voucher (Dr Stock, Cr Capital & Equity)
+      // rather than a silent, unaccounted stock bump. Mirrors the same
+      // fallback in productController.create for new-product initial stock.
+      const stockValue = Math.round(unitCost * qty * 100) / 100;
+      if (stockValue > 0) {
+        await postVoucher(shopId, {
+          type: 'journal',
+          date: new Date(),
+          narration: `Stock received — ${product.name}`,
+          createdBy: req.user.id,
+          lines: [
+            { accountCode: '05-STOCK', debit: stockValue },
+            { accountCode: '01-CAPITAL', credit: stockValue },
+          ],
+        }, transaction);
       }
     }
 

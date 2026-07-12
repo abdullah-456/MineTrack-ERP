@@ -7,7 +7,7 @@ import {
   TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
   Zap, Bell, Search, ChevronLeft, Sun, Moon, Globe, Check,
-  Store, GitBranch, Crown, RotateCcw } from 'lucide-react';
+  Store, GitBranch, Crown, RotateCcw, Receipt } from 'lucide-react';
 
 // ── Nav structure for regular shop users (uses translation keys) ─
 const shopNavGroups = [
@@ -49,6 +49,7 @@ const shopNavGroups = [
       { to: '/accounting/chart-of-accounts', icon: BookOpen,      labelKey: 'chartOfAccounts', module: 'accounting', action: 'read' },
       { to: '/accounting/vouchers/new',      icon: FileBarChart2, labelKey: 'voucherEntry',    module: 'accounting', action: 'create' },
       { to: '/accounting/general-ledger',    icon: TrendingUp,    labelKey: 'generalLedger',   module: 'accounting', action: 'read' },
+      { to: '/expenses',                     icon: Receipt,       labelKey: 'expenses',        module: 'expenses',   action: 'read' },
     ]
   },
   {
@@ -71,6 +72,8 @@ const shopNavGroups = [
     items: [
       { to: '/admin/users',      icon: ShieldCheck,   labelKey: 'users',            module: 'users', action: 'read' },
       { to: '/admin/audit-log',  icon: FileBarChart2, labelKey: 'auditLog',         module: 'users', action: 'read' },
+      { to: '/admin/board-of-directors', icon: Crown, labelKey: 'boardOfDirectors', module: 'board_directors', action: 'read' },
+      { to: '/admin/branches', icon: GitBranch, labelKey: 'branches', module: 'branches', action: 'read' },
     ]
   },
 ];

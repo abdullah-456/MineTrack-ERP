@@ -20,6 +20,9 @@ import ShopDetail          from './pages/superadmin/ShopDetail';
 // Admin pages
 import UserManagement from './pages/admin/UserManagement';
 import AuditLog from './pages/admin/AuditLog';
+import BoardOfDirectors from './pages/admin/BoardOfDirectors';
+import Branches from './pages/admin/Branches';
+import Expenses from './pages/expenses/Expenses';
 
 // Business modules
 import Suppliers  from './pages/suppliers/Suppliers';
@@ -105,6 +108,10 @@ function App() {
                 element={<ProtectedRoute module="users" action="read"><ComingSoon title="Roles & Permissions" /></ProtectedRoute>} />
               <Route path="/admin/audit-log"
                 element={<ProtectedRoute module="users" action="read"><AuditLog /></ProtectedRoute>} />
+              <Route path="/admin/board-of-directors"
+                element={<ProtectedRoute module="board_directors" action="read"><BoardOfDirectors /></ProtectedRoute>} />
+              <Route path="/admin/branches"
+                element={<ProtectedRoute module="branches" action="read"><Branches /></ProtectedRoute>} />
 
               {/* POS & Sales */}
               <Route path="/pos"
@@ -171,6 +178,8 @@ function App() {
                 element={<ProtectedRoute module="accounting" action="create"><ComingSoon title="New Voucher" /></ProtectedRoute>} />
               <Route path="/accounting/general-ledger"
                 element={<ProtectedRoute module="accounting" action="read"><GeneralLedger /></ProtectedRoute>} />
+              <Route path="/expenses"
+                element={<ProtectedRoute module="expenses" action="read"><Expenses /></ProtectedRoute>} />
 
               {/* Reports */}
               <Route path="/reports/trial-balance"

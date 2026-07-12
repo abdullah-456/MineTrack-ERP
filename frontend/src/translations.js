@@ -206,6 +206,29 @@ const translations = {
     branchAddress:    'Branch Address',
     defaultBranch:    'Default',
     createBranch:     'Create Branch',
+    branchesSub:      'Manage branch/warehouse locations for this shop',
+    editBranch:       'Edit Branch',
+    noBranches:       'No branches found',
+    branchCreated:    'Branch created',
+    branchUpdated:    'Branch updated',
+    branchDisabled:   'Branch disabled',
+    branchEnabled:    'Branch enabled',
+    confirmDisableBranch: 'Are you sure you want to disable this branch? It will no longer be selectable for new stock, sales or staff assignments.',
+    disable:          'Disable',
+
+    // ── Expenses ─────────────────────────────────────────────
+    expenses:             'Expenses',
+    expensesSub:          'Record and track business expenses (cash/bank)',
+    addExpense:           'Add Expense',
+    editExpense:          'Edit Expense',
+    searchExpenses:       'Search by category or description...',
+    noExpenses:           'No expenses found',
+    expenseCreated:       'Expense recorded',
+    expenseUpdated:       'Expense updated',
+    expenseDeleted:       'Expense deleted',
+    confirmDeleteExpense: 'Are you sure you want to delete this expense? A reversing entry will be posted to the General Ledger.',
+    expenseDateTime:      'Date & Time',
+    description:          'Description',
 
     // ── Common ───────────────────────────────────────────────
     save:     'Save',
@@ -570,6 +593,18 @@ const translations = {
     path:                         'Path',
     searchAuditLog:               'Search path or details...',
     totalEntries:                 'Total entries',
+
+    // ── Board of Directors ───────────────────────────────────
+    boardOfDirectors:             'Board of Directors',
+    boardOfDirectorsSub:          'Manage board member records',
+    addBoardMember:               'Add Member',
+    editBoardMember:              'Edit Member',
+    searchBoardMembers:           'Search by name, phone or CNIC...',
+    noBoardMembers:               'No board members found',
+    boardMemberCreated:           'Board member added',
+    boardMemberUpdated:           'Board member updated',
+    boardMemberDeleted:           'Board member removed',
+    confirmDeleteBoardMember:     'Are you sure you want to remove this board member?',
   },
 
   ur: {
@@ -778,6 +813,29 @@ const translations = {
     branchAddress: 'شاخ کا پتہ',
     defaultBranch: 'پہلی',
     createBranch:  'شاخ بنائیں',
+    branchesSub:   'اس دکان کے لیے شاخ/گودام کے مقامات کا انتظام کریں',
+    editBranch:    'شاخ میں ترمیم کریں',
+    noBranches:    'کوئی شاخ نہیں ملی',
+    branchCreated: 'شاخ بنا دی گئی',
+    branchUpdated: 'شاخ اپ ڈیٹ ہو گئی',
+    branchDisabled: 'شاخ غیر فعال کر دی گئی',
+    branchEnabled:  'شاخ فعال کر دی گئی',
+    confirmDisableBranch: 'کیا آپ واقعی اس شاخ کو غیر فعال کرنا چاہتے ہیں؟ یہ نئے اسٹاک، سیلز یا عملے کی تفویض کے لیے منتخب نہیں ہو سکے گی۔',
+    disable:       'غیر فعال کریں',
+
+    // ── Expenses ─────────────────────────────────────────────
+    expenses:             'اخراجات',
+    expensesSub:          'کاروباری اخراجات ریکارڈ اور ٹریک کریں (نقد/بینک)',
+    addExpense:           'خرچہ شامل کریں',
+    editExpense:          'خرچہ میں ترمیم کریں',
+    searchExpenses:       'زمرہ یا تفصیل سے تلاش کریں...',
+    noExpenses:           'کوئی خرچہ نہیں ملا',
+    expenseCreated:       'خرچہ ریکارڈ ہو گیا',
+    expenseUpdated:       'خرچہ اپ ڈیٹ ہو گیا',
+    expenseDeleted:       'خرچہ حذف کر دیا گیا',
+    confirmDeleteExpense: 'کیا آپ واقعی اس خرچے کو حذف کرنا چاہتے ہیں؟ جنرل لیجر میں ایک ریورسنگ اندراج پوسٹ کیا جائے گا۔',
+    expenseDateTime:      'تاریخ اور وقت',
+    description:          'تفصیل',
 
     // ── Common ───────────────────────────────────────────────
     save:     'محفوظ کریں',
@@ -1142,6 +1200,18 @@ const translations = {
     path:                         'پاتھ',
     searchAuditLog:               'پاتھ یا تفصیلات تلاش کریں...',
     totalEntries:                 'کل اندراجات',
+
+    // ── Board of Directors ───────────────────────────────────
+    boardOfDirectors:             'بورڈ آف ڈائریکٹرز',
+    boardOfDirectorsSub:          'بورڈ ممبران کے ریکارڈ کا نظم کریں',
+    addBoardMember:               'ممبر شامل کریں',
+    editBoardMember:              'ممبر میں ترمیم کریں',
+    searchBoardMembers:           'نام، فون یا شناختی کارڈ سے تلاش کریں...',
+    noBoardMembers:               'کوئی بورڈ ممبر نہیں ملا',
+    boardMemberCreated:           'بورڈ ممبر شامل کر دیا گیا',
+    boardMemberUpdated:           'بورڈ ممبر اپ ڈیٹ ہو گیا',
+    boardMemberDeleted:           'بورڈ ممبر ہٹا دیا گیا',
+    confirmDeleteBoardMember:     'کیا آپ واقعی اس بورڈ ممبر کو ہٹانا چاہتے ہیں؟',
   },
 };
 

@@ -17,6 +17,8 @@ const employeeLedgerController = require('../controllers/employeeLedgerControlle
 const customerLedgerController = require('../controllers/customerLedgerController');
 const generalLedgerController = require('../controllers/generalLedgerController');
 const auditLogController = require('../controllers/auditLogController');
+const boardMemberController = require('../controllers/boardMemberController');
+const expenseController = require('../controllers/expenseController');
 const auditLog = require('../middleware/auditLog');
 
 router.use(authenticate);
@@ -118,5 +120,19 @@ router.get(   '/balances',               financialSetupController.getLiveBalance
 // Admin — Audit Log
 router.get(   '/admin/audit-log',        authorize('users', 'read'), auditLogController.list);
 router.get(   '/admin/audit-log/modules', authorize('users', 'read'), auditLogController.listModules);
+
+// Board of Directors
+router.get(   '/board-members',     authorize('board_directors', 'read'),   boardMemberController.list);
+router.get(   '/board-members/:id', authorize('board_directors', 'read'),   boardMemberController.get);
+router.post(  '/board-members',     authorize('board_directors', 'create'), boardMemberController.create);
+router.put(   '/board-members/:id', authorize('board_directors', 'update'), boardMemberController.update);
+router.delete('/board-members/:id', authorize('board_directors', 'delete'), boardMemberController.remove);
+
+// Expenses
+router.get(   '/expenses',     authorize('expenses', 'read'),   expenseController.list);
+router.get(   '/expenses/:id', authorize('expenses', 'read'),   expenseController.get);
+router.post(  '/expenses',     authorize('expenses', 'create'), expenseController.create);
+router.put(   '/expenses/:id', authorize('expenses', 'update'), expenseController.update);
+router.delete('/expenses/:id', authorize('expenses', 'delete'), expenseController.remove);
 
 module.exports = router;
