@@ -29,9 +29,14 @@ api.interceptors.response.use(
         localStorage.setItem('accessToken', data.accessToken);
         original.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(original);
-      } catch {
-        localStorage.removeItem('accessToken');
-        window.location.href = '/login';
+      } catch (refreshError) {
+        // Only force a logout when the server actually rejected the refresh
+        // token (expired/invalid) — a network blip or a dev-server restart
+        // has no `.response` at all and shouldn't wipe a valid session.
+        if (refreshError.response?.status === 401 || refreshError.response?.status === 403) {
+          localStorage.removeItem('accessToken');
+          window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);

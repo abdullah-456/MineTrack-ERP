@@ -33,9 +33,14 @@ export function AuthProvider({ children }) {
           setShowCashCheckin(false);
         }
       }
-    } catch {
-      setUser(null);
-      setPermissions([]);
+    } catch (err) {
+      // Only clear the session on a genuine auth rejection (401/403) — a
+      // transient network error or a dev-server restart has no `.response`
+      // and shouldn't log a still-valid session out.
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        setUser(null);
+        setPermissions([]);
+      }
     } finally {
       setLoading(false);
     }

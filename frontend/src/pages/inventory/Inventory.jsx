@@ -61,24 +61,31 @@ export default function Inventory() {
   // Fetch stock levels and products/suppliers
   const fetchData = useCallback(async () => {
     setLoading(true);
-    try {
-      const params = { ...shopParams(), branch_id: branchFilter || undefined };
-      const [sumRes, invRes, prodRes, supRes] = await Promise.all([
-        api.get('/inventory/summary', { params: shopParams() }),
-        api.get('/inventory', { params }),
-        api.get('/products', { params: shopParams() }),
-        api.get('/suppliers', { params: shopParams() }),
-      ]);
-      setSummary(sumRes.data.summary || []);
-      setTotals(sumRes.data.totals || {});
-      setInventory(invRes.data.inventory || []);
-      setProducts(prodRes.data.products || []);
-      setSuppliers(supRes.data.suppliers || []);
-    } catch (e) {
-      error(e.response?.data?.message || t('toastErrorGeneric'));
-    } finally {
-      setLoading(false);
+    // Independent requests (allSettled, not all): a role that can read stock
+    // but not suppliers (e.g. cashier, or any custom role scoped to inventory
+    // only) must still see stock levels — suppliers is only used for the
+    // Receive Stock form's supplier dropdown.
+    const params = { ...shopParams(), branch_id: branchFilter || undefined };
+    const [sumRes, invRes, prodRes, supRes] = await Promise.allSettled([
+      api.get('/inventory/summary', { params: shopParams() }),
+      api.get('/inventory', { params }),
+      api.get('/products', { params: shopParams() }),
+      api.get('/suppliers', { params: shopParams() }),
+    ]);
+    if (sumRes.status === 'fulfilled') {
+      setSummary(sumRes.value.data.summary || []);
+      setTotals(sumRes.value.data.totals || {});
+    } else {
+      error(sumRes.reason?.response?.data?.message || t('toastErrorGeneric'));
     }
+    if (invRes.status === 'fulfilled') {
+      setInventory(invRes.value.data.inventory || []);
+    } else {
+      error(invRes.reason?.response?.data?.message || t('toastErrorGeneric'));
+    }
+    setProducts(prodRes.status === 'fulfilled' ? (prodRes.value.data.products || []) : []);
+    setSuppliers(supRes.status === 'fulfilled' ? (supRes.value.data.suppliers || []) : []);
+    setLoading(false);
   }, [shopParams, branchFilter, error, t]);
 
   // Fetch audit log movements
