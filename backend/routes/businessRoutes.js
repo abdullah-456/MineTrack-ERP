@@ -19,6 +19,8 @@ const generalLedgerController = require('../controllers/generalLedgerController'
 const auditLogController = require('../controllers/auditLogController');
 const boardMemberController = require('../controllers/boardMemberController');
 const expenseController = require('../controllers/expenseController');
+const roleController = require('../controllers/roleController');
+const deletionRequestController = require('../controllers/deletionRequestController');
 const auditLog = require('../middleware/auditLog');
 
 router.use(authenticate);
@@ -134,5 +136,18 @@ router.get(   '/expenses/:id', authorize('expenses', 'read'),   expenseControlle
 router.post(  '/expenses',     authorize('expenses', 'create'), expenseController.create);
 router.put(   '/expenses/:id', authorize('expenses', 'update'), expenseController.update);
 router.delete('/expenses/:id', authorize('expenses', 'delete'), expenseController.remove);
+
+// Roles & Permissions
+router.get(   '/roles',                      authorize('roles', 'read'),   roleController.list);
+router.get(   '/roles/permissions-catalog',  authorize('roles', 'read'),   roleController.permissionsCatalog);
+router.get(   '/roles/:id',                  authorize('roles', 'read'),   roleController.get);
+router.post(  '/roles',                      authorize('roles', 'create'), roleController.create);
+router.put(   '/roles/:id',                  authorize('roles', 'update'), roleController.update);
+router.delete('/roles/:id',                  authorize('roles', 'delete'), roleController.remove);
+
+// Deletion Requests (admin/super_admin only — gated inside the controller)
+router.get(   '/deletion-requests',            deletionRequestController.list);
+router.post(  '/deletion-requests/:id/approve', deletionRequestController.approve);
+router.post(  '/deletion-requests/:id/reject',  deletionRequestController.reject);
 
 module.exports = router;

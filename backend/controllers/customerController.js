@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
+const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 exports.list = async (req, res) => {
   try {
@@ -111,6 +112,11 @@ exports.remove = async (req, res) => {
 
     const customer = await db.Customer.findOne({ where: { id: req.params.id, shop_id: shopId } });
     if (!customer) return res.status(404).json({ message: 'Customer not found' });
+
+    const { pending } = await requestOrAllowDelete({
+      req, res, shopId, module: 'customers', entityId: customer.id, entityLabel: customer.name,
+    });
+    if (pending) return;
 
     await customer.update({ status: 'disabled' });
     return res.json({ message: 'Customer disabled', customer });

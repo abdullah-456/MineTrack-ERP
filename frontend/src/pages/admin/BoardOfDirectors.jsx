@@ -64,8 +64,8 @@ export default function BoardOfDirectors() {
     const ok = await confirm({ title: t('delete'), message: t('confirmDeleteBoardMember'), confirmLabel: t('delete'), cancelLabel: t('cancel') });
     if (!ok) return;
     try {
-      await api.delete(`/board-members/${m.id}`, { params: shopParams() });
-      success(t('boardMemberDeleted'));
+      const res = await api.delete(`/board-members/${m.id}`, { params: shopParams() });
+      success(res.status === 202 ? t('deletionRequestSubmitted') : t('boardMemberDeleted'));
       fetchData();
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));

@@ -288,11 +288,20 @@ exports.resetPassword = async (req, res) => {
 };
 
 // ── GET /api/users/roles — List available roles
+// Roles with shop_id: null are global/system roles (visible everywhere);
+// roles with a shop_id are per-shop custom/forked roles, only visible to
+// that shop — so one shop's custom role never leaks into another shop's
+// user-creation form.
 exports.listRoles = async (req, res) => {
   try {
-    const roles = await db.Role.findAll({ order: [['id', 'ASC']] });
+    const isSuperAdmin = req.user.Role.name === 'super_admin';
+    const where = isSuperAdmin
+      ? {}
+      : { [Op.or]: [{ shop_id: null }, { shop_id: req.user.shop_id }] };
 
-    const filtered = req.user.Role.name === 'super_admin'
+    const roles = await db.Role.findAll({ where, order: [['id', 'ASC']] });
+
+    const filtered = isSuperAdmin
       ? roles
       : roles.filter(r => canAssignRole(req.user.Role.name, r.name));
 

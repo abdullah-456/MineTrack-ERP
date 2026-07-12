@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserCheck, Plus, Search, Edit, Loader2, Calendar, BookOpen } from 'lucide-react';
+import { UserCheck, Plus, Search, Edit, Loader2, Calendar, BookOpen, Trash2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -18,7 +18,7 @@ const EMPTY = {
 export default function Employees() {
   const navigate = useNavigate();
   const { t, lang } = useTheme();
-  const { success, error } = useToast();
+  const { success, error, confirm } = useToast();
   const { shopParams, branches } = useShopApi();
   const isRTL = lang === 'ur';
 
@@ -43,6 +43,18 @@ export default function Employees() {
   }, [shopParams, search, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleDelete = async (emp) => {
+    const ok = await confirm({ title: t('delete'), message: t('confirmDeleteEmployee'), confirmLabel: t('delete'), cancelLabel: t('cancel') });
+    if (!ok) return;
+    try {
+      const res = await api.delete(`/employees/${emp.id}`, { params: shopParams() });
+      success(res.status === 202 ? t('deletionRequestSubmitted') : t('employeeTerminated'));
+      fetchData();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    }
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -136,6 +148,7 @@ export default function Employees() {
                     <div className="flex justify-end gap-1.5">
                       <button type="button" onClick={() => navigate(`/employees/${emp.id}`)} className="icon-btn" title={t('viewLedger') || 'Ledger'}><BookOpen className="w-4 h-4" /></button>
                       <button type="button" onClick={() => { setSelected(emp); setForm({ name: emp.name, designation: emp.designation || '', cnic: emp.cnic || '', phone: emp.phone || '', address: emp.address || '', basic_salary: emp.basic_salary, hire_date: emp.hire_date?.slice(0, 10) || '', branch_id: emp.branch_id, status: emp.status }); setModal('edit'); }} className="icon-btn"><Edit className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => handleDelete(emp)} className="icon-btn text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>

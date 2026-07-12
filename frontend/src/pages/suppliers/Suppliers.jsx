@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Search, Edit, Loader2, Link2, Phone, Mail, BookOpen } from 'lucide-react';
+import { Building2, Plus, Search, Edit, Loader2, Link2, Phone, Mail, BookOpen, Trash2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -17,7 +17,7 @@ const EMPTY = {
 export default function Suppliers() {
   const navigate = useNavigate();
   const { t, lang } = useTheme();
-  const { success, error } = useToast();
+  const { success, error, confirm } = useToast();
   const { shopParams } = useShopApi();
   const isRTL = lang === 'ur';
 
@@ -54,6 +54,18 @@ export default function Suppliers() {
       cnic: s.cnic || '',
     });
     setModal('edit');
+  };
+
+  const handleDelete = async (s) => {
+    const ok = await confirm({ title: t('delete'), message: t('confirmDeleteSupplier'), confirmLabel: t('delete'), cancelLabel: t('cancel') });
+    if (!ok) return;
+    try {
+      const res = await api.delete(`/suppliers/${s.id}`, { params: shopParams() });
+      success(res.status === 202 ? t('deletionRequestSubmitted') : t('supplierDeleted'));
+      fetchData();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    }
   };
 
   const handleSave = async (e) => {
@@ -169,6 +181,9 @@ export default function Suppliers() {
                 </button>
                 <button type="button" onClick={() => openEdit(s)} className="btn-secondary flex-1 flex items-center justify-center gap-2 text-sm">
                   <Edit className="w-3.5 h-3.5" />{t('edit')}
+                </button>
+                <button type="button" onClick={() => handleDelete(s)} className="icon-btn text-red-400" title={t('delete')}>
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>

@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
 const { assertCashAvailable, debitBankAccount, creditBankAccount, computeLiveCash } = require('../utils/cashHelpers');
+const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 const EXPENSE_ACCOUNT_CODE = '07-OPEX';
 
@@ -230,7 +231,35 @@ exports.update = async (req, res) => {
   }
 };
 
+// Reverses the expense's cash/bank + GL effect and marks it void. Shared by
+// the direct-delete path below (admin) and deletionRequestController.approve
+// (everyone else's requests, once an admin approves them).
+async function performVoidExpense(expense, shopId, userId, transaction) {
+  const amt = parseFloat(expense.amount);
+  if (expense.paid_via === 'bank') {
+    await creditBankAccount(shopId, amt, transaction);
+  }
+
+  await postVoucher(shopId, {
+    type: 'journal',
+    date: new Date(),
+    narration: `Reversal: Expense #${expense.id} deleted`,
+    createdBy: userId,
+    lines: [
+      { accountCode: EXPENSE_ACCOUNT_CODE, credit: amt },
+      { accountCode: expense.paid_via === 'bank' ? '05-BANK' : '05-CASH', debit: amt },
+    ],
+  }, transaction);
+
+  expense.status = 'void';
+  await expense.save({ transaction });
+  return expense;
+}
+exports.performVoidExpense = performVoidExpense;
+
 // ── DELETE /api/expenses/:id — void (soft delete) ───────────────────────────
+// Admin/super_admin: voids immediately. Anyone else: submits a pending
+// deletion request instead (see utils/deletionRequest.js).
 exports.remove = async (req, res) => {
   const transaction = await db.sequelize.transaction();
   try {
@@ -241,24 +270,13 @@ exports.remove = async (req, res) => {
     if (!expense) { await transaction.rollback(); return res.status(404).json({ message: 'Expense not found' }); }
     if (expense.status === 'void') { await transaction.rollback(); return res.status(400).json({ message: 'Expense is already void' }); }
 
-    const amt = parseFloat(expense.amount);
-    if (expense.paid_via === 'bank') {
-      await creditBankAccount(shopId, amt, transaction);
-    }
+    const { pending } = await requestOrAllowDelete({
+      req, res, shopId, module: 'expenses', entityId: expense.id,
+      entityLabel: `${expense.category} — Rs. ${expense.amount}`, transaction,
+    });
+    if (pending) { await transaction.commit(); return; }
 
-    await postVoucher(shopId, {
-      type: 'journal',
-      date: new Date(),
-      narration: `Reversal: Expense #${expense.id} deleted`,
-      createdBy: req.user.id,
-      lines: [
-        { accountCode: EXPENSE_ACCOUNT_CODE, credit: amt },
-        { accountCode: expense.paid_via === 'bank' ? '05-BANK' : '05-CASH', debit: amt },
-      ],
-    }, transaction);
-
-    expense.status = 'void';
-    await expense.save({ transaction });
+    await performVoidExpense(expense, shopId, req.user.id, transaction);
 
     await transaction.commit();
     return res.json({ message: 'Expense voided', expense });

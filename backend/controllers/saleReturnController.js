@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
+const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sales Returns & Exchange
@@ -597,31 +598,12 @@ exports.create = async (req, res) => {
   }
 };
 
-// ── POST /api/returns/:id/void ───────────────────────────────────────────────
-// Reverses a completed refund return. Blocked for exchanges (the exchange sale
-// is a live invoice with its own payments; voiding it safely needs a full
-// counter-transaction — handle those by creating an offsetting return instead).
-exports.void = async (req, res) => {
-  const transaction = await db.sequelize.transaction();
-  try {
-    const shopId = requireShopId(req, res);
-    if (!shopId) { await transaction.rollback(); return; }
-
-    const ret = await db.SaleReturn.findOne({
-      where: { id: req.params.id, shop_id: shopId },
-      include: [{ model: db.SaleReturnItem, as: 'ReturnItems' }, { model: db.Sale }],
-      transaction,
-    });
-    if (!ret) { await transaction.rollback(); return res.status(404).json({ message: 'Return not found' }); }
-    if (ret.status === 'void') { await transaction.rollback(); return res.status(400).json({ message: 'Return is already void' }); }
-    if (ret.return_type === 'exchange') {
-      await transaction.rollback();
-      return res.status(400).json({
-        message: 'Exchange returns cannot be voided automatically because a new invoice was issued. Process an offsetting return on the exchange invoice instead.',
-      });
-    }
-
-    // Pull restocked goods back out of stock.
+// Performs the actual reversal (stock pulled back out, store-credit
+// reinstated, GL reversing voucher, status -> void). Shared by the
+// direct-void path below (admin) and deletionRequestController.approve
+// (everyone else's void requests, once an admin approves them).
+async function performVoidReturn(ret, shopId, req, transaction) {
+  // Pull restocked goods back out of stock.
     let voidCogsAmount = 0;
     for (const rl of ret.ReturnItems || []) {
       if (!(rl.restock && rl.condition === 'resellable')) continue;
@@ -691,6 +673,41 @@ exports.void = async (req, res) => {
     }
 
     await ret.update({ status: 'void' }, { transaction });
+    return ret;
+}
+
+// ── POST /api/returns/:id/void ───────────────────────────────────────────────
+// Reverses a completed refund return. Blocked for exchanges (the exchange sale
+// is a live invoice with its own payments; voiding it safely needs a full
+// counter-transaction — handle those by creating an offsetting return instead).
+// Admin/super_admin: voids immediately. Anyone else: submits a pending
+// deletion request instead (see utils/deletionRequest.js).
+exports.void = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) { await transaction.rollback(); return; }
+
+    const ret = await db.SaleReturn.findOne({
+      where: { id: req.params.id, shop_id: shopId },
+      include: [{ model: db.SaleReturnItem, as: 'ReturnItems' }, { model: db.Sale }],
+      transaction,
+    });
+    if (!ret) { await transaction.rollback(); return res.status(404).json({ message: 'Return not found' }); }
+    if (ret.status === 'void') { await transaction.rollback(); return res.status(400).json({ message: 'Return is already void' }); }
+    if (ret.return_type === 'exchange') {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: 'Exchange returns cannot be voided automatically because a new invoice was issued. Process an offsetting return on the exchange invoice instead.',
+      });
+    }
+
+    const { pending } = await requestOrAllowDelete({
+      req, res, shopId, module: 'returns', entityId: ret.id, entityLabel: ret.return_number, transaction,
+    });
+    if (pending) { await transaction.commit(); return; }
+
+    await performVoidReturn(ret, shopId, req, transaction);
     await transaction.commit();
 
     const fresh = await db.SaleReturn.findByPk(ret.id, { include: returnIncludes });
@@ -701,3 +718,5 @@ exports.void = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+exports.performVoidReturn = performVoidReturn;

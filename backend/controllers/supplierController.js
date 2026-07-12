@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
+const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 const supplierIncludes = [
   { model: db.ProductSupplier, as: 'ProductSuppliers', include: [{ model: db.Product, attributes: ['id', 'name', 'sku'] }] },
@@ -123,6 +124,11 @@ exports.remove = async (req, res) => {
 
     const supplier = await db.Supplier.findOne({ where: { id: req.params.id, shop_id: shopId } });
     if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
+
+    const { pending } = await requestOrAllowDelete({
+      req, res, shopId, module: 'suppliers', entityId: supplier.id, entityLabel: supplier.company_name,
+    });
+    if (pending) return;
 
     await supplier.update({ status: 'disabled' });
     return res.json({ message: 'Supplier disabled', supplier });

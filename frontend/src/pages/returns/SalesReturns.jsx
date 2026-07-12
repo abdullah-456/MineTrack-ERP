@@ -337,8 +337,8 @@ export default function SalesReturns() {
     )
       return;
     try {
-      await api.post(`/returns/${ret.id}/void`, {}, { params: shopParams() });
-      success('Return voided');
+      const res = await api.post(`/returns/${ret.id}/void`, {}, { params: shopParams() });
+      success(res.status === 202 ? 'Deletion request submitted for admin approval.' : 'Return voided');
       fetchReturns();
     } catch (e) {
       error(e.response?.data?.message || 'Void failed');

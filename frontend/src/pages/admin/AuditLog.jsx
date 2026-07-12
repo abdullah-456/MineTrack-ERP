@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, Loader2, RefreshCw, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShieldCheck, Loader2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
@@ -12,14 +12,6 @@ const ACTION_BADGE = {
   update: 'badge-yellow',
   delete: 'badge-red',
 };
-
-function StatusPill({ code }) {
-  if (!code) return <span>—</span>;
-  const ok = code >= 200 && code < 300;
-  return (
-    <span className={`badge ${ok ? 'badge-green' : 'badge-red'}`}>{code}</span>
-  );
-}
 
 export default function AuditLog() {
   const { t, lang } = useTheme();
@@ -141,14 +133,16 @@ export default function AuditLog() {
                 <th className="text-start p-4">{t('user') || 'User'}</th>
                 <th className="text-start p-4">{t('actionType') || 'Action'}</th>
                 <th className="text-start p-4">{t('module') || 'Module'}</th>
-                <th className="text-start p-4">{t('path') || 'Path'}</th>
-                <th className="text-start p-4">{t('status') || 'Status'}</th>
-                <th className="text-end p-4">{t('actions') || 'Actions'}</th>
               </tr>
             </thead>
             <tbody>
               {logs.map(log => (
-                <tr key={log.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                <tr
+                  key={log.id}
+                  style={{ borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer' }}
+                  className="hover:bg-white/5"
+                  onClick={() => setDetail(log)}
+                >
                   <td className="p-4 text-xs whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
                     {new Date(log.date).toLocaleString(isRTL ? 'ur-PK' : 'en-PK')}
                   </td>
@@ -158,17 +152,10 @@ export default function AuditLog() {
                   </td>
                   <td className="p-4"><span className={`badge ${ACTION_BADGE[log.action] || 'badge-blue'}`}>{t(log.action) || log.action}</span></td>
                   <td className="p-4 capitalize" style={{ color: 'var(--text-secondary)' }}>{log.module}</td>
-                  <td className="p-4 text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{log.method} {log.path}</td>
-                  <td className="p-4"><StatusPill code={log.status_code} /></td>
-                  <td className="p-4 text-end">
-                    <button type="button" className="icon-btn" title={t('viewDetails') || 'Details'} onClick={() => setDetail(log)}>
-                      <Eye className="w-4 h-4" />
-                    </button>
-                  </td>
                 </tr>
               ))}
               {logs.length === 0 && (
-                <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEntries') || 'No entries found'}</td></tr>
+                <tr><td colSpan={4} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEntries') || 'No entries found'}</td></tr>
               )}
             </tbody>
           </table>

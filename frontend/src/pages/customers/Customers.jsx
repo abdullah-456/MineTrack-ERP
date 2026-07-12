@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Plus, Search, Edit, Loader2, CreditCard, UserCheck, ShoppingBag, Calendar, BookOpen } from 'lucide-react';
+import { Users, Plus, Search, Edit, Loader2, CreditCard, UserCheck, ShoppingBag, Calendar, BookOpen, Trash2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -17,7 +17,7 @@ const EMPTY = {
 
 export default function Customers() {
   const { t, lang } = useTheme();
-  const { success, error } = useToast();
+  const { success, error, confirm } = useToast();
   const { shopParams } = useShopApi();
   const navigate = useNavigate();
   const isRTL = lang === 'ur';
@@ -46,6 +46,18 @@ export default function Customers() {
   }, [shopParams, search, typeFilter, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleDelete = async (c) => {
+    const ok = await confirm({ title: t('delete'), message: t('confirmDeleteCustomer'), confirmLabel: t('delete'), cancelLabel: t('cancel') });
+    if (!ok) return;
+    try {
+      const res = await api.delete(`/customers/${c.id}`, { params: shopParams() });
+      success(res.status === 202 ? t('deletionRequestSubmitted') : t('customerDeleted'));
+      fetchData();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    }
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -166,6 +178,9 @@ export default function Customers() {
                     className="btn-secondary flex-1 flex items-center justify-center gap-2 text-sm"
                   >
                     <BookOpen className="w-3.5 h-3.5" />{t('viewLedger') || 'Ledger'}
+                  </button>
+                  <button type="button" onClick={() => handleDelete(c)} className="icon-btn text-red-400" title={t('delete')}>
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>

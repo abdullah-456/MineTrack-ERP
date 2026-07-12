@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
+const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 const employeeIncludes = [
   { model: db.Branch, attributes: ['id', 'name'] },
@@ -117,6 +118,11 @@ exports.remove = async (req, res) => {
 
     const employee = await db.Employee.findOne({ where: { id: req.params.id, shop_id: shopId } });
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
+
+    const { pending } = await requestOrAllowDelete({
+      req, res, shopId, module: 'employees', entityId: employee.id, entityLabel: employee.name,
+    });
+    if (pending) return;
 
     await employee.update({ status: 'terminated' });
     return res.json({ message: 'Employee terminated', employee });

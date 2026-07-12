@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { applySupplierStockPayment } = require('../utils/supplierPayment');
 const { postVoucher } = require('../utils/postVoucher');
+const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 const productIncludes = [
   { model: db.Category, attributes: ['id', 'name'] },
@@ -244,6 +245,11 @@ exports.remove = async (req, res) => {
 
     const product = await db.Product.findOne({ where: { id: req.params.id, shop_id: shopId } });
     if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    const { pending } = await requestOrAllowDelete({
+      req, res, shopId, module: 'products', entityId: product.id, entityLabel: product.name,
+    });
+    if (pending) return;
 
     await product.update({ status: 'disabled' });
     return res.json({ message: 'Product disabled', product });

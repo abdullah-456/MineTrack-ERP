@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Package, Plus, Search, Edit, Loader2 } from 'lucide-react';
+import { Package, Plus, Search, Edit, Loader2, Trash2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -17,7 +17,7 @@ const EMPTY = {
 
 export default function Products() {
   const { t, lang } = useTheme();
-  const { success, error } = useToast();
+  const { success, error, confirm } = useToast();
   const { shopParams, branches } = useShopApi();
   const isRTL = lang === 'ur';
 
@@ -33,21 +33,25 @@ export default function Products() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    try {
-      const params = { ...shopParams(), search };
-      const [pRes, cRes, sRes] = await Promise.all([
-        api.get('/products', { params }),
-        api.get('/categories', { params: shopParams() }),
-        api.get('/suppliers', { params: shopParams() }),
-      ]);
-      setProducts(pRes.data.products || []);
-      setCategories(cRes.data.categories || []);
-      setSuppliers(sRes.data.suppliers || []);
-    } catch (e) {
-      error(e.response?.data?.message || t('toastErrorGeneric'));
-    } finally {
-      setLoading(false);
+    // Independent requests (allSettled, not all): a role that can read
+    // products but not suppliers (e.g. the built-in cashier role, or any
+    // custom role scoped to inventory only) must still see the product list
+    // — categories/suppliers are only used for the Add/Edit form's dropdowns.
+    const params = { ...shopParams(), search };
+    const [pRes, cRes, sRes] = await Promise.allSettled([
+      api.get('/products', { params }),
+      api.get('/categories', { params: shopParams() }),
+      api.get('/suppliers', { params: shopParams() }),
+    ]);
+    if (pRes.status === 'fulfilled') {
+      setProducts(pRes.value.data.products || []);
+    } else {
+      setProducts([]);
+      error(pRes.reason?.response?.data?.message || t('toastErrorGeneric'));
     }
+    setCategories(cRes.status === 'fulfilled' ? (cRes.value.data.categories || []) : []);
+    setSuppliers(sRes.status === 'fulfilled' ? (sRes.value.data.suppliers || []) : []);
+    setLoading(false);
   }, [shopParams, search, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -70,6 +74,18 @@ export default function Products() {
       payment_status: 'unpaid', paid_amount: '', payment_method: 'cash',
     });
     setModal('edit');
+  };
+
+  const handleDelete = async (p) => {
+    const ok = await confirm({ title: t('delete'), message: t('confirmDeleteProduct'), confirmLabel: t('delete'), cancelLabel: t('cancel') });
+    if (!ok) return;
+    try {
+      const res = await api.delete(`/products/${p.id}`, { params: shopParams() });
+      success(res.status === 202 ? t('deletionRequestSubmitted') : t('productDeleted'));
+      fetchData();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    }
   };
 
   const handleSave = async (e) => {
@@ -181,6 +197,7 @@ export default function Products() {
                   <td className="p-4"><StatusBadge status={p.status} /></td>
                   <td className="p-4 text-end">
                     <button type="button" onClick={() => openEdit(p)} className="icon-btn"><Edit className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => handleDelete(p)} className="icon-btn text-red-400"><Trash2 className="w-4 h-4" /></button>
                   </td>
                 </tr>
               ))}

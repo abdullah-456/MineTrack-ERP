@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
+const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 exports.list = async (req, res) => {
   try {
@@ -93,6 +94,11 @@ exports.remove = async (req, res) => {
 
     const member = await db.BoardMember.findOne({ where: { id: req.params.id, shop_id: shopId } });
     if (!member) return res.status(404).json({ message: 'Board member not found' });
+
+    const { pending } = await requestOrAllowDelete({
+      req, res, shopId, module: 'board_directors', entityId: member.id, entityLabel: member.name,
+    });
+    if (pending) return;
 
     await member.destroy();
     return res.json({ message: 'Board member removed' });
