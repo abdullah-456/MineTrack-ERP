@@ -195,7 +195,7 @@ export default function Suppliers() {
                   </span>
                 )}
                 {!(parseFloat(s.current_payable) > 0) && !(parseFloat(s.credit_balance) > 0) && (
-                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-white/10 text-white/50">
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>
                     {t('paid') || 'Paid'}
                   </span>
                 )}
@@ -209,7 +209,7 @@ export default function Suppliers() {
                     </span>
                   ))}
                   {s.ProductSuppliers.length > 4 && (
-                    <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-white/10 text-white/50">
+                    <span className="px-2 py-0.5 rounded text-[11px] font-medium" style={{ backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>
                       +{s.ProductSuppliers.length - 4} {t('more') || 'more'}
                     </span>
                   )}

@@ -148,16 +148,16 @@ export default function CustomerLedger() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-white/10 gap-4">
+      <div className="flex gap-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         <button
           onClick={() => setTab('history')}
-          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'history' ? 'border-brand-500 text-brand-400' : 'border-transparent text-white/50 hover:text-white'}`}
+          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'history' ? 'border-brand-500 text-brand-400' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
         >
           {t('auditLog') || 'Audit Log'}
         </button>
         <button
           onClick={() => setTab('sales')}
-          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'sales' ? 'border-brand-500 text-brand-400' : 'border-transparent text-white/50 hover:text-white'}`}
+          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'sales' ? 'border-brand-500 text-brand-400' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
         >
           {t('salesHistory') || 'Sales History'}
         </button>

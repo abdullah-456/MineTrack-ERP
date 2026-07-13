@@ -164,7 +164,7 @@ export default function SupplierLedger() {
                 <span>{b.label}</span>
                 <span>{agingTotal > 0 ? Math.round((aging[b.key] / agingTotal) * 100) : 0}%</span>
               </div>
-              <div className="h-2 rounded-full bg-white/10 overflow-hidden mb-1">
+              <div className="h-2 rounded-full bg-track overflow-hidden mb-1">
                 <div className={`h-full ${b.color}`} style={{ width: `${agingTotal > 0 ? (aging[b.key] / agingTotal) * 100 : 0}%` }} />
               </div>
               <p className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{formatPKR(aging[b.key], lang)}</p>
@@ -174,22 +174,22 @@ export default function SupplierLedger() {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-white/10 gap-4">
+      <div className="flex gap-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         <button
           onClick={() => setTab('history')}
-          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'history' ? 'border-amber-500 text-amber-400' : 'border-transparent text-white/50 hover:text-white'}`}
+          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'history' ? 'border-amber-500 text-amber-400' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
         >
           {t('auditLog') || 'Audit Log'}
         </button>
         <button
           onClick={() => setTab('products')}
-          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'products' ? 'border-amber-500 text-amber-400' : 'border-transparent text-white/50 hover:text-white'}`}
+          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'products' ? 'border-amber-500 text-amber-400' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
         >
           {t('productsReceived') || 'Products Received'}
         </button>
         <button
           onClick={() => setTab('linked')}
-          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'linked' ? 'border-amber-500 text-amber-400' : 'border-transparent text-white/50 hover:text-white'}`}
+          className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === 'linked' ? 'border-amber-500 text-amber-400' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
         >
           {t('productsLinked') || 'Products Linked'}
         </button>

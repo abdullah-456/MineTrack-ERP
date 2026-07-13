@@ -320,17 +320,18 @@ export default function Products() {
               const availableCredit = parseFloat(sup?.credit_balance || 0);
               const totalCost = (parseFloat(form.initial_quantity) || 0) * (parseFloat(form.cost_price) || 0);
               return (
-                <div className="rounded-lg border border-white/10 p-3 space-y-3 bg-white/5">
-                  <label className="text-xs font-semibold text-white/70 block">{t('paid') || 'Paid?'}</label>
+                <div className="rounded-lg p-3 space-y-3" style={{ border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-elevated)' }}>
+                  <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>{t('paid') || 'Paid?'}</label>
                   <div className="flex gap-2">
                     {['unpaid', 'paid', 'partial'].map(opt => (
                       <button
                         key={opt}
                         type="button"
                         onClick={() => setForm(f => ({ ...f, payment_status: opt }))}
-                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-colors ${
-                          form.payment_status === opt ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white/60 hover:bg-white/20'
+                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-all ${
+                          form.payment_status === opt ? 'bg-emerald-500 text-white' : ''
                         }`}
+                        style={form.payment_status !== opt ? { backgroundColor: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' } : {}}
                       >
                         {opt === 'unpaid' ? (t('no') || 'No') : opt === 'paid' ? (t('yes') || 'Yes') : (t('partial') || 'Partial')}
                       </button>
@@ -341,7 +342,7 @@ export default function Products() {
                     <div className="grid grid-cols-2 gap-3">
                       {form.payment_status === 'partial' && (
                         <div>
-                          <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('amountPaid') || 'Amount Paid'}</label>
+                          <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('amountPaid') || 'Amount Paid'}</label>
                           <input
                             className="input" type="number" step="0.01" min="0" max={totalCost || undefined}
                             value={form.paid_amount} onChange={setF('paid_amount')}
@@ -349,7 +350,7 @@ export default function Products() {
                         </div>
                       )}
                       <div className={form.payment_status === 'partial' ? '' : 'col-span-2'}>
-                        <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('method') || 'Method'}</label>
+                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'}</label>
                         <select className="input" value={form.payment_method} onChange={setF('payment_method')}>
                           <option value="cash">{t('cash') || 'Cash'}</option>
                           <option value="bank">{t('bank') || 'Bank'}</option>
@@ -361,7 +362,7 @@ export default function Products() {
                     </div>
                   )}
                   {form.payment_status !== 'unpaid' && totalCost > 0 && (
-                    <p className="text-xs text-white/50">{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
+                    <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
                   )}
                 </div>
               );

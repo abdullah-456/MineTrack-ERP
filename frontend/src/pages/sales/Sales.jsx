@@ -335,7 +335,7 @@ export default function Sales() {
                           ? type === 'credit' ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400'
                           : type === 'bank' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
                           : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
-                          : 'hover:bg-white/5'
+                          : 'hover:bg-[var(--bg-hover)]'
                       }`}
                       style={form.sale_type !== type ? { color: 'var(--text-secondary)', borderColor: 'var(--border-subtle)' } : {}}
                     >
@@ -373,8 +373,8 @@ export default function Sales() {
                             onChange={e => updateLine(i, 'quantity', e.target.value)}
                           />
                           <span
-                            className="absolute top-1/2 -translate-y-1/2 text-[10px] font-bold px-1 py-0.5 rounded bg-white/10"
-                            style={{ [isRTL ? 'left' : 'right']: '4px', color: 'var(--text-muted)' }}
+                            className="absolute top-1/2 -translate-y-1/2 text-[10px] font-bold px-1 py-0.5 rounded"
+                            style={{ [isRTL ? 'left' : 'right']: '4px', color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}
                           >
                             {t('kg') || 'kg'}
                           </span>

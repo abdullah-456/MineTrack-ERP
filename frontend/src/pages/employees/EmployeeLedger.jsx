@@ -194,7 +194,7 @@ export default function EmployeeLedger() {
         </span>
       </div>
 
-      <div className="flex border-b border-white/10 gap-4">
+      <div className="flex gap-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         {[
           ['history', t('auditLog') || 'Audit Log'],
           ['payroll', t('payrollHistory') || 'Payroll History'],
@@ -203,7 +203,7 @@ export default function EmployeeLedger() {
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === key ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-white/50 hover:text-white'}`}
+            className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${tab === key ? 'border-cyan-500 text-cyan-400' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
           >
             {label}
           </button>

@@ -393,6 +393,28 @@
   .bg-surface           { background-color: var(--bg-surface); }
   .bg-elevated          { background-color: var(--bg-elevated); }
   .border-subtle        { border-color: var(--border-subtle); }
+  /* ── Theme-safe track for progress bars ─────────────── */
+  .bg-track             { background-color: var(--bg-elevated); }
+}
+
+/* ═══════════════════════════════════════════════════════
+   LIGHT-MODE GLOBAL TABLE ROW HOVER FIXES
+   Override Tailwind's hover:bg-white/5 and bg-white/5
+   classes so they use the proper themed surface in light.
+   ══════════════════════════════════════════════════════ */
+.light .hover\:bg-white\/5:hover,
+.light tr.hover\:bg-white\/5:hover td,
+.light tr.hover\:bg-white\/5:hover {
+  background-color: var(--bg-hover) !important;
+}
+.light .bg-white\/5 {
+  background-color: var(--bg-elevated) !important;
+}
+.light .hover\:bg-white\/10:hover {
+  background-color: var(--bg-hover) !important;
+}
+.light .bg-white\/10 {
+  background-color: var(--bg-elevated) !important;
 }
 
 /* ═══════════════════════════════════════════════════════

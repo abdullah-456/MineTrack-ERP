@@ -98,7 +98,7 @@ export default function Invoices() {
               type="button"
               onClick={() => setTypeFilter(tab.key)}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                typeFilter === tab.key ? 'bg-brand-500 text-white' : 'hover:bg-white/10'
+                typeFilter === tab.key ? 'bg-brand-500 text-white' : 'hover:bg-[var(--bg-hover)]'
               }`}
               style={typeFilter !== tab.key ? { color: 'var(--text-secondary)' } : {}}
             >

@@ -65,7 +65,7 @@ export default function ChartOfAccounts() {
           <tbody>
             {topLevel.map(top => (
               <Fragment key={top.id}>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }} className="bg-white/5">
+                <tr style={{ borderBottom: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-elevated)' }}>
                   <td className="p-4 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{top.account_code}</td>
                   <td className="p-4 font-bold" style={{ color: 'var(--text-primary)' }}>{top.account_name}</td>
                   <td className={`p-4 text-xs uppercase font-bold ${TYPE_COLORS[top.account_type] || ''}`}>{top.account_type}</td>

@@ -338,11 +338,11 @@ export default function Inventory() {
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex border-b border-white/10 gap-4">
+      <div className="flex gap-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         <button
           onClick={() => setActiveTab('levels')}
           className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${
-            activeTab === 'levels' ? 'border-brand-500 text-brand-400' : 'border-transparent text-white/50 hover:text-white'
+            activeTab === 'levels' ? 'border-brand-500 text-brand-400' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           }`}
         >
           {t('currentInventory') || 'Current Inventory'}
@@ -350,7 +350,7 @@ export default function Inventory() {
         <button
           onClick={() => setActiveTab('movements')}
           className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 ${
-            activeTab === 'movements' ? 'border-brand-500 text-brand-400' : 'border-transparent text-white/50 hover:text-white'
+            activeTab === 'movements' ? 'border-brand-500 text-brand-400' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           }`}
         >
           ⏱ {t('auditLog') || 'Stock Movements History'}
@@ -370,7 +370,7 @@ export default function Inventory() {
             </div>
             <button
               onClick={fetchData}
-              className="p-2 hover:bg-white/10 rounded-lg text-white/70 transition-colors"
+              className="icon-btn"
               title="Refresh levels"
             >
               <RefreshCw className="w-4 h-4" />
@@ -402,7 +402,7 @@ export default function Inventory() {
                   </thead>
                   <tbody>
                     {inventory.map(row => (
-                      <tr key={row.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                      <tr key={row.id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s' }} className="hover:bg-[var(--bg-hover)]">
                         <td className="p-4">
                           <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{row.Product?.name}</div>
                           <div className="text-xs font-mono text-emerald-400">{row.Product?.sku}</div>
@@ -465,7 +465,7 @@ export default function Inventory() {
                   </thead>
                   <tbody>
                     {summary.map(row => (
-                      <tr key={row.product_id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                      <tr key={row.product_id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s' }} className="hover:bg-[var(--bg-hover)]">
                         <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{row.name}</td>
                         <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{row.category}</td>
                         <td className="p-4 font-mono text-emerald-400">{row.total_stock} {t('kg') || 'kg'}</td>
@@ -493,7 +493,7 @@ export default function Inventory() {
         <div className="space-y-4">
           <div className="glass-card p-4 flex flex-wrap gap-4 items-end">
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold text-white/50">Filter Product</span>
+              <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Filter Product</span>
               <select
                 className="input max-w-xs"
                 value={movementProductFilter}
@@ -504,7 +504,7 @@ export default function Inventory() {
               </select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold text-white/50">Filter Branch</span>
+              <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Filter Branch</span>
               <select
                 className="input max-w-xs"
                 value={movementBranchFilter}
@@ -526,8 +526,8 @@ export default function Inventory() {
           ) : (
             <div className="glass-card overflow-x-auto">
               <div className="p-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-                <h2 className="font-semibold text-white">Stock Movements History (Audit Log)</h2>
-                <p className="text-xs text-white/50 mt-1">Direct log of stock operations: Purchases, Sales, Transfers, and Adjustments</p>
+                <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Stock Movements History (Audit Log)</h2>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Direct log of stock operations: Purchases, Sales, Transfers, and Adjustments</p>
               </div>
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
@@ -542,21 +542,21 @@ export default function Inventory() {
                 </thead>
                 <tbody>
                   {movements.map(m => (
-                    <tr key={m.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
-                      <td className="p-4 text-xs font-mono text-white/50">
+                    <tr key={m.id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s' }} className="hover:bg-[var(--bg-hover)]">
+                      <td className="p-4 text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
                         {new Date(m.created_at || m.createdAt).toLocaleString('en-PK')}
                       </td>
-                      <td className="p-4 font-semibold text-white">{m.Product?.name}</td>
-                      <td className="p-4 text-white/80">{m.Branch?.name}</td>
+                      <td className="p-4 font-semibold" style={{ color: 'var(--text-primary)' }}>{m.Product?.name}</td>
+                      <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{m.Branch?.name}</td>
                       <td className="p-4">{getMovementBadge(m.ref_type)}</td>
                       <td className={`p-4 text-end font-bold text-base ${m.quantity > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {m.quantity > 0 ? `+${m.quantity}` : m.quantity} {t('kg') || 'kg'}
                       </td>
-                      <td className="p-4 text-end font-bold text-white/80">{m.balance_after} {t('kg') || 'kg'}</td>
+                      <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{m.balance_after} {t('kg') || 'kg'}</td>
                     </tr>
                   ))}
                   {movements.length === 0 && (
-                    <tr><td colSpan={6} className="p-8 text-center text-white/50">No stock movements found</td></tr>
+                    <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>No stock movements found</td></tr>
                   )}
                 </tbody>
               </table>
@@ -570,7 +570,7 @@ export default function Inventory() {
         <Modal title={t('receiveStock')} onClose={() => setModal(null)}>
           <form onSubmit={submitReceive} className="space-y-4">
             <div>
-              <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('product')} *</label>
+              <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('product')} *</label>
               <select
                 className="input"
                 required
@@ -584,7 +584,7 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('userBranch')} *</label>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')} *</label>
                 <select
                   className="input"
                   required
@@ -596,7 +596,7 @@ export default function Inventory() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('supplier')}</label>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('supplier')}</label>
                 <select
                   className="input"
                   value={formReceive.supplier_id}
@@ -610,7 +610,7 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('quantity')} ({t('kg') || 'kg'}) *</label>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('quantity')} ({t('kg') || 'kg'}) *</label>
                 <input
                   className="input"
                   type="number"
@@ -623,7 +623,7 @@ export default function Inventory() {
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">Purchase Unit Cost (PKR) *</label>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Purchase Unit Cost (PKR) *</label>
                 <input
                   className="input"
                   type="number"
@@ -641,17 +641,18 @@ export default function Inventory() {
               const availableCredit = parseFloat(sup?.credit_balance || 0);
               const totalCost = (parseFloat(formReceive.quantity) || 0) * (parseFloat(formReceive.purchase_price) || 0);
               return (
-                <div className="rounded-lg border border-white/10 p-3 space-y-3 bg-white/5">
-                  <label className="text-xs font-semibold text-white/70 block">{t('paid') || 'Paid?'}</label>
+                <div className="rounded-lg p-3 space-y-3" style={{ border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-elevated)' }}>
+                  <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>{t('paid') || 'Paid?'}</label>
                   <div className="flex gap-2">
                     {['unpaid', 'paid', 'partial'].map(opt => (
                       <button
                         key={opt}
                         type="button"
                         onClick={() => setFormReceive(f => ({ ...f, payment_status: opt }))}
-                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-colors ${
-                          formReceive.payment_status === opt ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white/60 hover:bg-white/20'
+                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-all ${
+                          formReceive.payment_status === opt ? 'bg-emerald-500 text-white' : ''
                         }`}
+                        style={formReceive.payment_status !== opt ? { backgroundColor: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' } : {}}
                       >
                         {opt === 'unpaid' ? (t('no') || 'No') : opt === 'paid' ? (t('yes') || 'Yes') : (t('partial') || 'Partial')}
                       </button>
@@ -662,7 +663,7 @@ export default function Inventory() {
                     <div className="grid grid-cols-2 gap-3">
                       {formReceive.payment_status === 'partial' && (
                         <div>
-                          <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('amountPaid') || 'Amount Paid'}</label>
+                          <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('amountPaid') || 'Amount Paid'}</label>
                           <input
                             className="input" type="number" step="0.01" min="0" max={totalCost || undefined}
                             value={formReceive.paid_amount}
@@ -671,7 +672,7 @@ export default function Inventory() {
                         </div>
                       )}
                       <div className={formReceive.payment_status === 'partial' ? '' : 'col-span-2'}>
-                        <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('method') || 'Method'}</label>
+                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'}</label>
                         <select
                           className="input"
                           value={formReceive.payment_method}
@@ -687,14 +688,14 @@ export default function Inventory() {
                     </div>
                   )}
                   {formReceive.payment_status !== 'unpaid' && totalCost > 0 && (
-                    <p className="text-xs text-white/50">{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
+                    <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
                   )}
                 </div>
               );
             })()}
 
             <div>
-              <label className="text-xs font-semibold text-white/70 mb-1.5 block">Notes / Remarks</label>
+              <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Notes / Remarks</label>
               <textarea
                 className="input min-h-[80px]"
                 value={formReceive.notes}
@@ -718,7 +719,7 @@ export default function Inventory() {
         <Modal title={t('stockAdjustment')} onClose={() => setModal(null)}>
           <form onSubmit={submitAdjust} className="space-y-4">
             <div>
-              <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('product')} *</label>
+              <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('product')} *</label>
               <select
                 className="input"
                 required
@@ -732,7 +733,7 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('userBranch')} *</label>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')} *</label>
                 <select
                   className="input"
                   required
@@ -744,7 +745,7 @@ export default function Inventory() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">Adjustment Direction *</label>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Adjustment Direction *</label>
                 <select
                   className="input"
                   required
@@ -759,7 +760,7 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">{t('quantity')} ({t('kg') || 'kg'}) *</label>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('quantity')} ({t('kg') || 'kg'}) *</label>
                 <input
                   className="input"
                   type="number"
@@ -772,7 +773,7 @@ export default function Inventory() {
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-white/70 mb-1.5 block">Formal Reason *</label>
+                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Formal Reason *</label>
                 <select
                   className="input"
                   required
@@ -790,7 +791,7 @@ export default function Inventory() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-white/70 mb-1.5 block">Audit Notes / Explanations</label>
+              <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Audit Notes / Explanations</label>
               <textarea
                 className="input min-h-[80px]"
                 required={formAdjust.reason === 'Other'}
