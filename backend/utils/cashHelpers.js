@@ -37,27 +37,6 @@ async function computeCashFlow(shopId, fromDate, toDate, { transaction } = {}) {
   });
   const cashIn = cashSalesPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
 
-  const cashInstallments = await db.InstallmentPayment.findAll({
-    where: {
-      method: { [Op.in]: ['cash', 'mobile_wallet'] },
-      payment_date: range,
-    },
-    include: [{
-      model: db.InstallmentSchedule,
-      required: true,
-      include: [{
-        model: db.InstallmentPlan,
-        required: true,
-        include: [{ model: db.Sale, where: { shop_id: shopId }, required: true, attributes: [] }],
-        attributes: [],
-      }],
-      attributes: [],
-    }],
-    attributes: ['amount_paid'],
-    transaction,
-  });
-  const installmentCashIn = cashInstallments.reduce((s, p) => s + parseFloat(p.amount_paid || 0), 0);
-
   // Standalone customer payments (paying down credit, or paying in advance).
   // Sale-time customer payments are already captured via db.Payment above and
   // ALSO mirrored into a CustomerTransaction with related_sale_id set — so we
@@ -137,7 +116,7 @@ async function computeCashFlow(shopId, fromDate, toDate, { transaction } = {}) {
   const expenseCashOut = expenseCashOutRows.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
 
   return round2(
-    cashIn + installmentCashIn + employeeCashIn + customerCashIn
+    cashIn + employeeCashIn + customerCashIn
     - cashOut - supplierCashOut - employeeCashOut - expenseCashOut
   );
 }

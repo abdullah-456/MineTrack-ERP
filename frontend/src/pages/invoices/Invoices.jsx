@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FileText, Search, Eye, Loader2, Download, Receipt } from 'lucide-react';
+import { FileText, Search, Eye, Loader2, Download } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -53,8 +53,6 @@ export default function Invoices() {
         return <span className="badge badge-green">{t('sale') || 'Sale'}</span>;
       case 'purchase':
         return <span className="badge badge-blue">{t('purchase') || 'Purchase'}</span>;
-      case 'installment':
-        return <span className="badge badge-purple">{t('installmentAmount') || 'Installment Payment'}</span>;
       case 'return':
         return <span className="badge bg-rose-500/10 text-rose-400 border border-rose-500/20">{t('returns') || 'Return'}</span>;
       default:
@@ -66,7 +64,6 @@ export default function Invoices() {
     { key: 'all',         label: t('allPlans') || 'All' },
     { key: 'sale',        label: t('sales') || 'Sales' },
     { key: 'purchase',    label: t('navProcurement') || 'Purchases' },
-    { key: 'installment', label: t('installments') || 'Installments' },
     { key: 'return',      label: t('returns') || 'Returns' },
   ];
 
@@ -76,7 +73,7 @@ export default function Invoices() {
         icon={FileText}
         accent="brand"
         title={t('invoices') || 'Invoices'}
-        subtitle={t('invoicesSub') || 'View all transaction invoices (Sales, Procurement, Returns and Installments)'}
+        subtitle={t('invoicesSub') || 'View all transaction invoices (Sales, Procurement and Returns)'}
       />
 
       {/* Filter and Search */}

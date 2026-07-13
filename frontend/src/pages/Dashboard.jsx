@@ -8,10 +8,10 @@ import ReportFilters, { filterByDate } from '../components/ui/ReportFilters';
 import { money } from '../utils/reportExport';
 import api from '../api/axios';
 import {
-  Package, AlertTriangle, CreditCard,
+  Package, AlertTriangle,
   ShoppingCart, DollarSign, ArrowUpRight,
-  ArrowDownRight, Activity, Loader2, RefreshCw,
-  Calendar, Clock, TrendingUp, Users, Wallet, Banknote
+  ArrowDownRight, Loader2, RefreshCw,
+  TrendingUp, Wallet, Banknote
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
@@ -73,7 +73,6 @@ export default function Dashboard() {
   const [weeklyChart, setWeeklyChart] = useState([]);
   const [recentSales, setRecentSales] = useState([]);
   const [lowStock, setLowStock] = useState([]);
-  const [installStats, setInstallStats] = useState({ overdue_count: 0, overdue_amount: 0, active_plans: 0, overdue_items: [] });
   const [balances, setBalances] = useState(null);
   const [inventoryTotals, setInventoryTotals] = useState({});
   const [allExpenses, setAllExpenses] = useState([]);
@@ -86,9 +85,8 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [salesRes, installRes, balancesRes, invRes, expRes] = await Promise.all([
+      const [salesRes, balancesRes, invRes, expRes] = await Promise.all([
         api.get('/sales/stats', { params: shopParams() }),
-        api.get('/installments/stats', { params: shopParams() }).catch(() => ({ data: { overdue_count: 0, overdue_amount: 0, active_plans: 0, overdue_items: [] } })),
         api.get('/balances').catch(() => ({ data: null })),
         api.get('/inventory/summary', { params: shopParams() }).catch(() => ({ data: { totals: {} } })),
         api.get('/expenses', { params: shopParams() }).catch(() => ({ data: { expenses: [] } })),
@@ -112,7 +110,6 @@ export default function Dashboard() {
         stock: row.quantity_on_hand,
         reorder: row.Product?.reorder_level || 5,
       })));
-      setInstallStats(installRes.data || { overdue_count: 0, overdue_amount: 0, active_plans: 0, overdue_items: [] });
       if (balancesRes.data) setBalances(balancesRes.data);
       setLastUpdated(d.fetched_at ? new Date(d.fetched_at) : new Date());
     } catch {
@@ -189,14 +186,6 @@ export default function Dashboard() {
           { label: t('expenseCount') || 'Expense Entries', value: String(rangedExpenses.length) },
         ],
       },
-      {
-        heading: t('installments') || 'Installments',
-        rows: [
-          { label: t('activePlan') || 'Active Plans', value: String(installStats.active_plans || 0) },
-          { label: t('overdueInstallments') || 'Overdue Installments', value: String(installStats.overdue_count || 0) },
-          { label: t('totalOutstanding') || 'Overdue Amount', value: money(installStats.overdue_amount) },
-        ],
-      },
     ],
     tables: [
       {
@@ -218,16 +207,6 @@ export default function Dashboard() {
           { header: t('reorderLevel') || 'Reorder', render: r => r.reorder, align: 'right', width: 1 },
         ],
         rows: lowStock,
-      },
-      {
-        heading: t('overdueInstallments') || 'Overdue Installments',
-        columns: [
-          { header: t('customer') || 'Customer', render: r => r.customer_name, width: 1.8 },
-          { header: t('invoiceNo') || 'Invoice #', render: r => r.invoice_number, width: 1.3 },
-          { header: t('overdue') || 'Overdue Slots', render: r => r.overdue_slots, align: 'right', width: 1 },
-          { header: t('amount') || 'Amount', render: r => money(r.overdue_amount), align: 'right', width: 1.1 },
-        ],
-        rows: installStats.overdue_items || [],
       },
     ],
     signature: true,
@@ -331,17 +310,10 @@ export default function Dashboard() {
           title={t('lowStockItems')} value={stats.low_stock_count || 0}
           icon={AlertTriangle} color="bg-red-500/20 text-red-500"
         />
-        <StatCard
-          title={t('overdueInstallments')}
-          value={installStats.overdue_count || 0}
-          sub={installStats.overdue_amount > 0 ? `Rs. ${Math.round(installStats.overdue_amount).toLocaleString()} ${t('totalOutstanding')}` : null}
-          icon={Calendar}
-          color={installStats.overdue_count > 0 ? 'bg-amber-500/20 text-amber-500' : 'bg-purple-500/20 text-purple-500'}
-        />
       </div>
 
       {/* Second Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <StatCard
           title={t('weekSales')}
           value={stats.week_sales_total || 0}
@@ -349,20 +321,6 @@ export default function Dashboard() {
           sub={`${stats.week_orders || 0} ${t('ordersThisWeek')}`}
           icon={TrendingUp}
           color="bg-indigo-500/20 text-indigo-500"
-        />
-        <StatCard
-          title={t('installments')}
-          value={installStats.active_plans || 0}
-          sub={t('activePlan')}
-          icon={CreditCard}
-          color="bg-purple-500/20 text-purple-500"
-        />
-        <StatCard
-          title={t('totalOutstanding')}
-          value={Math.round(installStats.overdue_amount || 0)}
-          prefix="Rs. "
-          icon={Activity}
-          color="bg-orange-500/20 text-orange-500"
         />
       </div>
 
@@ -444,39 +402,6 @@ export default function Dashboard() {
                   <span className={`badge ${sale.status === 'completed' ? 'badge-green' : 'badge-yellow'}`}>
                     {t(sale.status)}
                   </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Overdue Installments */}
-        <div className="glass-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>{t('overdueInstallments')}</h2>
-            <Link to="/installments" className="text-purple-400 hover:text-purple-300 text-xs font-medium transition-colors">
-              {t('viewAll')}
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {installStats.overdue_items?.length === 0 ? (
-              <p className="text-sm py-6 text-center" style={{ color: 'var(--text-muted)' }}>✓ {t('noInstallments')}</p>
-            ) : (installStats.overdue_items || []).map((item, i) => (
-              <div key={i}
-                className="flex items-center gap-3 p-3 rounded-xl border border-amber-500/10 hover:border-amber-500/30 transition-all"
-                style={{ backgroundColor: 'var(--bg-elevated)' }}
-              >
-                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                  <Clock className="w-3.5 h-3.5 text-amber-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{item.customer_name}</p>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {item.invoice_number} &bull; {item.overdue_slots} {t('overdue')}
-                  </p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="text-sm font-semibold text-amber-400">Rs. {Math.round(item.overdue_amount).toLocaleString()}</p>
                 </div>
               </div>
             ))}

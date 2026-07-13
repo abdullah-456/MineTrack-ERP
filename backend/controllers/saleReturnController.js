@@ -274,9 +274,9 @@ exports.create = async (req, res) => {
     if (return_type === 'refund') {
       refundAmount = returnedValue;
 
-      if (sale.sale_type === 'credit' || sale.sale_type === 'installment') {
+      if (sale.sale_type === 'credit') {
         // The returned value first reduces what the customer still owes.
-        // Any EXCESS (e.g. a full return where a down payment was already paid
+        // Any EXCESS (e.g. a full return where a payment was already paid
         // in cash) is refunded in cash.
         effectiveRefundMethod = 'store_credit';
         if (sale.customer_id) {
@@ -308,35 +308,6 @@ exports.create = async (req, res) => {
           refundAmount = 0;
         }
 
-        // Reduce outstanding installment schedule from the LAST unpaid slot backwards.
-        if (sale.sale_type === 'installment') {
-          const plan = await db.InstallmentPlan.findOne({ where: { sale_id: sale.id }, transaction });
-          if (plan) {
-            let remaining = returnedValue;
-            const slots = await db.InstallmentSchedule.findAll({
-              where: { plan_id: plan.id, status: { [Op.ne]: 'paid' } },
-              order: [['installment_no', 'DESC']],
-              transaction,
-              lock: transaction.LOCK.UPDATE,
-            });
-            for (const slot of slots) {
-              if (remaining <= 0) break;
-              const due = parseFloat(slot.due_amount);
-              if (remaining >= due) {
-                remaining -= due;
-                await slot.update({ due_amount: 0, status: 'paid' }, { transaction });
-              } else {
-                await slot.update({ due_amount: Math.round((due - remaining) * 100) / 100 }, { transaction });
-                remaining = 0;
-              }
-            }
-            const open = await db.InstallmentSchedule.count({
-              where: { plan_id: plan.id, status: { [Op.ne]: 'paid' }, due_amount: { [Op.gt]: 0 } },
-              transaction,
-            });
-            if (open === 0) await plan.update({ status: 'closed' }, { transaction });
-          }
-        }
       } else if (!['cash', 'card', 'bank', 'mobile_wallet', 'store_credit'].includes(effectiveRefundMethod)) {
         effectiveRefundMethod = 'cash';
       }

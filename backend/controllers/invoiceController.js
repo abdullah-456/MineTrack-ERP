@@ -68,44 +68,6 @@ exports.list = async (req, res) => {
       });
     }
 
-    // 3. Fetch Installment Payments (Installment Receipts)
-    if (type === 'all' || type === 'installment') {
-      const payments = await db.InstallmentPayment.findAll({
-        include: [{
-          model: db.InstallmentSchedule,
-          required: true,
-          include: [{
-            model: db.InstallmentPlan,
-            required: true,
-            include: [
-              { model: db.Sale, where: { shop_id: shopId }, attributes: ['id', 'invoice_number'] },
-              { model: db.Customer, attributes: ['id', 'name'] }
-            ]
-          }]
-        }],
-        order: [['payment_date', 'DESC']],
-        limit,
-      });
-      payments.forEach(p => {
-        const plan = p.InstallmentSchedule?.InstallmentPlan;
-        const customerName = plan?.Customer?.name || 'Registered Customer';
-        const receiptNo = `PAY-${new Date(p.payment_date).toISOString().slice(0, 10).replace(/-/g, '')}-${String(p.id).padStart(4, '0')}`;
-        
-        if (!search || receiptNo.toLowerCase().includes(search.toLowerCase())) {
-          unifiedList.push({
-            id: `installment-${p.id}`,
-            raw_id: p.id,
-            invoice_number: receiptNo,
-            type: 'installment',
-            sale_type: 'Installment Slot',
-            date: p.payment_date,
-            entity_name: customerName,
-            amount: parseFloat(p.amount_paid),
-            status: 'paid',
-          });
-        }
-      });
-    }
 
     // 4. Fetch Sale Returns (Return Invoices)
     if (type === 'all' || type === 'return') {
@@ -184,23 +146,6 @@ exports.get = async (req, res) => {
       return res.json({ type: 'purchase', details: detail });
     }
 
-    if (type === 'installment') {
-      const payment = await db.InstallmentPayment.findOne({
-        where: { id: rawId },
-        include: [{
-          model: db.InstallmentSchedule,
-          include: [{
-            model: db.InstallmentPlan,
-            include: [
-              { model: db.Sale, where: { shop_id: shopId }, include: [{ model: db.Shop, attributes: ['id', 'name', 'owner_name', 'email', 'phone', 'address', 'logo_url'] }] },
-              { model: db.Customer, attributes: ['id', 'name', 'phone', 'cnic', 'address'] }
-            ]
-          }]
-        }],
-      });
-      if (!payment) return res.status(404).json({ message: 'Invoice not found' });
-      return res.json({ type: 'installment', details: payment });
-    }
 
     if (type === 'return') {
       const saleReturn = await db.SaleReturn.findOne({

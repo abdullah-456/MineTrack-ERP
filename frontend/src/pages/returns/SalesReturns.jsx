@@ -201,10 +201,10 @@ export default function SalesReturns() {
   const loadSales = useCallback(async (q) => {
     setLoadingSales(true);
     try {
-      const params = { ...shopParams(), exclude_type: 'installment' };
+      const params = { ...shopParams() };
       if (q && q.trim()) params.search = q.trim();
       const { data } = await api.get('/sales', { params });
-      setAllSales((data.sales || []).filter((s) => s.sale_type !== 'installment'));
+      setAllSales(data.sales || []);
     } catch (e) {
       error(e.response?.data?.message || 'Failed to load sales');
     } finally {
@@ -758,9 +758,9 @@ export default function SalesReturns() {
 
               {/* Refund method */}
               {mode === 'refund' &&
-                (['credit', 'installment'].includes(returnable.sale.sale_type) ? (
+                (returnable.sale.sale_type === 'credit' ? (
                   <p className="text-xs p-3 rounded-lg" style={inputStyle}>
-                    This was a {returnable.sale.sale_type} sale — the returned value will reduce
+                    This was a credit sale — the returned value will reduce
                     the customer&apos;s outstanding balance; any excess is refunded in cash.
                   </p>
                 ) : (

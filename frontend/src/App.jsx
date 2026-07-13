@@ -42,7 +42,6 @@ import Inventory  from './pages/inventory/Inventory';
 import Customers  from './pages/customers/Customers';
 import Employees  from './pages/employees/Employees';
 import Sales      from './pages/sales/Sales';
-import Installments from './pages/installments/Installments';
 import SalesReturns from './pages/returns/SalesReturns';
 import Invoices          from './pages/invoices/Invoices';
 import InvoicePrintPage  from './pages/invoices/InvoicePrintPage';
@@ -117,9 +116,7 @@ function App() {
               <Route path="/admin/deletion-requests"
                 element={<ProtectedRoute module="users" action="read"><DeletionRequests /></ProtectedRoute>} />
 
-              {/* POS & Sales */}
-              <Route path="/pos"
-                element={<ProtectedRoute module="sales" action="create"><ComingSoon title="Point of Sale" /></ProtectedRoute>} />
+              {/* Sales */}
               <Route path="/sales"
                 element={<ProtectedRoute module="sales" action="read"><Sales /></ProtectedRoute>} />
               <Route path="/sales/:id"
@@ -157,15 +154,11 @@ function App() {
               <Route path="/purchase-invoices"
                 element={<ProtectedRoute module="sales" action="read"><Invoices /></ProtectedRoute>} />
 
-              {/* Customers & Installments */}
+              {/* Customers */}
               <Route path="/customers"
                 element={<ProtectedRoute module="customers" action="read"><Customers /></ProtectedRoute>} />
               <Route path="/customers/:id"
                 element={<ProtectedRoute module="customers" action="read"><CustomerLedger /></ProtectedRoute>} />
-              <Route path="/installments"
-                element={<ProtectedRoute module="installments" action="read"><Installments /></ProtectedRoute>} />
-              <Route path="/installments/:planId"
-                element={<ProtectedRoute module="installments" action="read"><Installments /></ProtectedRoute>} />
 
               {/* HR */}
               <Route path="/employees"

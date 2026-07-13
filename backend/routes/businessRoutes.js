@@ -8,7 +8,6 @@ const inventoryController = require('../controllers/inventoryController');
 const customerController = require('../controllers/customerController');
 const employeeController = require('../controllers/employeeController');
 const saleController = require('../controllers/saleController');
-const installmentController = require('../controllers/installmentController');
 const invoiceController = require('../controllers/invoiceController');
 const saleReturnController = require('../controllers/saleReturnController');
 const financialSetupController = require('../controllers/financialSetupController');
@@ -89,12 +88,6 @@ router.get(   '/sales/:id',              authorize('sales', 'read'),   saleContr
 router.post(  '/sales',                  authorize('sales', 'create'), saleController.create);
 router.get(   '/sales/:id/returnable',   authorize('returns', 'read'),  saleReturnController.returnable);
 
-// Installments
-router.get(   '/installments',           authorize('sales', 'read'),   installmentController.list);
-router.get(   '/installments/stats',     authorize('sales', 'read'),   installmentController.stats);
-router.get(   '/installments/:id',       authorize('sales', 'read'),   installmentController.get);
-router.post(  '/installments',           authorize('sales', 'create'), installmentController.createPlan);
-router.post(  '/installments/:id/pay/:scheduleId', authorize('sales', 'create'), installmentController.recordPayment);
 
 // Sales Returns & Exchange
 router.get(   '/returns',                authorize('returns', 'read'),   saleReturnController.list);

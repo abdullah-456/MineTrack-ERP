@@ -15,7 +15,6 @@ const shopNavGroups = [
     labelKey: 'navOperations',
     items: [
       { to: '/dashboard',         icon: LayoutDashboard, labelKey: 'dashboard' },
-      { to: '/pos',               icon: ShoppingCart,    labelKey: 'pointOfSale',    module: 'sales',        action: 'create' },
       { to: '/sales',             icon: TrendingUp,      labelKey: 'sales',          module: 'sales',        action: 'read' },
       { to: '/returns',           icon: RotateCcw,       labelKey: 'salesReturns',   module: 'returns',      action: 'read' },
     ]
@@ -40,7 +39,6 @@ const shopNavGroups = [
     labelKey: 'navCRM',
     items: [
       { to: '/customers',         icon: Users,           labelKey: 'customers',      module: 'customers',    action: 'read' },
-      { to: '/installments',      icon: CreditCard,      labelKey: 'installments',   module: 'installments', action: 'read' },
     ]
   },
   {

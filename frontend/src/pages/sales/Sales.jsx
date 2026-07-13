@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, Plus, Search, Eye, Loader2, Receipt, Calendar, CreditCard, ChevronRight, Printer } from 'lucide-react';
+import { TrendingUp, Plus, Search, Eye, Loader2, Receipt, Printer } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -10,12 +10,6 @@ import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
 
-const EMPTY_INSTALLMENT = {
-  down_payment: '0',
-  number_of_installments: '6',
-  frequency: 'monthly',
-  start_date: new Date().toISOString().slice(0, 10),
-};
 
 export default function Sales() {
   const { t, lang } = useTheme();
@@ -37,7 +31,6 @@ export default function Sales() {
     items: [{ product_id: '', quantity: 1, unit_price: '' }],
     discount: '0', tax: '0', payment_method: 'cash', description: '',
   });
-  const [installmentPlan, setInstallmentPlan] = useState(EMPTY_INSTALLMENT);
   const [reportFilters, setReportFilters] = useState({ from: '', to: '', sale_type: '', customer_id: '' });
 
   const fetchData = useCallback(async () => {
@@ -104,32 +97,6 @@ export default function Sales() {
     subtotal - (parseFloat(form.discount) || 0) + (parseFloat(form.tax) || 0),
   [subtotal, form.discount, form.tax]);
 
-  // Installment preview schedule — mirrors the backend: the customer's existing
-  // advance credit is applied on top of the cash down payment before splitting.
-  const installmentPreview = useMemo(() => {
-    if (form.sale_type !== 'installment') return [];
-    const dp = parseFloat(installmentPlan.down_payment || 0);
-    const cust = customers.find(c => String(c.id) === String(form.customer_id));
-    const advance = cust ? Math.max(0, -parseFloat(cust.current_balance || 0)) : 0;
-    const advanceToDown = Math.min(advance, Math.max(0, total - dp));
-    const principal = total - dp - advanceToDown;
-    if (principal <= 0 || !installmentPlan.number_of_installments) return [];
-    const num = parseInt(installmentPlan.number_of_installments, 10);
-    if (!num || num <= 0) return [];
-    const perInst = Math.round((principal / num) * 100) / 100;
-    const rows = [];
-    for (let i = 1; i <= num; i++) {
-      const d = new Date(installmentPlan.start_date || new Date());
-      if (installmentPlan.frequency === 'monthly') d.setMonth(d.getMonth() + (i - 1));
-      else d.setDate(d.getDate() + (i - 1) * 7);
-      rows.push({
-        no: i,
-        due_date: d.toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK'),
-        amount: i === num ? Math.round((principal - perInst * (num - 1)) * 100) / 100 : perInst,
-      });
-    }
-    return rows;
-  }, [form.sale_type, form.customer_id, customers, installmentPlan, total, lang]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -142,7 +109,7 @@ export default function Sales() {
       }));
       if (!items.length) { error(t('addAtLeastOneItem')); setSaving(false); return; }
       if (!form.branch_id) { error(t('selectBranch')); setSaving(false); return; }
-      if ((form.sale_type === 'installment' || form.sale_type === 'credit') && !form.customer_id) {
+      if (form.sale_type === 'credit' && !form.customer_id) {
         error(t('mustSelectRegisteredCustomer')); setSaving(false); return;
       }
 
@@ -159,14 +126,6 @@ export default function Sales() {
         ...shopParams(),
       };
 
-      if (form.sale_type === 'installment') {
-        payload.installment_plan = {
-          down_payment: parseFloat(installmentPlan.down_payment || 0),
-          number_of_installments: parseInt(installmentPlan.number_of_installments, 10),
-          frequency: installmentPlan.frequency,
-          start_date: installmentPlan.start_date,
-        };
-      }
 
       await api.post('/sales', payload);
       success(t('saleCreated'));
@@ -189,10 +148,9 @@ export default function Sales() {
     }
   };
 
-  const setIP = (k) => (e) => setInstallmentPlan(p => ({ ...p, [k]: e.target.value }));
 
   const saleTypeBadgeColor = {
-    cash: 'badge-green', bank: 'badge-blue', credit: 'badge-yellow', installment: 'badge-purple', card: 'badge-blue',
+    cash: 'badge-green', bank: 'badge-blue', credit: 'badge-yellow', card: 'badge-blue',
   };
 
   // Advance credit the selected customer already holds (negative balance).
@@ -203,7 +161,7 @@ export default function Sales() {
 
   // ── Report: filter the on-screen sales, then feed <ReportActions/> ──────────
   const reportSelects = [
-    { key: 'sale_type', label: t('saleType') || 'Type', options: ['cash', 'bank', 'credit', 'installment', 'card'].map(v => ({ value: v, label: t(v) || v })) },
+    { key: 'sale_type', label: t('saleType') || 'Type', options: ['cash', 'bank', 'credit', 'card'].map(v => ({ value: v, label: t(v) || v })) },
     { key: 'customer_id', label: t('customer') || 'Customer', options: customers.map(c => ({ value: c.id, label: c.name })) },
   ];
   let reportRows = filterByDate(sales, 'sale_date', reportFilters.from, reportFilters.to);
@@ -240,7 +198,6 @@ export default function Sales() {
               type="button"
               onClick={() => {
                 setForm({ customer_id: '', branch_id: branches[0]?.id || '', employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_method: 'cash', description: '' });
-                setInstallmentPlan(EMPTY_INSTALLMENT);
                 setModal('create');
               }}
               className="btn-primary flex items-center gap-2"
@@ -294,9 +251,6 @@ export default function Sales() {
                     <span className={`badge ${saleTypeBadgeColor[s.sale_type] || 'badge-blue'}`}>
                       {t(s.sale_type) || s.sale_type}
                     </span>
-                    {s.sale_type === 'installment' && s.InstallmentPlan && (
-                      <span className="ms-1 text-xs text-purple-400">({s.InstallmentPlan.status})</span>
-                    )}
                     {parseFloat(s.tax) > 0 && (
                       <span className="badge badge-yellow ms-1">{t('tax') || 'Tax'}</span>
                     )}
@@ -331,7 +285,7 @@ export default function Sales() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>
-                  {t('customer')} {(form.sale_type === 'installment' || form.sale_type === 'credit') && <span className="text-red-400">*</span>}
+                  {t('customer')} {form.sale_type === 'credit' && <span className="text-red-400">*</span>}
                 </label>
                 <select className="input" value={form.customer_id} onChange={e => setForm(f => ({ ...f, customer_id: e.target.value }))}>
                   <option value="">{t('walkIn')} ({t('walkin')})</option>
@@ -341,13 +295,13 @@ export default function Sales() {
                     </option>
                   ))}
                 </select>
-                {(form.sale_type === 'installment' || form.sale_type === 'credit') && !form.customer_id && (
+                {form.sale_type === 'credit' && !form.customer_id && (
                   <p className="text-xs text-amber-400 mt-1">⚠ {t('mustSelectRegisteredCustomer')}</p>
                 )}
                 {selectedAdvance > 0 && (
                   <p className="text-xs text-emerald-400 mt-1">
                     {t('advanceAvailable') || 'Advance available'}: {formatPKR(selectedAdvance, lang)}
-                    {(form.sale_type === 'credit' || form.sale_type === 'installment') && (
+                    {form.sale_type === 'credit' && (
                       <span style={{ color: 'var(--text-muted)' }}> — {t('advanceWillApply') || 'will be applied to this sale'}</span>
                     )}
                   </p>
@@ -371,15 +325,14 @@ export default function Sales() {
               <div className="sm:col-span-2">
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('saleType')}</label>
                 <div className="grid grid-cols-4 gap-2">
-                  {['cash', 'bank', 'credit', 'installment'].map(type => (
+                  {['cash', 'bank', 'credit'].map(type => (
                     <button
                       key={type}
                       type="button"
-                      onClick={() => setForm(f => ({ ...f, sale_type: type, payment_method: type === 'installment' ? 'cash' : type }))}
+                      onClick={() => setForm(f => ({ ...f, sale_type: type, payment_method: type }))}
                       className={`py-2 rounded-lg text-sm font-medium border transition-all ${
                         form.sale_type === type
-                          ? type === 'installment' ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
-                          : type === 'credit' ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400'
+                          ? type === 'credit' ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400'
                           : type === 'bank' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400'
                           : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
                           : 'hover:bg-white/5'
@@ -490,76 +443,6 @@ export default function Sales() {
               </div>
             )}
 
-            {/* ── Installment Plan Section ── */}
-            {form.sale_type === 'installment' && (
-              <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.25)' }}>
-                <div className="flex items-center gap-2 mb-1">
-                  <Calendar className="w-4 h-4 text-purple-400" />
-                  <h3 className="font-semibold text-sm text-purple-400">{t('installmentPlan')}</h3>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('downPayment')}</label>
-                    <input className="input" type="number" min="0" max={total} value={installmentPlan.down_payment} onChange={setIP('down_payment')} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('numInstallments')}</label>
-                    <input className="input" type="number" min="1" max="60" value={installmentPlan.number_of_installments} onChange={setIP('number_of_installments')} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('frequency')}</label>
-                    <select className="input" value={installmentPlan.frequency} onChange={setIP('frequency')}>
-                      <option value="monthly">{t('monthly')}</option>
-                      <option value="weekly">{t('weekly')}</option>
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('startDate')}</label>
-                    <input className="input" type="date" value={installmentPlan.start_date} onChange={setIP('start_date')} />
-                  </div>
-                </div>
-
-                {/* Per-installment summary */}
-                {installmentPreview.length > 0 && (
-                  <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(168,85,247,0.08)' }}>
-                    <p className="font-medium text-purple-300 mb-1">
-                      {t('perInstallment')}: <span className="text-white">{formatPKR(installmentPreview[0]?.amount, lang)}</span>
-                    </p>
-                    <p style={{ color: 'var(--text-muted)' }}>
-                      {t('downPayment')}: {formatPKR(installmentPlan.down_payment, lang)} + {installmentPreview.length} × {formatPKR(installmentPreview[0]?.amount, lang)}
-                    </p>
-                  </div>
-                )}
-
-                {/* Schedule Preview */}
-                {installmentPreview.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold mb-2 text-purple-300">{t('installmentPreview')}</p>
-                    <div className="max-h-48 overflow-y-auto rounded-lg" style={{ border: '1px solid var(--border-subtle)' }}>
-                      <table className="w-full text-xs">
-                        <thead style={{ background: 'var(--bg-elevated)' }}>
-                          <tr>
-                            <th className="text-start p-2 font-medium" style={{ color: 'var(--text-muted)' }}>{t('installmentNo')}</th>
-                            <th className="text-start p-2 font-medium" style={{ color: 'var(--text-muted)' }}>{t('dueDate')}</th>
-                            <th className="text-end p-2 font-medium" style={{ color: 'var(--text-muted)' }}>{t('dueAmount')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {installmentPreview.map(row => (
-                            <tr key={row.no} style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                              <td className="p-2 text-purple-400 font-mono">#{row.no}</td>
-                              <td className="p-2" style={{ color: 'var(--text-secondary)' }}>{row.due_date}</td>
-                              <td className="p-2 text-end font-medium text-emerald-400">{formatPKR(row.amount, lang)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
@@ -642,60 +525,6 @@ export default function Sales() {
                 ))}
               </tbody>
             </table>
-
-            {/* Installment Plan Summary in Detail */}
-            {detail.InstallmentPlan && (
-              <div className="rounded-xl p-4" style={{ background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.2)' }}>
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-purple-400" />
-                    <span className="font-semibold text-sm text-purple-400">{t('installmentPlan')}</span>
-                  </div>
-                  <span className={`badge ${detail.InstallmentPlan.status === 'closed' ? 'badge-green' : detail.InstallmentPlan.status === 'defaulted' ? 'badge-red' : 'badge-purple'}`}>
-                    {t(detail.InstallmentPlan.status + 'Plan') || detail.InstallmentPlan.status}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('downPayment')}</p>
-                    <p className="font-medium text-emerald-400">{formatPKR(detail.InstallmentPlan.down_payment, lang)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('numInstallments')}</p>
-                    <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{detail.InstallmentPlan.number_of_installments}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('frequency')}</p>
-                    <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{t(detail.InstallmentPlan.frequency)}</p>
-                  </div>
-                </div>
-                {detail.InstallmentPlan.InstallmentSchedules?.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>{t('installmentPreview')}</p>
-                    <div className="max-h-36 overflow-y-auto rounded-lg" style={{ border: '1px solid var(--border-subtle)' }}>
-                      <table className="w-full text-xs">
-                        <tbody>
-                          {detail.InstallmentPlan.InstallmentSchedules.map(s => (
-                            <tr key={s.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                              <td className="p-1.5 text-purple-400 font-mono">#{s.installment_no}</td>
-                              <td className="p-1.5" style={{ color: 'var(--text-secondary)' }}>
-                                {new Date(s.due_date).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK')}
-                              </td>
-                              <td className="p-1.5 text-end text-emerald-400">{formatPKR(s.due_amount, lang)}</td>
-                              <td className="p-1.5 text-end">
-                                <span className={`badge text-xs ${s.status === 'paid' ? 'badge-green' : s.status === 'overdue' ? 'badge-red' : 'badge-yellow'}`}>
-                                  {t(s.status)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </Modal>
       )}

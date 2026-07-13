@@ -11,7 +11,6 @@ module.exports = (sequelize, DataTypes) => {
       Sale.hasMany(models.SaleItem,   { foreignKey: 'sale_id', as: 'SaleItems' });
       Sale.hasMany(models.Payment,    { foreignKey: 'sale_id', as: 'Payments' });
       Sale.hasMany(models.SaleReturn, { foreignKey: 'sale_id' });
-      Sale.hasOne(models.InstallmentPlan, { foreignKey: 'sale_id' });
     }
   }
   Sale.init({
@@ -50,7 +49,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     sale_type: {
-      type: DataTypes.ENUM('cash', 'card', 'bank', 'credit', 'installment'),
+      type: DataTypes.ENUM('cash', 'card', 'bank', 'credit'),
       allowNull: false
     },
     subtotal: {

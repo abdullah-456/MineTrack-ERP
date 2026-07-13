@@ -46,7 +46,7 @@ module.exports = {
     // ──────────────────────────────────────────────────────────────
     const modules = [
       'users', 'shops', 'suppliers', 'products', 'inventory', 'purchases',
-      'sales', 'installments', 'customers', 'employees', 'accounting', 'reports',
+      'sales', 'customers', 'employees', 'accounting', 'reports',
       'returns'
     ];
     const actions = ['create', 'read', 'update', 'delete', 'approve'];
@@ -97,7 +97,6 @@ module.exports = {
       // Cashier — sales + basic access
       if (p.module === 'sales'        && ['create', 'read'].includes(p.action)) rolePermissions.push({ role_id: roleMap['user'], permission_id: p.id });
       if (p.module === 'returns'      && ['create', 'read'].includes(p.action)) rolePermissions.push({ role_id: roleMap['user'], permission_id: p.id });
-      if (p.module === 'installments' && p.action === 'create')                  rolePermissions.push({ role_id: roleMap['user'], permission_id: p.id });
       if (p.module === 'customers'    && ['create', 'read'].includes(p.action)) rolePermissions.push({ role_id: roleMap['user'], permission_id: p.id });
       if (['products', 'inventory'].includes(p.module) && p.action === 'read')   rolePermissions.push({ role_id: roleMap['user'], permission_id: p.id });
       if (p.module === 'reports'      && p.action === 'read')                    rolePermissions.push({ role_id: roleMap['user'], permission_id: p.id });

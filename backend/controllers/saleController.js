@@ -10,14 +10,10 @@ const saleIncludes = [
   { model: db.Employee, attributes: ['id', 'name', 'designation'] },
   { model: db.SaleItem, as: 'SaleItems', include: [{ model: db.Product, attributes: ['id', 'name', 'sku'] }] },
   { model: db.Payment, as: 'Payments' },
-  {
-    model: db.InstallmentPlan,
-    include: [{ model: db.InstallmentSchedule, foreignKey: 'plan_id' }],
-  },
 ];
 
 function mapPaymentMethod(method) {
-  const allowed = ['cash', 'card', 'bank', 'mobile_wallet', 'credit', 'installment'];
+  const allowed = ['cash', 'card', 'bank', 'mobile_wallet', 'credit'];
   if (allowed.includes(method)) return method;
   return 'cash';
 }
@@ -158,16 +154,10 @@ exports.create = async (req, res) => {
       installment_plan, description,
     } = req.body;
 
-    // Installment and credit sales require a registered customer
-    if ((sale_type === 'installment' || sale_type === 'credit') && !customer_id) {
+    // Credit sales require a registered customer
+    if (sale_type === 'credit' && !customer_id) {
       await transaction.rollback();
-      return res.status(400).json({ message: 'A registered customer is required for installment and credit sales' });
-    }
-
-    // Installment sales need the plan object
-    if (sale_type === 'installment' && !installment_plan) {
-      await transaction.rollback();
-      return res.status(400).json({ message: 'installment_plan is required for installment sales' });
+      return res.status(400).json({ message: 'A registered customer is required for credit sales' });
     }
 
     if (!items || !items.length) {
@@ -335,13 +325,10 @@ exports.create = async (req, res) => {
     cogsTotal = Math.round(cogsTotal * 100) / 100;
 
     // Determine how much was actually paid now.
-    // - installment: the down payment
     // - credit: whatever the customer paid up front (default 0), clamped to [0, total]
     // - cash/card: full total unless an explicit amount is given
     let payAmount;
-    if (sale_type === 'installment') {
-      payAmount = parseFloat(installment_plan?.down_payment || 0);
-    } else if (sale_type === 'credit') {
+    if (sale_type === 'credit') {
       payAmount = payment_amount !== undefined && payment_amount !== null ? parseFloat(payment_amount) : 0;
     } else {
       payAmount = payment_amount !== undefined && payment_amount !== null ? parseFloat(payment_amount) : total;
@@ -349,7 +336,7 @@ exports.create = async (req, res) => {
     if (!(payAmount >= 0)) payAmount = 0;
     if (payAmount > total) payAmount = total;
 
-    const finalPaymentMethod = mapPaymentMethod(payment_method || (sale_type === 'installment' ? 'cash' : sale_type) || 'cash');
+    const finalPaymentMethod = mapPaymentMethod(payment_method || sale_type || 'cash');
     await db.Payment.create({
       sale_id: sale.id,
       amount: payAmount,
@@ -377,70 +364,6 @@ exports.create = async (req, res) => {
     const arDebitAmount = Math.round((total - payAmount) * 100) / 100;
     const revenueCreditAmount = total;
 
-    // Create installment plan if this is an installment sale
-    if (sale_type === 'installment' && installment_plan) {
-      const {
-        down_payment: dp, number_of_installments, frequency, start_date,
-      } = installment_plan;
-
-      const numInstCheck = parseInt(number_of_installments, 10);
-      if (!Number.isInteger(numInstCheck) || numInstCheck < 1) {
-        await transaction.rollback();
-        return res.status(400).json({ message: 'number_of_installments must be an integer >= 1' });
-      }
-      if (!start_date) {
-        await transaction.rollback();
-        return res.status(400).json({ message: 'start_date is required for installment plans' });
-      }
-
-      // Real cash down payment, plus any advance credit the customer already
-      // holds — the advance is applied on top of the cash down so the scheduled
-      // principal reflects what the customer still genuinely owes. This keeps the
-      // installment schedule in step with the customer's running balance (which
-      // already nets the advance via the sale charge below).
-      const realDown = parseFloat(dp || 0);
-      const advanceToDown = Math.round(Math.min(customerAdvanceAvailable, Math.max(0, total - realDown)) * 100) / 100;
-      const effectiveDown = Math.round((realDown + advanceToDown) * 100) / 100;
-
-      const plan = await db.InstallmentPlan.create({
-        sale_id: sale.id,
-        customer_id,
-        total_amount: total,
-        down_payment: effectiveDown,
-        number_of_installments: parseInt(number_of_installments, 10),
-        frequency: frequency || 'monthly',
-        start_date: new Date(start_date),
-        status: (total - effectiveDown) <= 0 ? 'closed' : 'active',
-      }, { transaction });
-
-      // Auto-generate schedule (no markup/interest — installments split the
-      // remaining principal evenly).
-      const principal = total - effectiveDown;
-      const numInst = parseInt(number_of_installments, 10);
-      const perInstallment = Math.round((principal / numInst) * 100) / 100;
-
-      const scheduleRows = [];
-      for (let i = 1; i <= numInst; i++) {
-        const d = new Date(start_date);
-        if ((frequency || 'monthly') === 'monthly') d.setMonth(d.getMonth() + (i - 1));
-        else d.setDate(d.getDate() + (i - 1) * 7);
-
-        const dueAmount = i === numInst
-          ? Math.round((principal - perInstallment * (numInst - 1)) * 100) / 100
-          : perInstallment;
-
-        scheduleRows.push({
-          plan_id: plan.id,
-          installment_no: i,
-          due_date: d,
-          due_amount: dueAmount,
-          // Slots fully covered by the advance carry nothing to collect.
-          status: dueAmount <= 0 ? 'paid' : 'pending',
-          late_fee: 0,
-        });
-      }
-      await db.InstallmentSchedule.bulkCreate(scheduleRows, { transaction });
-    }
 
     // Ledger trail for the customer: EVERY sale tied to a registered customer
     // gets a full-value charge entry plus (if anything was paid now) a payment
@@ -462,7 +385,7 @@ exports.create = async (req, res) => {
         if (total > 0) {
           await db.CustomerTransaction.create({
             shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
-            type: sale_type === 'installment' ? 'installment_charge' : 'sale_charge',
+            type: 'sale_charge',
             amount: total, method: null,
             related_sale_id: sale.id, notes: `Sale ${invoice_number}`, created_by: req.user.id,
           }, { transaction });

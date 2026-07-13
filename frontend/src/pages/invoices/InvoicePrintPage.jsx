@@ -299,52 +299,6 @@ function ReturnInvoice({ data }) {
   );
 }
 
-/* ══════════════════════ INSTALLMENT RECEIPT ══════════════════════ */
-function InstallmentReceipt({ data }) {
-  const plan = data.InstallmentSchedule?.InstallmentPlan || {};
-  const schedule = data.InstallmentSchedule || {};
-  const customer = plan.Customer || {};
-  const sale = plan.Sale || {};
-  const shop = sale.Shop || {};
-  const receiptNo = `PAY-${new Date(data.payment_date).toISOString().slice(0, 10).replace(/-/g, '')}-${String(data.id).padStart(4, '0')}`;
-  const lateFee = parseFloat(data.late_fee_charged || 0);
-
-  return (
-    <div className="sheet">
-      <CompanyHeader company={shop} docTitle="Installment Payment Receipt" />
-      <MetaGrid items={[
-        { label: 'Receipt #', value: receiptNo },
-        { label: 'Date', value: fmtDateTime(data.payment_date) },
-        { label: 'Parent Invoice', value: sale.invoice_number || '—' },
-        { label: 'Installment No.', value: `#${schedule.installment_no} of ${plan.number_of_installments || '—'}` },
-        { label: 'Frequency', value: (plan.frequency || '').toUpperCase() },
-        { label: 'Method', value: (data.method || 'cash').toUpperCase() },
-      ]} />
-
-      <PartyBox
-        heading="RECEIVED FROM"
-        name={customer.name || '—'}
-        lines={[customer.phone && `Ph: ${customer.phone}`, customer.cnic && `CNIC: ${customer.cnic}`, customer.address]}
-      />
-
-      <TotalsBox rows={[
-        { label: 'Amount Received', value: fmtPKR(data.amount_paid), bold: true, color: '#047857' },
-        lateFee > 0 && { label: 'Late Fee Charged', value: fmtPKR(lateFee), color: '#b91c1c' },
-      ]} />
-
-      <AmountWords amount={data.amount_paid} />
-
-      {data.notes && (
-        <div style={{ marginTop: 12, border: `1px solid ${LINE}`, padding: '8px 10px', fontSize: 12, color: INK }}>
-          <span style={{ color: INK_SOFT, fontWeight: 700 }}>Note: </span>{data.notes}
-        </div>
-      )}
-
-      <SignatureRow left="Received By" right="Payer Sign & Thumb" />
-      <DocFooter company={shop} />
-    </div>
-  );
-}
 
 /* ══════════════════════ MAIN PAGE ══════════════════════ */
 export default function InvoicePrintPage() {
@@ -407,7 +361,6 @@ export default function InvoicePrintPage() {
       <PrintActionBar />
       {type === 'sale' && <SaleInvoice data={details} />}
       {type === 'purchase' && <PurchaseInvoice data={details} />}
-      {type === 'installment' && <InstallmentReceipt data={details} />}
       {type === 'return' && <ReturnInvoice data={details} />}
     </>
   );
