@@ -72,6 +72,24 @@ exports.completeSetup = async (req, res) => {
   }
 };
 
+// ── GET /api/company ──────────────────────────────────────────────────────────
+// Lightweight company/shop profile for report & document headers (name, owner,
+// contact + logo). Scoped to the caller's shop; super-admins may pass ?shop_id.
+exports.getCompany = async (req, res) => {
+  const shopId = req.query.shop_id || req.user.shop_id;
+  if (!shopId) return res.status(403).json({ message: 'No shop context' });
+  try {
+    const shop = await db.Shop.findByPk(shopId, {
+      attributes: ['id', 'name', 'owner_name', 'email', 'phone', 'address', 'logo_url'],
+    });
+    if (!shop) return res.status(404).json({ message: 'Shop not found' });
+    return res.json({ company: shop });
+  } catch (error) {
+    console.error('getCompany error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 // ── GET /api/bank-accounts ────────────────────────────────────────────────────
 // Returns all active bank accounts for the shop.
 exports.listBankAccounts = async (req, res) => {
@@ -90,7 +108,10 @@ exports.listBankAccounts = async (req, res) => {
 };
 
 // ── POST /api/cash-sessions ───────────────────────────────────────────────────
-// Records the daily opening cash amount. One per shop per day.
+// Sets/adjusts today's opening cash amount. Opening cash now carries forward
+// automatically from yesterday's closing balance, so this is only used when an
+// admin needs to correct today's opening (e.g. a cash-count discrepancy). If a
+// session already exists for today, its opening is overwritten.
 exports.recordCashSession = async (req, res) => {
   const shopId = req.user.shop_id;
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
@@ -103,13 +124,16 @@ exports.recordCashSession = async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
 
   try {
-    // Check if already recorded today
     const existing = await db.CashSession.findOne({
       where: { shop_id: shopId, session_date: today }
     });
 
     if (existing) {
-      return res.status(409).json({ message: 'Cash session already recorded for today' });
+      await existing.update({
+        opening_cash: parseFloat(opening_cash) || 0,
+        notes:        notes?.trim() ?? existing.notes,
+      });
+      return res.json({ session: existing });
     }
 
     const session = await db.CashSession.create({
@@ -122,10 +146,6 @@ exports.recordCashSession = async (req, res) => {
 
     return res.status(201).json({ session });
   } catch (error) {
-    // Handle unique constraint violation gracefully
-    if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(409).json({ message: 'Cash session already recorded for today' });
-    }
     console.error('recordCashSession error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
@@ -188,7 +208,7 @@ exports.getLiveBalances = async (req, res) => {
     // in, minus today's refunds/supplier payments/employee payments out) is
     // computed once in utils/cashHelpers so every cash-moving controller
     // (this dashboard, supplier ledger, employee ledger) agrees on the number.
-    const { liveCash, openingCash, session } = await computeLiveCash(shopId);
+    const { liveCash, openingCash, hasBaseline } = await computeLiveCash(shopId);
 
     // ── Bank balance = sum of all active bank_accounts for the shop ───────
     const bankAccounts = await db.BankAccount.findAll({
@@ -206,7 +226,7 @@ exports.getLiveBalances = async (req, res) => {
         balance: parseFloat(a.current_balance || 0),
       })),
       opening_cash:       openingCash,
-      session_exists:     !!session,
+      session_exists:     hasBaseline,
       as_of:              new Date().toISOString(),
     });
   } catch (error) {

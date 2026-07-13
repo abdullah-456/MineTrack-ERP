@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { useShopApi, formatPKR } from '../hooks/useShopApi';
+import { useShopApi } from '../hooks/useShopApi';
+import ReportActions from '../components/ui/ReportActions';
+import ReportFilters, { filterByDate } from '../components/ui/ReportFilters';
+import { money } from '../utils/reportExport';
 import api from '../api/axios';
 import {
   Package, AlertTriangle, CreditCard,
@@ -72,6 +75,9 @@ export default function Dashboard() {
   const [lowStock, setLowStock] = useState([]);
   const [installStats, setInstallStats] = useState({ overdue_count: 0, overdue_amount: 0, active_plans: 0, overdue_items: [] });
   const [balances, setBalances] = useState(null);
+  const [inventoryTotals, setInventoryTotals] = useState({});
+  const [allExpenses, setAllExpenses] = useState([]);
+  const [reportRange, setReportRange] = useState({ from: '', to: '' });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -80,11 +86,15 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [salesRes, installRes, balancesRes] = await Promise.all([
+      const [salesRes, installRes, balancesRes, invRes, expRes] = await Promise.all([
         api.get('/sales/stats', { params: shopParams() }),
         api.get('/installments/stats', { params: shopParams() }).catch(() => ({ data: { overdue_count: 0, overdue_amount: 0, active_plans: 0, overdue_items: [] } })),
         api.get('/balances').catch(() => ({ data: null })),
+        api.get('/inventory/summary', { params: shopParams() }).catch(() => ({ data: { totals: {} } })),
+        api.get('/expenses', { params: shopParams() }).catch(() => ({ data: { expenses: [] } })),
       ]);
+      setInventoryTotals(invRes.data?.totals || {});
+      setAllExpenses(expRes.data?.expenses || []);
 
       const d = salesRes.data;
       setStats(d.stats || {});
@@ -133,6 +143,95 @@ export default function Dashboard() {
   const gridColor   = theme === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)';
 
   const chartData = weeklyChart.length > 0 ? weeklyChart : [{ day: '—', sales: 0, purchases: 0 }];
+
+  // ── Comprehensive dashboard report (respects the date range for expenses) ────
+  const rangedExpenses = filterByDate(allExpenses, 'expense_date', reportRange.from, reportRange.to);
+  const rangedExpenseTotal = rangedExpenses.reduce((s, e) => s + parseFloat(e.amount || 0), 0);
+  const rangeLabel = reportRange.from || reportRange.to
+    ? `${reportRange.from || '…'} → ${reportRange.to || '…'}`
+    : (t('allTime') || 'All time');
+
+  const buildDashboardReport = () => ({
+    kind: 'detail',
+    title: t('businessSummary') || 'Business Summary Report',
+    filename: 'dashboard-report.pdf',
+    meta: [`${t('filters') || 'Range'}: ${rangeLabel}`],
+    sections: [
+      {
+        heading: t('salesSummary') || 'Sales & Revenue',
+        rows: [
+          { label: t('todaySales') || "Today's Sales", value: money(stats.today_total) },
+          { label: t('ordersToday') || 'Orders Today', value: String(stats.today_orders || 0) },
+          { label: t('weekSales') || 'This Week Sales', value: money(stats.week_sales_total) },
+          { label: (t('ordersThisWeek') || 'Orders This Week'), value: String(stats.week_orders || 0) },
+        ],
+      },
+      {
+        heading: t('cashAndBank') || 'Cash & Bank',
+        rows: [
+          { label: t('cashInHand') || 'Cash in Hand', value: money(balances?.cash_in_hand) },
+          { label: t('bankBalance') || 'Bank Balance', value: money(balances?.bank_balance) },
+        ],
+      },
+      {
+        heading: t('inventory') || 'Inventory',
+        rows: [
+          { label: t('totalProducts') || 'Total Products', value: String(inventoryTotals.total_products || 0) },
+          { label: t('totalStock') || 'Total Stock Units', value: String(inventoryTotals.total_units || 0) },
+          { label: t('stockValue') || 'Stock Value', value: money(inventoryTotals.total_value) },
+          { label: t('lowStockItems') || 'Low Stock Items', value: String(inventoryTotals.low_stock_count || stats.low_stock_count || 0) },
+        ],
+      },
+      {
+        heading: t('expenses') || 'Expenses',
+        rows: [
+          { label: `${t('totalExpenses') || 'Total Expenses'} (${rangeLabel})`, value: money(rangedExpenseTotal) },
+          { label: t('expenseCount') || 'Expense Entries', value: String(rangedExpenses.length) },
+        ],
+      },
+      {
+        heading: t('installments') || 'Installments',
+        rows: [
+          { label: t('activePlan') || 'Active Plans', value: String(installStats.active_plans || 0) },
+          { label: t('overdueInstallments') || 'Overdue Installments', value: String(installStats.overdue_count || 0) },
+          { label: t('totalOutstanding') || 'Overdue Amount', value: money(installStats.overdue_amount) },
+        ],
+      },
+    ],
+    tables: [
+      {
+        heading: t('recentSales') || 'Recent Sales',
+        columns: [
+          { header: t('invoiceNo') || 'Invoice #', render: r => r.id, width: 1.4 },
+          { header: t('customer') || 'Customer', render: r => r.customer, width: 1.6 },
+          { header: t('saleType') || 'Type', render: r => t(r.type) || r.type, width: 1 },
+          { header: t('total') || 'Total', render: r => money(r.amount), align: 'right', width: 1.1 },
+        ],
+        rows: recentSales,
+      },
+      {
+        heading: t('lowStockAlerts') || 'Low Stock Alerts',
+        columns: [
+          { header: t('name') || 'Product', render: r => r.name, width: 2 },
+          { header: t('sku') || 'SKU', render: r => r.sku, width: 1.2 },
+          { header: t('currentStock') || 'Stock', render: r => r.stock, align: 'right', width: 1 },
+          { header: t('reorderLevel') || 'Reorder', render: r => r.reorder, align: 'right', width: 1 },
+        ],
+        rows: lowStock,
+      },
+      {
+        heading: t('overdueInstallments') || 'Overdue Installments',
+        columns: [
+          { header: t('customer') || 'Customer', render: r => r.customer_name, width: 1.8 },
+          { header: t('invoiceNo') || 'Invoice #', render: r => r.invoice_number, width: 1.3 },
+          { header: t('overdue') || 'Overdue Slots', render: r => r.overdue_slots, align: 'right', width: 1 },
+          { header: t('amount') || 'Amount', render: r => money(r.overdue_amount), align: 'right', width: 1.1 },
+        ],
+        rows: installStats.overdue_items || [],
+      },
+    ],
+    signature: true,
+  });
 
   if (loading) {
     return (
@@ -195,6 +294,7 @@ export default function Dashboard() {
               {t('lastUpdated')}: {lastUpdated.toLocaleTimeString(lang === 'ur' ? 'ur-PK' : 'en-PK')}
             </span>
           )}
+          <ReportActions getReport={buildDashboardReport} />
           <button
             type="button"
             onClick={() => loadDashboard(true)}
@@ -206,6 +306,15 @@ export default function Dashboard() {
             {t('live')}
           </button>
         </div>
+      </div>
+
+      {/* Report date range — applies to the expense totals in the printable summary */}
+      <div className="glass-card p-3">
+        <ReportFilters
+          value={reportRange}
+          onChange={(k, v) => setReportRange(f => ({ ...f, [k]: v }))}
+          onClear={() => setReportRange({ from: '', to: '' })}
+        />
       </div>
 
       {/* Stats Row */}

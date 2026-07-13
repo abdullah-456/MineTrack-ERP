@@ -1,64 +1,135 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Printer, Download, ArrowLeft, Loader2, CheckCircle2, Clock, AlertCircle, Package } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 import api from '../../api/axios';
+import {
+  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, SignatureRow, DocFooter,
+  INK, INK_SOFT, LINE,
+} from '../../components/print/PrintKit';
 
 /* ── helpers ──────────────────────────────────────────── */
-const fmtDate = (d) =>
-  d ? new Date(d).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+const fmtPKR = (n) => `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const fmtDateTime = (d) =>
-  d ? new Date(d).toLocaleString('en-PK', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
-
-const fmtPKR = (n) =>
-  `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/* ── Status badge (print-safe solid colours) ──────────── */
+/* ── print-safe status chip (light fill + dark ink + border) ── */
 function StatusChip({ status }) {
   const map = {
-    paid:      { bg: '#d1fae5', color: '#065f46', label: 'PAID' },
-    partial:   { bg: '#fef3c7', color: '#92400e', label: 'PARTIAL' },
-    pending:   { bg: '#fee2e2', color: '#991b1b', label: 'PENDING' },
-    overdue:   { bg: '#fee2e2', color: '#7f1d1d', label: 'OVERDUE' },
-    completed: { bg: '#d1fae5', color: '#065f46', label: 'COMPLETED' },
-    cancelled: { bg: '#f3f4f6', color: '#374151', label: 'CANCELLED' },
+    paid:      { bg: '#dcfce7', color: '#065f46', bd: '#16a34a' },
+    partial:   { bg: '#fef9c3', color: '#854d0e', bd: '#ca8a04' },
+    pending:   { bg: '#fee2e2', color: '#991b1b', bd: '#dc2626' },
+    overdue:   { bg: '#fee2e2', color: '#7f1d1d', bd: '#dc2626' },
+    completed: { bg: '#dcfce7', color: '#065f46', bd: '#16a34a' },
+    cancelled: { bg: '#f3f4f6', color: '#374151', bd: '#9ca3af' },
   };
-  const s = map[status?.toLowerCase()] || { bg: '#f3f4f6', color: '#374151', label: status?.toUpperCase() || '—' };
+  const s = map[status?.toLowerCase()] || { bg: '#f3f4f6', color: '#374151', bd: '#9ca3af' };
   return (
     <span style={{
-      display: 'inline-block', padding: '2px 10px', borderRadius: 4,
-      backgroundColor: s.bg, color: s.color, fontWeight: 700, fontSize: 11, letterSpacing: 1,
+      display: 'inline-block', padding: '2px 10px', borderRadius: 4, border: `1px solid ${s.bd}`,
+      background: s.bg, color: s.color, fontWeight: 800, fontSize: 11, letterSpacing: 1,
     }}>
-      {s.label}
+      {status?.toUpperCase() || '—'}
     </span>
   );
 }
 
-/* ── Watermark stripe for status ──────────────────────── */
-function Watermark({ status }) {
-  if (status?.toLowerCase() === 'paid' || status?.toLowerCase() === 'completed') return null;
-  const label = status?.toUpperCase() || '';
-  const color = status?.toLowerCase() === 'overdue' ? 'rgba(220,38,38,0.07)' : 'rgba(251,191,36,0.07)';
-  const textColor = status?.toLowerCase() === 'overdue' ? 'rgba(220,38,38,0.15)' : 'rgba(251,191,36,0.15)';
+/* ── bordered meta grid: [{label,value}] laid out two pairs per row ── */
+function MetaGrid({ items }) {
+  const rows = [];
+  const clean = items.filter(Boolean);
+  for (let i = 0; i < clean.length; i += 2) rows.push(clean.slice(i, i + 2));
   return (
-    <div style={{
-      position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 0,
-    }}>
-      <div style={{
-        fontSize: 130, fontWeight: 900, color: textColor,
-        transform: 'rotate(-30deg)', whiteSpace: 'nowrap', userSelect: 'none',
-        letterSpacing: 12,
-      }}>
-        {label}
+    <table className="doc" style={{ margin: '10px 0 14px' }}>
+      <tbody>
+        {rows.map((pair, ri) => (
+          <tr key={ri}>
+            {pair.map((it, ci) => (
+              <Fragment key={ci}>
+                <td style={{ color: INK_SOFT, width: '16%', whiteSpace: 'nowrap' }}>{it.label}</td>
+                <td style={{ fontWeight: 700, width: '34%' }}>{it.value}</td>
+              </Fragment>
+            ))}
+            {pair.length === 1 && <><td /><td /></>}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/* ── party block (Bill To / From Supplier / Customer) ── */
+function PartyBox({ heading, name, lines = [], right }) {
+  return (
+    <div style={{ display: 'flex', gap: 14, margin: '0 0 12px' }}>
+      <div style={{ flex: 1, border: `1px solid ${LINE}`, padding: '9px 11px' }}>
+        <div style={{ fontSize: 10, fontWeight: 800, color: INK_SOFT, letterSpacing: 1.2, marginBottom: 4 }}>{heading}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: INK }}>{name}</div>
+        {lines.filter(Boolean).map((l, i) => (
+          <div key={i} style={{ fontSize: 11.5, color: INK_SOFT, marginTop: 1 }}>{l}</div>
+        ))}
       </div>
+      {right && (
+        <div style={{ flex: 1, border: `1px solid ${LINE}`, padding: '9px 11px' }}>{right}</div>
+      )}
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   SALE INVOICE
-══════════════════════════════════════════════════════════ */
+/* ── right-aligned totals box ── */
+function TotalsBox({ rows }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+      <table className="doc" style={{ width: 300 }}>
+        <tbody>
+          {rows.filter(Boolean).map((r, i) => (
+            <tr key={i} className={r.bold ? 'total' : ''}>
+              <td style={{ color: r.bold ? INK : INK_SOFT }}>{r.label}</td>
+              <td className="num" style={{ color: r.color || INK, fontWeight: r.bold ? 800 : 600 }}>{r.value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ── shared items table (print-safe: dark ink on light header) ── */
+function ItemsTable({ items, rowOf }) {
+  return (
+    <table className="doc" style={{ marginTop: 4 }}>
+      <thead>
+        <tr>
+          <th style={{ width: '5%' }}>#</th>
+          <th>Item</th>
+          <th style={{ width: '16%' }}>SKU</th>
+          <th className="num" style={{ width: '10%' }}>Qty</th>
+          <th className="num" style={{ width: '16%' }}>Unit Price</th>
+          <th className="num" style={{ width: '16%' }}>Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.length === 0 && (
+          <tr><td colSpan={6} style={{ textAlign: 'center', color: INK_SOFT }}>No items</td></tr>
+        )}
+        {items.map((it, idx) => {
+          const r = rowOf(it, idx);
+          return (
+            <tr key={idx}>
+              <td>{idx + 1}</td>
+              <td style={{ fontWeight: 600 }}>{r.name}</td>
+              <td style={{ color: INK_SOFT, fontFamily: 'monospace' }}>{r.sku || '—'}</td>
+              <td className="num">{r.qty}</td>
+              <td className="num">{r.price}</td>
+              <td className="num" style={{ fontWeight: 700 }}>{r.amount}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/* ══════════════════════ SALE INVOICE ══════════════════════ */
 function SaleInvoice({ data }) {
   const shop = data.Shop || {};
   const customer = data.Customer || {};
@@ -72,407 +143,163 @@ function SaleInvoice({ data }) {
   const balanceDue = total - amountPaid;
 
   return (
-    <div className="invoice-sheet" style={{ position: 'relative' }}>
-      <Watermark status={data.status} />
-      <div style={{ position: 'relative', zIndex: 1 }}>
+    <div className="sheet">
+      <CompanyHeader company={shop} docTitle="Sales Invoice" />
+      <MetaGrid items={[
+        { label: 'Invoice #', value: data.invoice_number },
+        { label: 'Date', value: fmtDate(data.sale_date) },
+        { label: 'Sale Type', value: (data.sale_type || 'cash').toUpperCase() },
+        { label: 'Status', value: <StatusChip status={data.status} /> },
+        data.Cashier && { label: 'Cashier', value: data.Cashier.name },
+        data.Branch && { label: 'Branch', value: data.Branch.name },
+        data.Employee && { label: 'Salesman', value: data.Employee.name },
+      ]} />
 
-        {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
-          {/* Shop Info */}
-          <div>
-            {shop.logo_url && (
-              <img src={shop.logo_url} alt="logo" style={{ height: 56, marginBottom: 10, objectFit: 'contain' }} />
-            )}
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#1e1b4b', letterSpacing: -0.5 }}>
-              {shop.name || 'Business Name'}
-            </div>
-            {shop.owner_name && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{shop.owner_name}</div>}
-            {shop.address && <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 240, marginTop: 4, lineHeight: 1.5 }}>{shop.address}</div>}
-            {shop.phone && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>📞 {shop.phone}</div>}
-            {shop.email && <div style={{ fontSize: 11, color: '#6b7280' }}>✉ {shop.email}</div>}
-          </div>
+      <PartyBox
+        heading="BILL TO"
+        name={customer.name || 'Walk-in Customer'}
+        lines={[customer.phone && `Ph: ${customer.phone}`, customer.cnic && `CNIC: ${customer.cnic}`, customer.address]}
+      />
 
-          {/* Invoice Title + Number */}
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 32, fontWeight: 900, color: '#4f46e5', letterSpacing: -1, lineHeight: 1 }}>INVOICE</div>
-            <div style={{ fontSize: 13, fontFamily: 'monospace', color: '#374151', marginTop: 6, fontWeight: 700 }}>
-              {data.invoice_number}
-            </div>
-            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-              <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                <span style={{ color: '#9ca3af' }}>Issue Date:</span>
-                <span style={{ color: '#374151', fontWeight: 600 }}>{fmtDate(data.sale_date)}</span>
-              </div>
-              {data.Cashier && (
-                <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                  <span style={{ color: '#9ca3af' }}>Cashier:</span>
-                  <span style={{ color: '#374151', fontWeight: 600 }}>{data.Cashier.name}</span>
-                </div>
-              )}
-              {data.Branch && (
-                <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                  <span style={{ color: '#9ca3af' }}>Branch:</span>
-                  <span style={{ color: '#374151', fontWeight: 600 }}>{data.Branch.name}</span>
-                </div>
-              )}
-              {data.Employee && (
-                <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                  <span style={{ color: '#9ca3af' }}>Employee:</span>
-                  <span style={{ color: '#374151', fontWeight: 600 }}>{data.Employee.name}</span>
-                </div>
-              )}
-              <div style={{ marginTop: 8 }}>
-                <StatusChip status={data.status} />
-              </div>
-            </div>
-          </div>
-        </div>
+      <ItemsTable items={items} rowOf={(it) => ({
+        name: it.Product?.name || it.product_name || '—',
+        sku: it.Product?.sku,
+        qty: it.quantity,
+        price: fmtPKR(parseFloat(it.line_total || 0) / (parseFloat(it.quantity) || 1)),
+        amount: fmtPKR(it.line_total),
+      })} />
 
-        {/* ── Divider ── */}
-        <div style={{ height: 3, background: 'linear-gradient(90deg,#4f46e5,#818cf8)', borderRadius: 4, marginBottom: 24 }} />
+      <TotalsBox rows={[
+        { label: 'Subtotal', value: fmtPKR(subtotal) },
+        discount > 0 && { label: 'Discount', value: `− ${fmtPKR(discount)}`, color: '#b91c1c' },
+        tax > 0 && { label: 'Tax', value: fmtPKR(tax) },
+        { label: 'Total', value: fmtPKR(total), bold: true },
+        amountPaid > 0 && { label: 'Amount Paid', value: fmtPKR(amountPaid), color: '#047857' },
+        balanceDue > 0.01 && { label: 'Balance Due', value: fmtPKR(balanceDue), bold: true, color: '#b91c1c' },
+      ]} />
 
-        {/* ── BILL TO ── */}
-        <div style={{ display: 'flex', gap: 32, marginBottom: 28 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 6 }}>BILL TO</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1e1b4b' }}>{customer.name || 'Walk-in Customer'}</div>
-            {customer.phone && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>📞 {customer.phone}</div>}
-            {customer.cnic && <div style={{ fontSize: 11, color: '#6b7280' }}>🪪 CNIC: {customer.cnic}</div>}
-            {customer.address && <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 200, lineHeight: 1.5 }}>{customer.address}</div>}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 6 }}>SALE TYPE</div>
-            <div style={{
-              display: 'inline-block', padding: '4px 12px', borderRadius: 6,
-              background: data.sale_type === 'cash' ? '#d1fae5' : '#ede9fe',
-              color: data.sale_type === 'cash' ? '#065f46' : '#4c1d95',
-              fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1,
-            }}>
-              {data.sale_type || 'Cash'}
-            </div>
-          </div>
-        </div>
+      <AmountWords amount={total} />
 
-        {/* ── ITEMS TABLE ── */}
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 24 }}>
-          <thead>
-            <tr style={{ background: '#4f46e5' }}>
-              <th style={{ padding: '10px 12px', textAlign: 'left', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>#</th>
-              <th style={{ padding: '10px 12px', textAlign: 'left', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>ITEM</th>
-              <th style={{ padding: '10px 12px', textAlign: 'left', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>SKU</th>
-              <th style={{ padding: '10px 12px', textAlign: 'center', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>QTY</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>UNIT PRICE</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>TOTAL</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, idx) => (
-              <tr key={item.id} style={{ background: idx % 2 === 0 ? '#f9fafb' : '#ffffff', borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#9ca3af' }}>{idx + 1}</td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#111827', fontWeight: 600 }}>
-                  {item.Product?.name || item.product_name || '—'}
-                </td>
-                <td style={{ padding: '9px 12px', fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>
-                  {item.Product?.sku || '—'}
-                </td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#374151', textAlign: 'center' }}>{item.quantity}</td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#374151', textAlign: 'right' }}>
-                  {fmtPKR(parseFloat(item.line_total || 0) / (parseFloat(item.quantity) || 1))}
-                </td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#111827', fontWeight: 700, textAlign: 'right' }}>
-                  {fmtPKR(item.line_total)}
-                </td>
-              </tr>
-            ))}
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={6} style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>No items found</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-
-        {/* ── TOTALS ── */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 28 }}>
-          <div style={{ width: 260 }}>
-            <TotalRow label="Subtotal" value={fmtPKR(subtotal)} />
-            {discount > 0 && <TotalRow label="Discount" value={`−${fmtPKR(discount)}`} valueColor="#dc2626" />}
-            {tax > 0 && <TotalRow label="Tax" value={fmtPKR(tax)} />}
-            <div style={{ height: 1, background: '#e5e7eb', margin: '8px 0' }} />
-            <TotalRow label="Total" value={fmtPKR(total)} bold />
-            {amountPaid > 0 && <TotalRow label="Amount Paid" value={fmtPKR(amountPaid)} valueColor="#059669" />}
-            {balanceDue > 0.01 && <TotalRow label="Balance Due" value={fmtPKR(balanceDue)} bold valueColor="#dc2626" />}
-          </div>
-        </div>
-
-        {/* ── PAYMENT HISTORY ── */}
-        {payments.length > 0 && (
-          <div style={{ marginBottom: 28 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 10 }}>PAYMENT HISTORY</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #e5e7eb' }}>
-                  <th style={{ padding: '6px 8px', textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>Date</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'left', color: '#6b7280', fontWeight: 600 }}>Method</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right', color: '#6b7280', fontWeight: 600 }}>Amount</th>
+      {payments.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: INK_SOFT, letterSpacing: 1.2, marginBottom: 4 }}>PAYMENT HISTORY</div>
+          <table className="doc">
+            <thead><tr><th>Date</th><th>Method</th><th className="num">Amount</th></tr></thead>
+            <tbody>
+              {payments.map((p, i) => (
+                <tr key={i}>
+                  <td>{fmtDate(p.payment_date || p.created_at)}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{p.method || '—'}</td>
+                  <td className="num" style={{ fontWeight: 600 }}>{fmtPKR(p.amount)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {payments.map((p, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '6px 8px', color: '#374151' }}>{fmtDate(p.payment_date || p.created_at)}</td>
-                    <td style={{ padding: '6px 8px', color: '#374151', textTransform: 'capitalize' }}>{p.method || '—'}</td>
-                    <td style={{ padding: '6px 8px', color: '#059669', textAlign: 'right', fontWeight: 600 }}>{fmtPKR(p.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-        {/* ── FOOTER ── */}
-        <InvoiceFooter shop={shop} />
-      </div>
+      {data.description && (
+        <div style={{ marginTop: 12, border: `1px solid ${LINE}`, padding: '8px 10px', fontSize: 12, color: INK }}>
+          <span style={{ color: INK_SOFT, fontWeight: 700 }}>Note: </span>{data.description}
+        </div>
+      )}
+
+      <SignatureRow left="Prepared By" right="Received By (Sign & Thumb)" />
+      <DocFooter company={shop} />
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   PURCHASE INVOICE
-══════════════════════════════════════════════════════════ */
+/* ══════════════════════ PURCHASE INVOICE ══════════════════════ */
 function PurchaseInvoice({ data }) {
   const shop = data.Shop || data.Supplier?.Shop || {};
   const supplier = data.Supplier || {};
-
   return (
-    <div className="invoice-sheet" style={{ position: 'relative' }}>
-      <Watermark status={data.status} />
-      <div style={{ position: 'relative', zIndex: 1 }}>
+    <div className="sheet">
+      <CompanyHeader company={shop} docTitle="Purchase Invoice" />
+      <MetaGrid items={[
+        { label: 'Invoice #', value: data.invoice_number },
+        { label: 'Date', value: fmtDate(data.invoice_date) },
+        data.due_date && { label: 'Due Date', value: fmtDate(data.due_date) },
+        { label: 'Status', value: <StatusChip status={data.status} /> },
+      ]} />
 
-        {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
-          <div>
-            {shop.logo_url && (
-              <img src={shop.logo_url} alt="logo" style={{ height: 56, marginBottom: 10, objectFit: 'contain' }} />
-            )}
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#1e1b4b' }}>{shop.name || 'Business Name'}</div>
-            {shop.owner_name && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{shop.owner_name}</div>}
-            {shop.address && <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 240, marginTop: 4, lineHeight: 1.5 }}>{shop.address}</div>}
-            {shop.phone && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>📞 {shop.phone}</div>}
-          </div>
+      <PartyBox
+        heading="SUPPLIER"
+        name={supplier.company_name || '—'}
+        lines={[
+          supplier.contact_person && `Contact: ${supplier.contact_person}`,
+          supplier.phone && `Ph: ${supplier.phone}`,
+          supplier.email, supplier.address,
+        ]}
+        right={(
+          <>
+            <div style={{ fontSize: 10, fontWeight: 800, color: INK_SOFT, letterSpacing: 1.2, marginBottom: 4 }}>NOTES</div>
+            <div style={{ fontSize: 11.5, color: INK_SOFT, lineHeight: 1.6 }}>{data.notes || 'No additional notes.'}</div>
+          </>
+        )}
+      />
 
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 32, fontWeight: 900, color: '#2563eb', letterSpacing: -1, lineHeight: 1 }}>PURCHASE</div>
-            <div style={{ fontSize: 14, fontWeight: 900, color: '#2563eb', letterSpacing: 1, marginTop: 2 }}>INVOICE</div>
-            <div style={{ fontSize: 13, fontFamily: 'monospace', color: '#374151', marginTop: 6, fontWeight: 700 }}>
-              {data.invoice_number}
-            </div>
-            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-              <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                <span style={{ color: '#9ca3af' }}>Invoice Date:</span>
-                <span style={{ color: '#374151', fontWeight: 600 }}>{fmtDate(data.invoice_date)}</span>
-              </div>
-              {data.due_date && (
-                <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                  <span style={{ color: '#9ca3af' }}>Due Date:</span>
-                  <span style={{ color: '#374151', fontWeight: 600 }}>{fmtDate(data.due_date)}</span>
-                </div>
-              )}
-              <div style={{ marginTop: 8 }}>
-                <StatusChip status={data.status} />
-              </div>
-            </div>
-          </div>
-        </div>
+      <TotalsBox rows={[
+        { label: 'Total Purchase Amount', value: fmtPKR(data.amount), bold: true },
+      ]} />
+      <AmountWords amount={data.amount} />
 
-        <div style={{ height: 3, background: 'linear-gradient(90deg,#2563eb,#60a5fa)', borderRadius: 4, marginBottom: 24 }} />
-
-        {/* ── FROM / TO ── */}
-        <div style={{ display: 'flex', gap: 32, marginBottom: 28 }}>
-          <div style={{ flex: 1, padding: 16, background: '#f0f4ff', borderRadius: 8, borderLeft: '3px solid #2563eb' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 6 }}>FROM SUPPLIER</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1e1b4b' }}>{supplier.company_name || '—'}</div>
-            {supplier.contact_person && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>👤 {supplier.contact_person}</div>}
-            {supplier.phone && <div style={{ fontSize: 11, color: '#6b7280' }}>📞 {supplier.phone}</div>}
-            {supplier.email && <div style={{ fontSize: 11, color: '#6b7280' }}>✉ {supplier.email}</div>}
-            {supplier.address && <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.5 }}>{supplier.address}</div>}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 6 }}>NOTES</div>
-            <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.6 }}>{data.notes || 'No additional notes.'}</div>
-          </div>
-        </div>
-
-        {/* ── AMOUNT SUMMARY ── */}
-        <div style={{ padding: 24, background: 'linear-gradient(135deg,#eff6ff,#dbeafe)', borderRadius: 12, marginBottom: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: 11, color: '#6b7280', letterSpacing: 1 }}>TOTAL PURCHASE AMOUNT</div>
-            <div style={{ fontSize: 36, fontWeight: 900, color: '#1e40af', marginTop: 4 }}>{fmtPKR(data.amount)}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <StatusChip status={data.status} />
-            {data.due_date && (
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>Due: {fmtDate(data.due_date)}</div>
-            )}
-          </div>
-        </div>
-
-        <InvoiceFooter shop={shop} />
-      </div>
+      <SignatureRow left="Prepared By" right="Authorised Signature" />
+      <DocFooter company={shop} />
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   RETURN INVOICE / SLIP
-══════════════════════════════════════════════════════════ */
+/* ══════════════════════ SALES RETURN ══════════════════════ */
 function ReturnInvoice({ data }) {
   const shop = data.Shop || {};
   const customer = data.Customer || {};
   const items = data.ReturnItems || [];
-
+  const isRefund = data.return_type === 'refund';
   return (
-    <div className="invoice-sheet" style={{ position: 'relative' }}>
-      <Watermark status={data.status} />
-      <div style={{ position: 'relative', zIndex: 1 }}>
+    <div className="sheet">
+      <CompanyHeader company={shop} docTitle="Sales Return" />
+      <MetaGrid items={[
+        { label: 'Return #', value: data.return_number },
+        { label: 'Date', value: fmtDateTime(data.return_date) },
+        { label: 'Original Invoice', value: data.Sale?.invoice_number || '—' },
+        { label: 'Return Type', value: (data.return_type || '').toUpperCase() },
+        data.ProcessedBy && { label: 'Processed By', value: data.ProcessedBy.name },
+        data.Branch && { label: 'Branch', value: data.Branch.name },
+        { label: 'Status', value: <StatusChip status={data.status} /> },
+        data.reason && { label: 'Reason', value: data.reason },
+      ]} />
 
-        {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
-          {/* Shop Info */}
-          <div>
-            {shop.logo_url && (
-              <img src={shop.logo_url} alt="logo" style={{ height: 56, marginBottom: 10, objectFit: 'contain' }} />
-            )}
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#1e1b4b', letterSpacing: -0.5 }}>
-              {shop.name || 'Business Name'}
-            </div>
-            {shop.owner_name && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{shop.owner_name}</div>}
-            {shop.address && <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 240, marginTop: 4, lineHeight: 1.5 }}>{shop.address}</div>}
-            {shop.phone && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>📞 {shop.phone}</div>}
-            {shop.email && <div style={{ fontSize: 11, color: '#6b7280' }}>✉ {shop.email}</div>}
-          </div>
+      <PartyBox
+        heading="CUSTOMER"
+        name={customer.name || 'Walk-in Customer'}
+        lines={[customer.phone && `Ph: ${customer.phone}`, customer.address]}
+      />
 
-          {/* Invoice Title + Number */}
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 32, fontWeight: 900, color: '#f43f5e', letterSpacing: -1, lineHeight: 1 }}>RETURN SLIP</div>
-            <div style={{ fontSize: 13, fontFamily: 'monospace', color: '#374151', marginTop: 6, fontWeight: 700 }}>
-              {data.return_number}
-            </div>
-            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-              <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                <span style={{ color: '#9ca3af' }}>Return Date:</span>
-                <span style={{ color: '#374151', fontWeight: 600 }}>{fmtDateTime(data.return_date)}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                <span style={{ color: '#9ca3af' }}>Original Invoice:</span>
-                <span style={{ color: '#374151', fontWeight: 600 }}>{data.Sale?.invoice_number || '—'}</span>
-              </div>
-              {data.ProcessedBy && (
-                <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                  <span style={{ color: '#9ca3af' }}>Processed By:</span>
-                  <span style={{ color: '#374151', fontWeight: 600 }}>{data.ProcessedBy.name}</span>
-                </div>
-              )}
-              {data.Branch && (
-                <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                  <span style={{ color: '#9ca3af' }}>Branch:</span>
-                  <span style={{ color: '#374151', fontWeight: 600 }}>{data.Branch.name}</span>
-                </div>
-              )}
-              <div style={{ marginTop: 8 }}>
-                <StatusChip status={data.status} />
-              </div>
-            </div>
-          </div>
-        </div>
+      <ItemsTable items={items} rowOf={(it) => ({
+        name: it.Product?.name || `Product #${it.product_id}`,
+        sku: it.Product?.sku,
+        qty: it.quantity,
+        price: fmtPKR(it.unit_price),
+        amount: fmtPKR(it.line_total),
+      })} />
 
-        {/* ── Divider ── */}
-        <div style={{ height: 3, background: 'linear-gradient(90deg,#f43f5e,#fb7185)', borderRadius: 4, marginBottom: 24 }} />
+      <TotalsBox rows={[
+        { label: 'Returned Value', value: fmtPKR(data.returned_value) },
+        isRefund
+          ? { label: `Refunded (${data.refund_method})`, value: fmtPKR(data.refund_amount), bold: true, color: '#047857' }
+          : { label: 'Settlement Paid', value: fmtPKR(data.settlement_amount), bold: true, color: '#4f46e5' },
+      ]} />
 
-        {/* ── BILL TO ── */}
-        <div style={{ display: 'flex', gap: 32, marginBottom: 28 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 6 }}>CUSTOMER</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1e1b4b' }}>{customer.name || 'Walk-in Customer'}</div>
-            {customer.phone && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>📞 {customer.phone}</div>}
-            {customer.address && <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 200, lineHeight: 1.5 }}>{customer.address}</div>}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 6 }}>RETURN TYPE</div>
-            <div style={{
-              display: 'inline-block', padding: '4px 12px', borderRadius: 6,
-              background: data.return_type === 'refund' ? '#ffe4e6' : '#ede9fe',
-              color: data.return_type === 'refund' ? '#9f1239' : '#4c1d95',
-              fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1,
-            }}>
-              {data.return_type}
-            </div>
-            {data.reason && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#4b5563' }}>
-                <strong>Reason:</strong> {data.reason}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── ITEMS TABLE ── */}
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 24 }}>
-          <thead>
-            <tr style={{ background: '#f43f5e' }}>
-              <th style={{ padding: '10px 12px', textAlign: 'left', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>#</th>
-              <th style={{ padding: '10px 12px', textAlign: 'left', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>ITEM</th>
-              <th style={{ padding: '10px 12px', textAlign: 'left', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>SKU</th>
-              <th style={{ padding: '10px 12px', textAlign: 'center', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>QTY</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>UNIT PRICE</th>
-              <th style={{ padding: '10px 12px', textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: 0.5 }}>TOTAL</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item, idx) => (
-              <tr key={item.id} style={{ background: idx % 2 === 0 ? '#f9fafb' : '#ffffff', borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#9ca3af' }}>{idx + 1}</td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#111827', fontWeight: 600 }}>
-                  {item.Product?.name || `Product #${item.product_id}`}
-                </td>
-                <td style={{ padding: '9px 12px', fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>
-                  {item.Product?.sku || '—'}
-                </td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#374151', textAlign: 'center' }}>{item.quantity}</td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#374151', textAlign: 'right' }}>
-                  {fmtPKR(item.unit_price)}
-                </td>
-                <td style={{ padding: '9px 12px', fontSize: 12, color: '#111827', fontWeight: 700, textAlign: 'right' }}>
-                  {fmtPKR(item.line_total)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* ── TOTALS ── */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 28 }}>
-          <div style={{ width: 260 }}>
-            <TotalRow label="Returned Value" value={fmtPKR(data.returned_value)} />
-            {data.return_type === 'refund' ? (
-              <TotalRow label={`Refunded (${data.refund_method})`} value={fmtPKR(data.refund_amount)} valueColor="#059669" />
-            ) : (
-              <>
-                <TotalRow label="Exchange Offset" value={`−${fmtPKR(Math.min(parseFloat(data.returned_value), parseFloat(data.returned_value) + parseFloat(data.settlement_amount)))}`} />
-                <TotalRow label="Settlement Paid" value={fmtPKR(data.settlement_amount)} valueColor="#4f46e5" />
-              </>
-            )}
-          </div>
-        </div>
-
-        <InvoiceFooter shop={shop} />
-      </div>
+      <AmountWords amount={isRefund ? data.refund_amount : data.settlement_amount} />
+      <SignatureRow left="Processed By" right="Customer Sign & Thumb" />
+      <DocFooter company={shop} />
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════════
-   INSTALLMENT PAYMENT RECEIPT
-══════════════════════════════════════════════════════════ */
+/* ══════════════════════ INSTALLMENT RECEIPT ══════════════════════ */
 function InstallmentReceipt({ data }) {
   const plan = data.InstallmentSchedule?.InstallmentPlan || {};
   const schedule = data.InstallmentSchedule || {};
@@ -480,146 +307,58 @@ function InstallmentReceipt({ data }) {
   const sale = plan.Sale || {};
   const shop = sale.Shop || {};
   const receiptNo = `PAY-${new Date(data.payment_date).toISOString().slice(0, 10).replace(/-/g, '')}-${String(data.id).padStart(4, '0')}`;
+  const lateFee = parseFloat(data.late_fee_charged || 0);
 
   return (
-    <div className="invoice-sheet" style={{ position: 'relative' }}>
-      <div style={{ position: 'relative', zIndex: 1 }}>
+    <div className="sheet">
+      <CompanyHeader company={shop} docTitle="Installment Payment Receipt" />
+      <MetaGrid items={[
+        { label: 'Receipt #', value: receiptNo },
+        { label: 'Date', value: fmtDateTime(data.payment_date) },
+        { label: 'Parent Invoice', value: sale.invoice_number || '—' },
+        { label: 'Installment No.', value: `#${schedule.installment_no} of ${plan.number_of_installments || '—'}` },
+        { label: 'Frequency', value: (plan.frequency || '').toUpperCase() },
+        { label: 'Method', value: (data.method || 'cash').toUpperCase() },
+      ]} />
 
-        {/* ── HEADER ── */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
-          <div>
-            {shop.logo_url && (
-              <img src={shop.logo_url} alt="logo" style={{ height: 56, marginBottom: 10, objectFit: 'contain' }} />
-            )}
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#1e1b4b' }}>{shop.name || 'Business Name'}</div>
-            {shop.owner_name && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{shop.owner_name}</div>}
-            {shop.address && <div style={{ fontSize: 11, color: '#6b7280', maxWidth: 240, marginTop: 4, lineHeight: 1.5 }}>{shop.address}</div>}
-            {shop.phone && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>📞 {shop.phone}</div>}
-          </div>
+      <PartyBox
+        heading="RECEIVED FROM"
+        name={customer.name || '—'}
+        lines={[customer.phone && `Ph: ${customer.phone}`, customer.cnic && `CNIC: ${customer.cnic}`, customer.address]}
+      />
 
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 32, fontWeight: 900, color: '#7c3aed', letterSpacing: -1, lineHeight: 1 }}>PAYMENT</div>
-            <div style={{ fontSize: 14, fontWeight: 900, color: '#7c3aed', letterSpacing: 1, marginTop: 2 }}>RECEIPT</div>
-            <div style={{ fontSize: 12, fontFamily: 'monospace', color: '#374151', marginTop: 6, fontWeight: 700 }}>
-              {receiptNo}
-            </div>
-            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-              <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
-                <span style={{ color: '#9ca3af' }}>Payment Date:</span>
-                <span style={{ color: '#374151', fontWeight: 600 }}>{fmtDateTime(data.payment_date)}</span>
-              </div>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <StatusChip status="paid" />
-            </div>
-          </div>
+      <TotalsBox rows={[
+        { label: 'Amount Received', value: fmtPKR(data.amount_paid), bold: true, color: '#047857' },
+        lateFee > 0 && { label: 'Late Fee Charged', value: fmtPKR(lateFee), color: '#b91c1c' },
+      ]} />
+
+      <AmountWords amount={data.amount_paid} />
+
+      {data.notes && (
+        <div style={{ marginTop: 12, border: `1px solid ${LINE}`, padding: '8px 10px', fontSize: 12, color: INK }}>
+          <span style={{ color: INK_SOFT, fontWeight: 700 }}>Note: </span>{data.notes}
         </div>
+      )}
 
-        <div style={{ height: 3, background: 'linear-gradient(90deg,#7c3aed,#a78bfa)', borderRadius: 4, marginBottom: 24 }} />
-
-        {/* ── CUSTOMER ── */}
-        <div style={{ display: 'flex', gap: 32, marginBottom: 28 }}>
-          <div style={{ flex: 1, padding: 16, background: '#faf5ff', borderRadius: 8, borderLeft: '3px solid #7c3aed' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 6 }}>CUSTOMER</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1e1b4b' }}>{customer.name || '—'}</div>
-            {customer.phone && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>📞 {customer.phone}</div>}
-            {customer.cnic && <div style={{ fontSize: 11, color: '#6b7280' }}>🪪 CNIC: {customer.cnic}</div>}
-            {customer.address && <div style={{ fontSize: 11, color: '#6b7280' }}>{customer.address}</div>}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', letterSpacing: 1.5, marginBottom: 6 }}>PLAN REFERENCE</div>
-            <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.8 }}>
-              <div><span style={{ color: '#9ca3af' }}>Parent Invoice:</span> <strong style={{ fontFamily: 'monospace' }}>{sale.invoice_number || '—'}</strong></div>
-              <div><span style={{ color: '#9ca3af' }}>Installment No.:</span> <strong>#{schedule.installment_no}</strong></div>
-              <div><span style={{ color: '#9ca3af' }}>Total Installments:</span> <strong>{plan.number_of_installments}</strong></div>
-              <div><span style={{ color: '#9ca3af' }}>Frequency:</span> <strong style={{ textTransform: 'capitalize' }}>{plan.frequency}</strong></div>
-            </div>
-          </div>
-        </div>
-
-        {/* ── PAYMENT DETAILS ── */}
-        <div style={{ padding: 24, background: 'linear-gradient(135deg,#f5f3ff,#ede9fe)', borderRadius: 12, marginBottom: 28 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontSize: 11, color: '#6b7280', letterSpacing: 1 }}>AMOUNT PAID</div>
-              <div style={{ fontSize: 40, fontWeight: 900, color: '#059669', marginTop: 4 }}>{fmtPKR(data.amount_paid)}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 11, color: '#6b7280', letterSpacing: 1, marginBottom: 6 }}>PAYMENT METHOD</div>
-              <div style={{
-                display: 'inline-block', padding: '4px 14px', borderRadius: 6,
-                background: '#dbeafe', color: '#1e40af', fontWeight: 700, fontSize: 12,
-                textTransform: 'uppercase', letterSpacing: 1,
-              }}>
-                {data.method || 'Cash'}
-              </div>
-            </div>
-          </div>
-
-          {parseFloat(data.late_fee_charged) > 0 && (
-            <div style={{ marginTop: 16, padding: '10px 14px', background: 'rgba(220,38,38,0.08)', borderRadius: 6, border: '1px solid rgba(220,38,38,0.2)' }}>
-              <div style={{ fontSize: 11, color: '#9ca3af' }}>LATE FEE CHARGED</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#dc2626' }}>{fmtPKR(data.late_fee_charged)}</div>
-            </div>
-          )}
-        </div>
-
-        {/* ── NOTES ── */}
-        {data.notes && (
-          <div style={{ marginBottom: 24, padding: 14, background: '#f9fafb', borderRadius: 8, fontSize: 12, color: '#6b7280', lineHeight: 1.6 }}>
-            <strong>Notes:</strong> {data.notes}
-          </div>
-        )}
-
-        <InvoiceFooter shop={shop} />
-      </div>
+      <SignatureRow left="Received By" right="Payer Sign & Thumb" />
+      <DocFooter company={shop} />
     </div>
   );
 }
 
-/* ── Shared Footer ───────────────────────────────────────── */
-function InvoiceFooter({ shop }) {
-  return (
-    <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 16, marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-      <div style={{ fontSize: 11, color: '#9ca3af' }}>
-        <div style={{ fontWeight: 600, color: '#6b7280', marginBottom: 2 }}>Thank you for your business!</div>
-        {shop.email && <div>Questions? {shop.email}</div>}
-        {shop.phone && <div>{shop.phone}</div>}
-      </div>
-      <div style={{ textAlign: 'right', fontSize: 10, color: '#d1d5db' }}>
-        <div>Generated: {new Date().toLocaleString('en-PK')}</div>
-        <div style={{ marginTop: 2 }}>Powered by ESMS</div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Reusable total row ──────────────────────────────────── */
-function TotalRow({ label, value, bold, valueColor }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
-      <span style={{ color: '#6b7280' }}>{label}</span>
-      <span style={{ fontWeight: bold ? 800 : 600, color: valueColor || '#111827', fontSize: bold ? 14 : 12 }}>{value}</span>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════
-   MAIN PAGE
-══════════════════════════════════════════════════════════ */
+/* ══════════════════════ MAIN PAGE ══════════════════════ */
 export default function InvoicePrintPage() {
   const { invoiceId } = useParams();
   const [searchParams] = useSearchParams();
   const shopIdParam = searchParams.get('shop_id');
+  const autoPrint = searchParams.get('auto_print') === '1';
 
   const [loading, setLoading] = useState(true);
   const [invoiceData, setInvoiceData] = useState(null);
   const [err, setErr] = useState(null);
-  const printRef = useRef(null);
-  const autoPrint = searchParams.get('auto_print') === '1';
 
   useEffect(() => {
-    const fetchData = async () => {
+    (async () => {
       try {
         const params = shopIdParam ? { shop_id: shopIdParam } : {};
         const { data } = await api.get(`/invoices/${invoiceId}`, { params });
@@ -629,11 +368,9 @@ export default function InvoicePrintPage() {
       } finally {
         setLoading(false);
       }
-    };
-    fetchData();
+    })();
   }, [invoiceId, shopIdParam]);
 
-  // Auto-trigger print dialog when ?auto_print=1
   useEffect(() => {
     if (!loading && invoiceData && autoPrint) {
       const timer = setTimeout(() => window.print(), 600);
@@ -641,28 +378,17 @@ export default function InvoicePrintPage() {
     }
   }, [loading, invoiceData, autoPrint]);
 
-  const handlePrint = () => window.print();
-
-  const handleDownloadPDF = () => {
-    // Trigger browser print dialog (user can Save as PDF)
-    const originalTitle = document.title;
-    const invNum = invoiceData?.details?.invoice_number || invoiceId;
-    document.title = `Invoice-${invNum}`;
-    window.print();
-    document.title = originalTitle;
-  };
-
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f8' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e5e7eb' }}>
       <div style={{ textAlign: 'center' }}>
         <Loader2 style={{ width: 40, height: 40, animation: 'spin 1s linear infinite', color: '#4f46e5', margin: '0 auto 12px' }} />
-        <p style={{ color: '#6b7280', fontSize: 14 }}>Loading invoice…</p>
+        <p style={{ color: INK_SOFT, fontSize: 14 }}>Loading document…</p>
       </div>
     </div>
   );
 
   if (err) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f8' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e5e7eb' }}>
       <div style={{ textAlign: 'center', padding: 32, background: '#fff', borderRadius: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
         <AlertCircle style={{ width: 48, height: 48, color: '#dc2626', margin: '0 auto 12px' }} />
         <p style={{ color: '#dc2626', fontWeight: 700 }}>{err}</p>
@@ -677,85 +403,12 @@ export default function InvoicePrintPage() {
 
   return (
     <>
-      {/* ── Print Stylesheet (injected inline) ── */}
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Inter', system-ui, sans-serif; background: #e5e7eb; margin: 0; }
-
-        .invoice-sheet {
-          width: 210mm;
-          min-height: 297mm;
-          background: #ffffff;
-          padding: 18mm 16mm;
-          margin: 0 auto;
-          box-shadow: 0 4px 32px rgba(0,0,0,0.12);
-        }
-
-        .print-bar {
-          width: 210mm;
-          margin: 0 auto 12px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          padding: 10px 0;
-        }
-
-        .btn-action {
-          display: inline-flex; align-items: center; gap: 6px;
-          padding: 9px 20px; border-radius: 8px; border: none;
-          font-size: 13px; font-weight: 700; cursor: pointer;
-          transition: opacity 0.15s, transform 0.1s;
-          font-family: inherit;
-        }
-        .btn-action:hover { opacity: 0.88; transform: translateY(-1px); }
-        .btn-action:active { transform: translateY(0); }
-        .btn-print   { background: #4f46e5; color: #fff; }
-        .btn-download{ background: #059669; color: #fff; }
-        .btn-back    { background: #fff; color: #374151; border: 1px solid #d1d5db; }
-
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        @media print {
-          body { background: #fff !important; }
-          .print-bar { display: none !important; }
-          .invoice-sheet {
-            width: 100%; min-height: unset;
-            margin: 0; padding: 14mm 12mm;
-            box-shadow: none;
-            page-break-after: always;
-          }
-          @page { size: A4; margin: 0; }
-        }
-      `}</style>
-
-      {/* ── Action Bar (hidden on print) ── */}
-      <div className="print-bar">
-        <button className="btn-action btn-back" onClick={() => window.close()}>
-          <ArrowLeft size={15} /> Close
-        </button>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn-action btn-print" onClick={handlePrint}>
-            <Printer size={15} /> Print
-          </button>
-          <button className="btn-action btn-download" onClick={handleDownloadPDF}>
-            <Download size={15} /> Download PDF
-          </button>
-        </div>
-      </div>
-
-      {/* ── Invoice Body ── */}
-      <div ref={printRef}>
-        {type === 'sale' && <SaleInvoice data={details} />}
-        {type === 'purchase' && <PurchaseInvoice data={details} />}
-        {type === 'installment' && <InstallmentReceipt data={details} />}
-        {type === 'return' && <ReturnInvoice data={details} />}
-      </div>
-
-      {/* Bottom padding */}
-      <div style={{ height: 32 }} className="print-bar" />
+      <PrintStyles />
+      <PrintActionBar />
+      {type === 'sale' && <SaleInvoice data={details} />}
+      {type === 'purchase' && <PurchaseInvoice data={details} />}
+      {type === 'installment' && <InstallmentReceipt data={details} />}
+      {type === 'return' && <ReturnInvoice data={details} />}
     </>
   );
 }

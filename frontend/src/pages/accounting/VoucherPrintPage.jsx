@@ -1,9 +1,21 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Loader2, Printer, ArrowLeft } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import api from '../../api/axios';
+import {
+  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, SignatureRow, DocFooter,
+  INK, INK_SOFT,
+} from '../../components/print/PrintKit';
 
-const fmt = (n) => `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmt = (n) => (parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : '—');
+
+const TITLES = {
+  payment: 'Payment Voucher',
+  receipt: 'Receipt Voucher',
+  journal: 'Journal Voucher',
+  contra:  'Contra Voucher',
+};
 
 export default function VoucherPrintPage() {
   const { voucherId } = useParams();
@@ -29,74 +41,92 @@ export default function VoucherPrintPage() {
   }, [loading, data, autoPrint]);
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f8' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e5e7eb' }}>
       <Loader2 style={{ width: 32, height: 32, animation: 'spin 1s linear infinite', color: '#4f46e5' }} />
     </div>
   );
   if (err || !data) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f8' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e5e7eb' }}>
       <p style={{ color: '#dc2626', fontWeight: 700 }}>{err || 'Not found'}</p>
     </div>
   );
 
-  const { voucher, lines } = data;
+  const { company = {}, voucher, lines } = data;
   const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
   const totalCredit = lines.reduce((s, l) => s + l.credit, 0);
+  const title = TITLES[voucher.voucher_type] || `${voucher.voucher_type || ''} Voucher`;
+
+  // Party for the "Paid To / Received From" line: the counter-party account.
+  const firstDebit = lines.find(l => l.debit > 0);
+  const firstCredit = lines.find(l => l.credit > 0);
+  const isReceipt = voucher.voucher_type === 'receipt';
+  const party = isReceipt ? firstCredit?.account_name : firstDebit?.account_name;
+  const partyLabel = isReceipt ? 'Received From' : 'Paid To';
 
   return (
     <>
-      <style>{`
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: system-ui, sans-serif; background: #e5e7eb; }
-        .sheet { width: 190mm; min-height: 140mm; background: #fff; padding: 14mm; margin: 0 auto; box-shadow: 0 4px 32px rgba(0,0,0,0.12); }
-        .print-bar { width: 190mm; margin: 0 auto 12px; display: flex; justify-content: space-between; padding: 10px 0; }
-        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 9px 20px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; }
-        .btn-print { background: #4f46e5; color: #fff; }
-        .btn-back { background: #fff; color: #374151; border: 1px solid #d1d5db; }
-        table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
-        th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-        th { color: #6b7280; text-transform: uppercase; font-size: 10px; }
-        .num { text-align: right; }
-        .total-row td { border-top: 2px solid #374151; font-weight: 700; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        @media print {
-          body { background: #fff !important; }
-          .print-bar { display: none !important; }
-          .sheet { width: 100%; min-height: unset; margin: 0; padding: 10mm; box-shadow: none; }
-          @page { size: A5 landscape; margin: 0; }
-        }
-      `}</style>
-
-      <div className="print-bar">
-        <button className="btn btn-back" onClick={() => window.close()}><ArrowLeft size={15} /> Close</button>
-        <button className="btn btn-print" onClick={() => window.print()}><Printer size={15} /> Print</button>
-      </div>
+      <PrintStyles />
+      <PrintActionBar />
 
       <div className="sheet">
-        <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Voucher</h1>
-        <p style={{ color: '#6b7280', marginBottom: 12 }}>{voucher.voucher_number} · {voucher.voucher_type} · {new Date(voucher.voucher_date).toLocaleDateString('en-PK')}</p>
-        {voucher.narration && <p style={{ fontSize: 13, marginBottom: 8 }}>{voucher.narration}</p>}
-        {voucher.created_by && <p style={{ fontSize: 11, color: '#9ca3af' }}>Created by {voucher.created_by}</p>}
+        <CompanyHeader company={company} docTitle={title} />
 
-        <table>
+        {/* Voucher No + Date */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, margin: '4px 0 10px', color: INK }}>
+          <div><span style={{ color: INK_SOFT }}>Voucher No.</span> <strong>: {voucher.voucher_number}</strong></div>
+          <div><span style={{ color: INK_SOFT }}>Date</span> <strong>: {fmtDate(voucher.voucher_date)}</strong></div>
+        </div>
+
+        {/* Particulars — full double entry, debit & credit shown together */}
+        <table className="doc">
           <thead>
-            <tr><th>Account</th><th className="num">Debit</th><th className="num">Credit</th></tr>
+            <tr>
+              <th style={{ width: '40%' }}>Particulars</th>
+              <th className="num" style={{ width: '18%' }}>Debit ( )</th>
+              <th className="num" style={{ width: '18%' }}>Credit ( )</th>
+              <th>Narration</th>
+            </tr>
           </thead>
           <tbody>
             {lines.map((l, i) => (
               <tr key={i}>
-                <td>{l.account_code} — {l.account_name}</td>
-                <td className="num">{l.debit > 0 ? fmt(l.debit) : '—'}</td>
-                <td className="num">{l.credit > 0 ? fmt(l.credit) : '—'}</td>
+                <td>
+                  <strong>{l.debit > 0 ? 'Dr' : 'Cr'}</strong>&nbsp;&nbsp;
+                  {l.account_name}
+                  {l.account_code && <span style={{ color: INK_SOFT }}> ({l.account_code})</span>}
+                </td>
+                <td className="num">{l.debit > 0 ? fmt(l.debit) : ''}</td>
+                <td className="num">{l.credit > 0 ? fmt(l.credit) : ''}</td>
+                {i === 0 && (
+                  <td rowSpan={lines.length} style={{ verticalAlign: 'top' }}>{voucher.narration || ''}</td>
+                )}
               </tr>
             ))}
-            <tr className="total-row">
-              <td>Total</td>
+            <tr className="total">
+              <td style={{ textAlign: 'right' }}>Total</td>
               <td className="num">{fmt(totalDebit)}</td>
               <td className="num">{fmt(totalCredit)}</td>
+              <td />
             </tr>
           </tbody>
         </table>
+
+        {/* Paid To / Received From */}
+        {party && (
+          <div style={{ border: '1px solid #111827', borderTop: 'none', padding: '8px 10px', fontSize: 12.5 }}>
+            <span style={{ color: INK_SOFT, fontWeight: 600 }}>{partyLabel}: </span>
+            <strong>{party}</strong>
+          </div>
+        )}
+
+        <AmountWords amount={Math.max(totalDebit, totalCredit)} />
+
+        {voucher.created_by && (
+          <div style={{ fontSize: 11, color: INK_SOFT, marginTop: 8 }}>Prepared by: {voucher.created_by}</div>
+        )}
+
+        <SignatureRow left="Prepared By" right="Receiver Sign & Thumb" />
+        <DocFooter company={company} />
       </div>
     </>
   );

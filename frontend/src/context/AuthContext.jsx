@@ -18,20 +18,13 @@ export function AuthProvider({ children }) {
       setUser(data.user);
       setPermissions(data.permissions);
 
-      // Determine which modal to show based on backend flags
+      // Determine which modal to show based on backend flags.
+      // Opening cash now carries forward automatically from the previous day's
+      // closing balance (like a bank account), so there's no daily cash
+      // check-in prompt — only the first-time financial setup wizard remains.
       if (data.user?.role === 'admin' && data.user?.shop_id) {
-        if (!data.setup_completed) {
-          // First time — show the full setup wizard
-          setShowSetupModal(true);
-          setShowCashCheckin(false);
-        } else if (!data.cash_session_today) {
-          // Setup done but no cash check-in today
-          setShowCashCheckin(true);
-          setShowSetupModal(false);
-        } else {
-          setShowSetupModal(false);
-          setShowCashCheckin(false);
-        }
+        setShowSetupModal(!data.setup_completed);
+        setShowCashCheckin(false);
       }
     } catch (err) {
       // Only clear the session on a genuine auth rejection (401/403) — a

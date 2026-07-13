@@ -6,6 +6,7 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import { StockBadge } from '../../components/ui/StatusBadge';
+import ReportActions from '../../components/ui/ReportActions';
 import api from '../../api/axios';
 
 export default function Inventory() {
@@ -233,6 +234,45 @@ export default function Inventory() {
     { label: t('lowStockItems'), value: totals.low_stock_count || 0, icon: AlertTriangle, color: 'text-red-400' },
   ];
 
+  // ── Report model — reflects the active tab ──────────────────────────────────
+  const report = activeTab === 'movements'
+    ? {
+        title: t('stockMovements') || 'Stock Movements',
+        filename: 'stock-movements.pdf',
+        columns: [
+          { header: t('date') || 'Timestamp', render: m => new Date(m.created_at || m.createdAt).toLocaleString('en-PK'), width: 1.6 },
+          { header: t('product') || 'Product', render: m => m.Product?.name || '', width: 1.8 },
+          { header: t('userBranch') || 'Branch', render: m => m.Branch?.name || '', width: 1.1 },
+          { header: t('type') || 'Type', render: m => m.ref_type || '', width: 1 },
+          { header: t('quantity') || 'Qty', render: m => `${m.quantity > 0 ? '+' : ''}${m.quantity}`, align: 'right', width: 1 },
+          { header: t('currentStock') || 'Balance', render: m => m.balance_after, align: 'right', width: 1 },
+        ],
+        rows: movements,
+        filters: [
+          movementProductFilter ? { label: t('product') || 'Product', value: products.find(p => String(p.id) === String(movementProductFilter))?.name || movementProductFilter } : null,
+          movementBranchFilter ? { label: t('branch') || 'Branch', value: branches.find(b => String(b.id) === String(movementBranchFilter))?.name || movementBranchFilter } : null,
+        ].filter(Boolean),
+      }
+    : {
+        title: t('currentInventory') || 'Current Inventory',
+        filename: 'inventory-report.pdf',
+        columns: [
+          { header: t('product') || 'Product', render: r => r.Product?.name || '', width: 2 },
+          { header: t('sku') || 'SKU', render: r => r.Product?.sku || '', width: 1.1 },
+          { header: t('userBranch') || 'Branch', render: r => r.Branch?.name || '', width: 1.1 },
+          { header: t('currentStock') || 'Stock', key: 'stock', render: r => parseFloat(r.quantity_on_hand) || 0, align: 'right', width: 0.9 },
+          { header: t('supplier') || 'Supplier', render: r => r.Product?.ProductSuppliers?.[0]?.Supplier?.company_name || '', width: 1.4 },
+          { header: t('stockValue') || 'Stock Value', key: 'stock_value', render: r => (parseFloat(r.quantity_on_hand) || 0) * parseFloat(r.Product?.cost_price || 0), money: true, width: 1.2 },
+        ],
+        rows: inventory,
+        totals: {
+          __label: t('total') || 'Total',
+          stock: inventory.reduce((s, r) => s + (parseFloat(r.quantity_on_hand) || 0), 0),
+          stock_value: inventory.reduce((s, r) => s + (parseFloat(r.quantity_on_hand) || 0) * parseFloat(r.Product?.cost_price || 0), 0),
+        },
+        filters: branchFilter ? [{ label: t('branch') || 'Branch', value: branches.find(b => String(b.id) === String(branchFilter))?.name || branchFilter }] : [],
+      };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -241,7 +281,8 @@ export default function Inventory() {
         title={t('inventoryDashboard')}
         subtitle={t('inventorySub')}
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <ReportActions {...report} />
             <button
               type="button"
               onClick={() => {

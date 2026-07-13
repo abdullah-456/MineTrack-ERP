@@ -1,6 +1,6 @@
 const db = require('../models');
 const { requireShopId } = require('../utils/shopScope');
-const { assertCashAvailable, debitBankAccount } = require('../utils/cashHelpers');
+const { creditBankAccount } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
 
 // Sign convention mirrors employeeLedgerController's signFor map: +1 increases
@@ -16,9 +16,10 @@ const SIGN_FOR = {
 };
 
 // ── POST /customers/:id/payments ─────────────────────────────────────────────
-// Standalone payment against a customer's outstanding balance (credit sales /
-// installment principal), not tied to a specific installment schedule slot —
-// mirrors supplierLedgerController.recordPayment's simpler cousin.
+// Standalone payment received from a customer. Applies against any outstanding
+// balance (credit sales / installment principal), and — when the amount exceeds
+// what's owed — records the excess as an advance, leaving the customer with a
+// credit (negative current_balance) that future sales draw down automatically.
 exports.recordPayment = async (req, res) => {
   const transaction = await db.sequelize.transaction();
   try {
@@ -40,40 +41,43 @@ exports.recordPayment = async (req, res) => {
     }
 
     const outstanding = parseFloat(customer.current_balance || 0);
-    const allocatable = Math.min(amt, Math.max(0, outstanding));
-    if (!(allocatable > 0)) {
-      await transaction.rollback();
-      return res.status(400).json({ message: 'This customer has no outstanding balance to pay down' });
-    }
+    const newBalance = Math.round((outstanding - amt) * 100) / 100;
+    const advancePortion = newBalance < 0 ? Math.round(Math.min(amt, -newBalance) * 100) / 100 : 0;
 
-    if (method === 'bank') await debitBankAccount(shopId, allocatable, transaction);
+    // Money is coming IN, so credit (increase) the bank balance for bank payments.
+    if (method === 'bank') await creditBankAccount(shopId, amt, transaction);
     // Cash coming in needs no floor guard.
 
-    await customer.update({
-      current_balance: Math.round((outstanding - allocatable) * 100) / 100,
-    }, { transaction });
+    await customer.update({ current_balance: newBalance }, { transaction });
+
+    const advNote = advancePortion > 0
+      ? `Advance credit: ${advancePortion.toFixed(2)}`
+      : null;
+    const finalNotes = [notes?.trim() || null, advNote].filter(Boolean).join(' — ') || null;
 
     const txn = await db.CustomerTransaction.create({
       shop_id: shopId, customer_id: customer.id,
       date: date ? new Date(date) : new Date(),
-      type: 'payment_received', amount: allocatable, method,
-      notes: notes?.trim() || null, created_by: req.user.id,
+      type: 'payment_received', amount: amt, method,
+      notes: finalNotes, created_by: req.user.id,
     }, { transaction });
 
     await postVoucher(shopId, {
       type: 'receipt',
       date: date ? new Date(date) : new Date(),
-      narration: `Customer payment — ${customer.name}`,
+      narration: advancePortion > 0
+        ? `Customer payment (incl. advance) — ${customer.name}`
+        : `Customer payment — ${customer.name}`,
       createdBy: req.user.id,
       lines: [
-        { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', debit: allocatable },
-        { accountCode: '05-AR', credit: allocatable },
+        { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', debit: amt },
+        { accountCode: '05-AR', credit: amt },
       ],
     }, transaction);
 
     await transaction.commit();
     const fresh = await db.Customer.findByPk(customer.id);
-    return res.status(201).json({ transaction: txn, customer: fresh });
+    return res.status(201).json({ transaction: txn, customer: fresh, advance: advancePortion });
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
     console.error('recordCustomerPayment error:', error);

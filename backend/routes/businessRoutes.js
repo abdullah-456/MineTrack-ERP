@@ -118,6 +118,7 @@ router.post(  '/cash-sessions',          financialSetupController.recordCashSess
 router.get(   '/cash-sessions/today',    financialSetupController.getTodaySession);
 router.get(   '/cash-sessions',          financialSetupController.listSessions);
 router.get(   '/balances',               financialSetupController.getLiveBalances);
+router.get(   '/company',                financialSetupController.getCompany);
 
 // Admin — Audit Log
 router.get(   '/admin/audit-log',        authorize('users', 'read'), auditLogController.list);

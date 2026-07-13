@@ -44,7 +44,7 @@ exports.create = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
-    const { name, phone, cnic, address } = req.body;
+    const { name, phone, cnic, address, opening_balance } = req.body;
     if (!name) return res.status(400).json({ message: 'Name is required' });
 
     const member = await db.BoardMember.create({
@@ -53,6 +53,7 @@ exports.create = async (req, res) => {
       phone: phone || null,
       cnic: cnic || null,
       address: address || null,
+      opening_balance: opening_balance != null ? parseFloat(opening_balance) : 0,
     });
 
     return res.status(201).json({ member });

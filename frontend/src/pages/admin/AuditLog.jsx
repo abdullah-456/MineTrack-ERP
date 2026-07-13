@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
+import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
 import api from '../../api/axios';
 
@@ -82,6 +83,25 @@ export default function AuditLog() {
         accent="brand"
         title={t('auditLog') || 'Audit Log'}
         subtitle={t('auditLogSub') || 'Every change made across the system — who did what, and when'}
+        action={
+          <ReportActions
+            title={t('auditLog') || 'Audit Log'}
+            columns={[
+              { header: t('date') || 'Date', render: l => new Date(l.date).toLocaleString('en-PK'), width: 1.6 },
+              { header: t('user') || 'User', render: l => l.user?.name || '', width: 1.5 },
+              { header: t('actionType') || 'Action', render: l => t(l.action) || l.action, width: 1 },
+              { header: t('module') || 'Module', key: 'module', width: 1.2 },
+            ]}
+            rows={logs}
+            filters={[
+              moduleFilter !== 'all' ? { label: t('module') || 'Module', value: moduleFilter } : null,
+              actionFilter !== 'all' ? { label: t('actionType') || 'Action', value: actionFilter } : null,
+              from ? { label: t('from') || 'From', value: from } : null,
+              to ? { label: t('to') || 'To', value: to } : null,
+            ].filter(Boolean)}
+            filename="audit-log.pdf"
+          />
+        }
       />
 
       <div className="glass-card p-4 flex flex-wrap gap-4 items-end">

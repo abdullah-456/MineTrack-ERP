@@ -7,6 +7,8 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
+import ReportActions from '../../components/ui/ReportActions';
+import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
 
 const EMPTY = {
@@ -28,6 +30,7 @@ export default function Suppliers() {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [reportFilters, setReportFilters] = useState({ status: '' });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -91,6 +94,27 @@ export default function Suppliers() {
 
   const setF = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
+  // ── Report model ────────────────────────────────────────────────────────────
+  const reportSelects = [
+    { key: 'status', label: t('status') || 'Status', options: [{ value: 'active', label: t('active') || 'Active' }, { value: 'inactive', label: t('inactive') || 'Inactive' }] },
+  ];
+  let reportRows = suppliers;
+  if (reportFilters.status) reportRows = reportRows.filter(s => s.status === reportFilters.status);
+  const reportColumns = [
+    { header: t('code') || 'Code', render: s => s.supplier_code || '', width: 1 },
+    { header: t('companyName') || 'Company', key: 'company_name', width: 1.8 },
+    { header: t('contactPerson') || 'Contact', render: s => s.contact_person || '', width: 1.3 },
+    { header: t('phone') || 'Phone', render: s => s.phone || '', width: 1.2 },
+    { header: t('payable') || 'Payable', key: 'current_payable', money: true, width: 1.1 },
+    { header: t('creditBalance') || 'Credit', key: 'credit_balance', money: true, width: 1.1 },
+    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+  ];
+  const reportTotals = {
+    __label: t('total') || 'Total',
+    current_payable: reportRows.reduce((s, x) => s + parseFloat(x.current_payable || 0), 0),
+    credit_balance: reportRows.reduce((s, x) => s + parseFloat(x.credit_balance || 0), 0),
+  };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -99,13 +123,23 @@ export default function Suppliers() {
         title={t('suppliers')}
         subtitle={t('suppliersSub')}
         action={
-          <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" />{t('addSupplier')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              title={t('suppliers') || 'Suppliers Report'}
+              columns={reportColumns}
+              rows={reportRows}
+              totals={reportTotals}
+              filters={activeFilterList(reportFilters, reportSelects)}
+              filename="suppliers-report.pdf"
+            />
+            <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" />{t('addSupplier')}
+            </button>
+          </div>
         }
       />
 
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 space-y-3">
         <div className="relative max-w-md">
           <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" style={{ [isRTL ? 'right' : 'left']: '12px' }} />
           <input
@@ -116,15 +150,22 @@ export default function Suppliers() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+        <ReportFilters
+          value={reportFilters}
+          onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
+          onClear={() => setReportFilters({ status: '' })}
+          selects={reportSelects}
+          showDates={false}
+        />
       </div>
 
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-amber-400" /></div>
-      ) : suppliers.length === 0 ? (
+      ) : reportRows.length === 0 ? (
         <div className="glass-card p-12 text-center" style={{ color: 'var(--text-muted)' }}>{t('noSuppliers')}</div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {suppliers.map(s => (
+          {reportRows.map(s => (
             <div key={s.id} className="glass-card p-5 hover:border-amber-500/30 transition-colors border border-transparent">
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div>

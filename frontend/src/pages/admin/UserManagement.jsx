@@ -6,6 +6,7 @@ import {
   Users, Plus, Edit, Slash, RefreshCw, Search,
   Eye, EyeOff, X, Loader2, KeyRound, Trash2, UserCheck
 } from 'lucide-react';
+import ReportActions from '../../components/ui/ReportActions';
 import api from '../../api/axios';
 
 const ROLE_COLORS = {
@@ -325,6 +326,22 @@ export default function UserManagement() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ReportActions
+            title={t('userManagement') || 'Users'}
+            columns={[
+              { header: t('userName') || 'Name', key: 'name', width: 1.6 },
+              { header: t('userEmail') || 'Email', key: 'email', width: 2 },
+              { header: t('userRole') || 'Role', render: u => roleLabel(u.Role?.name), width: 1.2 },
+              { header: t('userBranch') || 'Branch', render: u => u.Branch?.name || '', width: 1.1 },
+              { header: t('userStatus') || 'Status', key: 'status', width: 0.9 },
+            ]}
+            rows={filtered}
+            filters={[
+              roleFilter !== 'all' ? { label: t('userRole') || 'Role', value: roleLabel(roleFilter) } : null,
+              statusFilter !== 'all' ? { label: t('userStatus') || 'Status', value: statusFilter } : null,
+            ].filter(Boolean)}
+            filename="users.pdf"
+          />
           <button onClick={fetchData} className="icon-btn">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>

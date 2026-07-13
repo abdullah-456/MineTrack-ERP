@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Calendar, Plus, Search, Loader2, ChevronDown, CheckCircle2, Clock, AlertTriangle, DollarSign, X, CreditCard, Banknote, Smartphone, Building2 } from 'lucide-react';
+import { Calendar, Plus, Search, Loader2, ChevronDown, CheckCircle2, Clock, AlertTriangle, DollarSign, X, CreditCard, Banknote, Smartphone, Building2, Printer } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
+import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
 import api from '../../api/axios';
 
@@ -142,6 +143,21 @@ export default function Installments() {
     mobile_wallet: <Smartphone className="w-4 h-4" />,
   };
 
+  const reportColumns = [
+    { header: t('customer') || 'Customer', render: p => p.Customer?.name || '', width: 1.8 },
+    { header: t('invoiceNo') || 'Invoice #', render: p => p.Sale?.invoice_number || '', width: 1.3 },
+    { header: t('totalAmount') || 'Total', key: 'total_amount', money: true, width: 1.1 },
+    { header: t('downPayment') || 'Down', key: 'down_payment', money: true, width: 1.1 },
+    { header: t('remaining') || 'Remaining', key: 'remaining_amount', money: true, width: 1.1 },
+    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+  ];
+  const reportTotals = {
+    __label: t('total') || 'Total',
+    total_amount: filtered.reduce((s, p) => s + parseFloat(p.total_amount || 0), 0),
+    down_payment: filtered.reduce((s, p) => s + parseFloat(p.down_payment || 0), 0),
+    remaining_amount: filtered.reduce((s, p) => s + parseFloat(p.remaining_amount || 0), 0),
+  };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -149,6 +165,16 @@ export default function Installments() {
         accent="purple"
         title={t('installments')}
         subtitle={t('installmentsSub')}
+        action={
+          <ReportActions
+            title={t('installments') || 'Installment Plans'}
+            columns={reportColumns}
+            rows={filtered}
+            totals={reportTotals}
+            filters={statusFilter !== 'all' ? [{ label: t('status') || 'Status', value: statusFilter }] : []}
+            filename="installments-report.pdf"
+          />
+        }
       />
 
       {/* Search + Filter */}
@@ -346,7 +372,19 @@ export default function Installments() {
                                     {t('recordPayment')}
                                   </button>
                                 )}
-                                {isPaid && <CheckCircle2 className="w-4 h-4 text-emerald-400 ms-auto me-1" />}
+                                {isPaid && lastPayment && (
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      title={t('printReceipt') || 'Print receipt'}
+                                      onClick={() => window.open(`/invoice/installment-${lastPayment.id}?auto_print=1`, '_blank', 'noopener,noreferrer')}
+                                      className="icon-btn"
+                                    >
+                                      <Printer className="w-4 h-4" />
+                                    </button>
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );

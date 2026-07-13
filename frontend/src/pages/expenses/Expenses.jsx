@@ -5,6 +5,8 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import ReportActions from '../../components/ui/ReportActions';
+import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
 
 function toDatetimeLocal(d) {
@@ -33,6 +35,7 @@ export default function Expenses() {
   const [form, setForm] = useState(emptyForm());
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [reportFilters, setReportFilters] = useState({ from: '', to: '', category: '', paid_via: '', branch_id: '' });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -103,6 +106,27 @@ export default function Expenses() {
     }
   };
 
+  // ── Report model ────────────────────────────────────────────────────────────
+  const categories = [...new Set(expenses.map(e => e.category).filter(Boolean))];
+  const reportSelects = [
+    { key: 'category', label: t('category') || 'Category', options: categories.map(c => ({ value: c, label: c })) },
+    { key: 'paid_via', label: t('method') || 'Method', options: [{ value: 'cash', label: t('cash') || 'Cash' }, { value: 'bank', label: t('bank') || 'Bank' }] },
+    { key: 'branch_id', label: t('branch') || 'Branch', options: branches.map(b => ({ value: b.id, label: b.name })) },
+  ];
+  let reportRows = filterByDate(expenses, 'expense_date', reportFilters.from, reportFilters.to);
+  if (reportFilters.category) reportRows = reportRows.filter(e => e.category === reportFilters.category);
+  if (reportFilters.paid_via) reportRows = reportRows.filter(e => e.paid_via === reportFilters.paid_via);
+  if (reportFilters.branch_id) reportRows = reportRows.filter(e => String(e.branch_id) === String(reportFilters.branch_id));
+  const reportColumns = [
+    { header: t('date') || 'Date', render: e => new Date(e.expense_date).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }), width: 1.5 },
+    { header: t('category') || 'Category', key: 'category', width: 1.3 },
+    { header: t('description') || 'Description', render: e => e.description || '', width: 2 },
+    { header: t('branch') || 'Branch', render: e => e.Branch?.name || '', width: 1.1 },
+    { header: t('method') || 'Method', render: e => (e.paid_via === 'bank' ? t('bank') : t('cash')), width: 0.9 },
+    { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.1 },
+  ];
+  const reportTotals = { __label: t('total') || 'Total', amount: reportRows.reduce((s, e) => s + parseFloat(e.amount || 0), 0) };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -111,17 +135,33 @@ export default function Expenses() {
         title={t('expenses')}
         subtitle={t('expensesSub')}
         action={
-          <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" />{t('addExpense')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              title={t('expenses') || 'Expenses Report'}
+              columns={reportColumns}
+              rows={reportRows}
+              totals={reportTotals}
+              filters={activeFilterList(reportFilters, reportSelects)}
+              filename="expenses-report.pdf"
+            />
+            <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" />{t('addExpense')}
+            </button>
+          </div>
         }
       />
 
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 space-y-3">
         <div className="relative max-w-md">
           <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
           <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchExpenses')} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <ReportFilters
+          value={reportFilters}
+          onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
+          onClear={() => setReportFilters({ from: '', to: '', category: '', paid_via: '', branch_id: '' })}
+          selects={reportSelects}
+        />
       </div>
 
       {loading ? (
@@ -141,7 +181,7 @@ export default function Expenses() {
               </tr>
             </thead>
             <tbody>
-              {expenses.map(exp => (
+              {reportRows.map(exp => (
                 <tr key={exp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
                     {new Date(exp.expense_date).toLocaleString(lang === 'ur' ? 'ur-PK' : 'en-PK', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -163,7 +203,7 @@ export default function Expenses() {
                   </td>
                 </tr>
               ))}
-              {expenses.length === 0 && (
+              {reportRows.length === 0 && (
                 <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noExpenses')}</td></tr>
               )}
             </tbody>

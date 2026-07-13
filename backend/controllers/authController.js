@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const db = require('../models');
 const { checkShopAccess } = require('../utils/accessHelpers');
+const { ensureTodaySession } = require('../utils/cashHelpers');
 
 // Helper to generate access token — includes shop context
 const generateAccessToken = (user) => {
@@ -162,12 +163,15 @@ exports.me = async (req, res) => {
       setup_completed = user.Shop?.setup_completed ?? false;
 
       if (setup_completed) {
-        // Check if today's cash session exists
-        const today = new Date().toISOString().slice(0, 10);
-        const todaySession = await db.CashSession.findOne({
-          where: { shop_id: user.shop_id, session_date: today }
-        });
-        cash_session_today = !!todaySession;
+        // Opening cash now carries forward automatically from yesterday's closing
+        // balance (like a bank account), so there's no daily check-in prompt.
+        // Ensure today's session row exists with the carried-forward opening.
+        try {
+          await ensureTodaySession(user.shop_id, user.id);
+        } catch (e) {
+          console.error('ensureTodaySession error:', e);
+        }
+        cash_session_today = true;
       }
     }
 

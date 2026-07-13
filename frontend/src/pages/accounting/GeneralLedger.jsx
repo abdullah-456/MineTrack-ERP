@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
+import ReportActions from '../../components/ui/ReportActions';
 import api from '../../api/axios';
 
 export default function GeneralLedger() {
@@ -49,6 +50,22 @@ export default function GeneralLedger() {
   const totalDebit = entries.reduce((s, e) => s + e.debit, 0);
   const totalCredit = entries.reduce((s, e) => s + e.credit, 0);
 
+  const reportColumns = [
+    { header: t('date') || 'Date', render: e => new Date(e.date).toLocaleDateString('en-PK'), width: 1.1 },
+    { header: t('voucherNo') || 'Voucher #', key: 'voucher_number', width: 1.1 },
+    { header: t('account') || 'Account', key: 'account_name', width: 1.6 },
+    { header: t('narration') || 'Narration', key: 'narration', width: 2.4 },
+    { header: t('debit') || 'Debit', key: 'debit', money: true, width: 1.1 },
+    { header: t('credit') || 'Credit', key: 'credit', money: true, width: 1.1 },
+    { header: t('runningBalance') || 'Balance', key: 'running_balance', money: true, width: 1.2 },
+  ];
+  const reportTotals = { __label: t('total') || 'Total', debit: totalDebit, credit: totalCredit };
+  const reportFilterList = [
+    accountId ? { label: t('account') || 'Account', value: accounts.find(a => String(a.id) === String(accountId))?.account_name || accountId } : null,
+    from ? { label: t('from') || 'From', value: from } : null,
+    to ? { label: t('to') || 'To', value: to } : null,
+  ].filter(Boolean);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -56,6 +73,16 @@ export default function GeneralLedger() {
         accent="brand"
         title={t('generalLedger') || 'General Ledger'}
         subtitle={t('generalLedgerSub') || 'Every posted transaction across the whole business'}
+        action={
+          <ReportActions
+            title={t('generalLedger') || 'General Ledger'}
+            columns={reportColumns}
+            rows={entries}
+            totals={reportTotals}
+            filters={reportFilterList}
+            filename="general-ledger.pdf"
+          />
+        }
       />
 
       <div className="glass-card p-4 flex flex-wrap gap-4 items-end">

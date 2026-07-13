@@ -6,6 +6,8 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import ReportActions from '../../components/ui/ReportActions';
+import { money } from '../../utils/reportExport';
 import api from '../../api/axios';
 
 const TXN_LABELS = {
@@ -72,10 +74,14 @@ export default function CustomerLedger() {
 
   const { customer, summary, sales_history, transaction_history } = ledger;
 
+  const bal = parseFloat(summary.current_balance || 0);
+  const isAdvance = bal < 0;
   const pills = [
     { label: t('totalCharged') || 'Total Charged', value: summary.total_charged, icon: Wallet, tone: 'amber' },
     { label: t('totalPaid') || 'Total Paid', value: summary.total_paid, icon: Wallet, tone: 'emerald' },
-    { label: t('currentBalance') || 'Current Balance', value: summary.current_balance, icon: CreditCard, tone: summary.current_balance > 0 ? 'red' : 'emerald' },
+    isAdvance
+      ? { label: t('advanceCredit') || 'Advance / Credit', value: Math.abs(bal), icon: CreditCard, tone: 'emerald' }
+      : { label: t('currentBalance') || 'Current Balance', value: bal, icon: CreditCard, tone: bal > 0 ? 'red' : 'emerald' },
   ];
   const PILL_COLORS = {
     emerald: { bg: 'rgba(16,185,129,0.10)', border: 'rgba(16,185,129,0.25)', fg: 'rgb(16,185,129)' },
@@ -92,6 +98,26 @@ export default function CustomerLedger() {
         subtitle={customer.phone || customer.cnic || ''}
         action={
           <div className="flex flex-wrap gap-2">
+            <ReportActions
+              title={`${t('customerLedger') || 'Customer Statement'} — ${customer.name}`}
+              columns={[
+                { header: t('date') || 'Date', render: r => new Date(r.date).toLocaleDateString('en-PK'), width: 1.1 },
+                { header: t('type') || 'Type', render: r => TXN_LABELS[r.type] || r.type, width: 1.4 },
+                { header: t('debit') || 'Debit', render: r => !['payment_received', 'return_credit'].includes(r.type) ? money(r.amount) : '', align: 'right', width: 1.1 },
+                { header: t('credit') || 'Credit', render: r => ['payment_received', 'return_credit'].includes(r.type) ? money(r.amount) : '', align: 'right', width: 1.1 },
+                { header: t('method') || 'Method', render: r => r.method || '', width: 1 },
+                { header: t('notes') || 'Notes', render: r => r.notes || '', width: 2 },
+                { header: t('runningBalance') || 'Balance', render: r => money(r.running_balance), align: 'right', width: 1.2 },
+              ]}
+              rows={transaction_history}
+              filters={[
+                customer.phone ? { label: t('phone') || 'Phone', value: customer.phone } : null,
+                customer.cnic ? { label: t('cnic') || 'CNIC', value: customer.cnic } : null,
+                { label: t('currentBalance') || 'Balance', value: (parseFloat(summary.current_balance) < 0 ? `${money(Math.abs(summary.current_balance))} (Adv)` : money(summary.current_balance)) },
+              ].filter(Boolean)}
+              signature
+              filename={`customer-statement-${customer.name}.pdf`}
+            />
             <button type="button" onClick={() => navigate('/customers')} className="btn-secondary flex items-center gap-2">
               <ArrowLeft className="w-4 h-4" />{t('back') || 'Back'}
             </button>
@@ -144,7 +170,8 @@ export default function CustomerLedger() {
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th className="text-start p-4">{t('date') || 'Date'}</th>
                 <th className="text-start p-4">{t('type') || 'Type'}</th>
-                <th className="text-end p-4">{t('amount') || 'Amount'}</th>
+                <th className="text-end p-4">{t('debit') || 'Debit'}</th>
+                <th className="text-end p-4">{t('credit') || 'Credit'}</th>
                 <th className="text-start p-4">{t('method') || 'Method'}</th>
                 <th className="text-start p-4">{t('notes') || 'Notes'}</th>
                 <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
@@ -155,8 +182,11 @@ export default function CustomerLedger() {
                 <tr key={txn.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(txn.date).toLocaleDateString('en-PK')}</td>
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{TXN_LABELS[txn.type] || txn.type}</td>
-                  <td className={`p-4 text-end font-semibold ${['payment_received', 'return_credit'].includes(txn.type) ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {['payment_received', 'return_credit'].includes(txn.type) ? '-' : '+'}{formatPKR(txn.amount, lang)}
+                  <td className="p-4 text-end font-semibold text-red-400">
+                    {!['payment_received', 'return_credit'].includes(txn.type) ? formatPKR(txn.amount, lang) : '—'}
+                  </td>
+                  <td className="p-4 text-end font-semibold text-emerald-400">
+                    {['payment_received', 'return_credit'].includes(txn.type) ? formatPKR(txn.amount, lang) : '—'}
                   </td>
                   <td className="p-4 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>{txn.method || '—'}</td>
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{txn.notes || '—'}</td>
@@ -164,7 +194,7 @@ export default function CustomerLedger() {
                 </tr>
               ))}
               {transaction_history.length === 0 && (
-                <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
+                <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
               )}
             </tbody>
           </table>
@@ -208,11 +238,18 @@ export default function CustomerLedger() {
         <Modal title={t('recordPayment') || 'Record Payment'} onClose={() => setModal(null)}>
           <form onSubmit={submitPayment} className="space-y-3">
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              {t('currentBalance') || 'Current Balance'}: {formatPKR(summary.current_balance, lang)}
+              {isAdvance
+                ? `${t('advanceCredit') || 'Advance / Credit'}: ${formatPKR(Math.abs(bal), lang)}`
+                : `${t('currentBalance') || 'Current Balance'}: ${formatPKR(bal, lang)}`}
             </p>
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
-              <input className="input" type="number" step="0.01" min="0.01" max={summary.current_balance || undefined} required value={paymentForm.amount} onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))} />
+              <input className="input" type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))} />
+              {parseFloat(paymentForm.amount || 0) > Math.max(0, bal) && (
+                <p className="text-xs mt-1 text-emerald-400">
+                  {t('advanceHint') || 'Amount exceeds the balance — the extra will be recorded as advance credit.'}
+                </p>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>

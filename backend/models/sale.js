@@ -69,6 +69,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DECIMAL(15, 2),
       allowNull: false
     },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
     status: {
       type: DataTypes.ENUM('completed', 'held', 'cancelled'),
       defaultValue: 'completed'

@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
+import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
 import api from '../../api/axios';
 
@@ -89,9 +90,22 @@ export default function Branches() {
         title={t('branches')}
         subtitle={t('branchesSub')}
         action={
-          <button type="button" onClick={() => { setForm(EMPTY); setModal('create'); }} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" />{t('createBranch')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              title={t('branches') || 'Branches'}
+              columns={[
+                { header: t('branchName') || 'Name', key: 'name', width: 1.6 },
+                { header: t('branchAddress') || 'Address', render: b => b.address || '', width: 2.2 },
+                { header: t('defaultBranch') || 'Default', render: b => (b.is_default ? 'Yes' : ''), width: 0.9 },
+                { header: t('status') || 'Status', key: 'status', width: 0.9 },
+              ]}
+              rows={branches}
+              filename="branches.pdf"
+            />
+            <button type="button" onClick={() => { setForm(EMPTY); setModal('create'); }} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" />{t('createBranch')}
+            </button>
+          </div>
         }
       />
 

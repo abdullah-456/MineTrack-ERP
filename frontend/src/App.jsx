@@ -6,7 +6,6 @@ import { ToastProvider } from './context/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import SidebarLayout from './layouts/SidebarLayout';
 import ShopSetupModal from './components/modals/ShopSetupModal';
-import CashCheckinModal from './components/modals/CashCheckinModal';
 import LoginPage from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ComingSoon from './pages/ComingSoon';
@@ -64,9 +63,8 @@ function RootRedirect() {
 
 // Global modal overlay — renders financial setup / cash check-in over the whole app
 function GlobalModals() {
-  const { showSetupModal, showCashCheckin, onSetupComplete, onCashCheckinComplete, user } = useAuth();
+  const { showSetupModal, onSetupComplete, user } = useAuth();
   if (showSetupModal)  return <ShopSetupModal  shopName={user?.shop_name || 'Your Shop'} onComplete={onSetupComplete} />;
-  if (showCashCheckin) return <CashCheckinModal shopName={user?.shop_name || 'Your Shop'} onComplete={onCashCheckinComplete} />;
   return null;
 }
 

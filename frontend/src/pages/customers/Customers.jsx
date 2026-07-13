@@ -7,6 +7,9 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
+import ReportActions from '../../components/ui/ReportActions';
+import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
+import { money } from '../../utils/reportExport';
 import api from '../../api/axios';
 
 const EMPTY = {
@@ -30,6 +33,7 @@ export default function Customers() {
   const [form, setForm] = useState(EMPTY);
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [reportFilters, setReportFilters] = useState({ customer_type: '', status: '' });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -98,6 +102,27 @@ export default function Customers() {
     walkin:     { icon: ShoppingBag, color: 'text-yellow-400', bg: 'bg-yellow-500/15 border-yellow-500/25', label: t('walkin') },
   };
 
+  // ── Report model ────────────────────────────────────────────────────────────
+  const reportSelects = [
+    { key: 'customer_type', label: t('type') || 'Type', options: [{ value: 'registered', label: t('registered') || 'Registered' }, { value: 'walkin', label: t('walkin') || 'Walk-in' }] },
+    { key: 'status', label: t('status') || 'Status', options: [{ value: 'active', label: t('active') || 'Active' }, { value: 'disabled', label: t('disabled') || 'Disabled' }] },
+  ];
+  let reportRows = customers;
+  if (reportFilters.customer_type) reportRows = reportRows.filter(c => (c.customer_type || 'registered') === reportFilters.customer_type);
+  if (reportFilters.status) reportRows = reportRows.filter(c => c.status === reportFilters.status);
+  const reportColumns = [
+    { header: t('name') || 'Name', key: 'name', width: 1.8 },
+    { header: t('cnic') || 'CNIC', render: c => c.cnic || '', width: 1.4 },
+    { header: t('phone') || 'Phone', render: c => c.phone || '', width: 1.2 },
+    { header: t('creditLimit') || 'Credit Limit', key: 'credit_limit', money: true, width: 1.2 },
+    { header: t('balance') || 'Balance', render: c => (parseFloat(c.current_balance) < 0 ? `${money(Math.abs(c.current_balance))} (Adv)` : money(c.current_balance)), align: 'right', width: 1.3 },
+    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+  ];
+  const reportTotals = {
+    __label: t('total') || 'Total',
+    credit_limit: reportRows.reduce((s, c) => s + parseFloat(c.credit_limit || 0), 0),
+  };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -106,25 +131,42 @@ export default function Customers() {
         title={t('customers')}
         subtitle={t('customersSub')}
         action={
-          <button type="button" onClick={() => { setForm(EMPTY); setModal('create'); }} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" />{t('addCustomer')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              title={t('customers') || 'Customers Report'}
+              columns={reportColumns}
+              rows={reportRows}
+              totals={reportTotals}
+              filters={activeFilterList(reportFilters, reportSelects)}
+              filename="customers-report.pdf"
+            />
+            <button type="button" onClick={() => { setForm(EMPTY); setModal('create'); }} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" />{t('addCustomer')}
+            </button>
+          </div>
         }
       />
 
       {/* Search Bar */}
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 space-y-3">
         <div className="relative max-w-md">
           <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
           <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchCustomers')} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <ReportFilters
+          value={reportFilters}
+          onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
+          onClear={() => setReportFilters({ customer_type: '', status: '' })}
+          selects={reportSelects}
+          showDates={false}
+        />
       </div>
 
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-brand-400" /></div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {customers.map(c => {
+          {reportRows.map(c => {
             const tc = typeConfig[c.customer_type || 'registered'];
             const TypeIcon = tc?.icon || UserCheck;
             return (
@@ -186,7 +228,7 @@ export default function Customers() {
               </div>
             );
           })}
-          {customers.length === 0 && (
+          {reportRows.length === 0 && (
             <div className="col-span-full glass-card p-12 text-center" style={{ color: 'var(--text-muted)' }}>{t('noCustomers')}</div>
           )}
         </div>

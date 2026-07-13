@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
+import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
 import api from '../../api/axios';
@@ -138,6 +139,25 @@ export default function Payroll() {
         accent="cyan"
         title={t('payroll') || 'Payroll'}
         subtitle={t('payrollSub') || 'Give each employee their salary for the month'}
+        action={
+          <ReportActions
+            title={t('payroll') || 'Payroll'}
+            columns={[
+              { header: t('name') || 'Name', key: 'name', width: 1.6 },
+              { header: t('designation') || 'Designation', render: e => e.designation || '', width: 1.3 },
+              { header: t('basicSalary') || 'Basic Salary', key: 'basic_salary', money: true, width: 1.2 },
+              { header: t('currentPayable') || 'Current Payable', key: 'current_payable', money: true, width: 1.3 },
+              { header: t('status') || 'Status', key: 'status', width: 0.9 },
+            ]}
+            rows={employees}
+            totals={{
+              __label: t('total') || 'Total',
+              basic_salary: employees.reduce((s, e) => s + parseFloat(e.basic_salary || 0), 0),
+              current_payable: employees.reduce((s, e) => s + parseFloat(e.current_payable || 0), 0),
+            }}
+            filename="payroll-report.pdf"
+          />
+        }
       />
 
       <div className="glass-card p-4">

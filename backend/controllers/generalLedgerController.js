@@ -102,7 +102,10 @@ exports.getVoucher = async (req, res) => {
 
     const voucher = await db.Voucher.findOne({
       where: { id: req.params.id, shop_id: shopId },
-      include: [{ model: db.User, as: 'Creator', attributes: ['id', 'name'] }],
+      include: [
+        { model: db.User, as: 'Creator', attributes: ['id', 'name'] },
+        { model: db.Shop, attributes: ['id', 'name', 'owner_name', 'email', 'phone', 'address', 'logo_url'] },
+      ],
     });
     if (!voucher) return res.status(404).json({ message: 'Voucher not found' });
 
@@ -113,6 +116,7 @@ exports.getVoucher = async (req, res) => {
     });
 
     return res.json({
+      company: voucher.Shop || null,
       voucher: {
         id: voucher.id,
         voucher_number: voucher.voucher_number,

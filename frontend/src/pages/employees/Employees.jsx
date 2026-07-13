@@ -7,6 +7,8 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
+import ReportActions from '../../components/ui/ReportActions';
+import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
 
 const EMPTY = {
@@ -29,6 +31,7 @@ export default function Employees() {
   const [form, setForm] = useState(EMPTY);
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [reportFilters, setReportFilters] = useState({ from: '', to: '', branch_id: '', status: '' });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -89,6 +92,29 @@ export default function Employees() {
     setModal('create');
   };
 
+  // ── Report model ────────────────────────────────────────────────────────────
+  const reportSelects = [
+    { key: 'branch_id', label: t('branch') || 'Branch', options: branches.map(b => ({ value: b.id, label: b.name })) },
+    { key: 'status', label: t('status') || 'Status', options: [{ value: 'active', label: t('active') || 'Active' }, { value: 'inactive', label: t('inactive') || 'Inactive' }] },
+  ];
+  let reportRows = filterByDate(employees, 'hire_date', reportFilters.from, reportFilters.to);
+  if (reportFilters.branch_id) reportRows = reportRows.filter(e => String(e.branch_id) === String(reportFilters.branch_id));
+  if (reportFilters.status) reportRows = reportRows.filter(e => e.status === reportFilters.status);
+  const reportColumns = [
+    { header: t('name') || 'Name', key: 'name', width: 1.6 },
+    { header: t('designation') || 'Designation', render: e => e.designation || '', width: 1.3 },
+    { header: t('userBranch') || 'Branch', render: e => e.Branch?.name || '', width: 1.1 },
+    { header: t('basicSalary') || 'Salary', key: 'basic_salary', money: true, width: 1.1 },
+    { header: t('hireDate') || 'Hire Date', render: e => (e.hire_date ? new Date(e.hire_date).toLocaleDateString('en-PK') : ''), width: 1.1 },
+    { header: t('currentPayable') || 'Payable', key: 'current_payable', money: true, width: 1.1 },
+    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+  ];
+  const reportTotals = {
+    __label: t('total') || 'Total',
+    basic_salary: reportRows.reduce((s, e) => s + parseFloat(e.basic_salary || 0), 0),
+    current_payable: reportRows.reduce((s, e) => s + parseFloat(e.current_payable || 0), 0),
+  };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -97,17 +123,33 @@ export default function Employees() {
         title={t('employees')}
         subtitle={t('employeesSub')}
         action={
-          <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" />{t('addEmployee')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              title={t('employees') || 'Employees Report'}
+              columns={reportColumns}
+              rows={reportRows}
+              totals={reportTotals}
+              filters={activeFilterList(reportFilters, reportSelects)}
+              filename="employees-report.pdf"
+            />
+            <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" />{t('addEmployee')}
+            </button>
+          </div>
         }
       />
 
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 space-y-3">
         <div className="relative max-w-md">
           <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
           <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchEmployees')} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <ReportFilters
+          value={reportFilters}
+          onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
+          onClear={() => setReportFilters({ from: '', to: '', branch_id: '', status: '' })}
+          selects={reportSelects}
+        />
       </div>
 
       {loading ? (
@@ -128,7 +170,7 @@ export default function Employees() {
               </tr>
             </thead>
             <tbody>
-              {employees.map(emp => (
+              {reportRows.map(emp => (
                 <tr key={emp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4">
                     <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{emp.name}</div>
@@ -153,7 +195,7 @@ export default function Employees() {
                   </td>
                 </tr>
               ))}
-              {employees.length === 0 && (
+              {reportRows.length === 0 && (
                 <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEmployees')}</td></tr>
               )}
             </tbody>

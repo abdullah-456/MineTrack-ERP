@@ -6,6 +6,8 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge, { StockBadge } from '../../components/ui/StatusBadge';
+import ReportActions from '../../components/ui/ReportActions';
+import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
 
 const EMPTY = {
@@ -30,6 +32,7 @@ export default function Products() {
   const [form, setForm] = useState(EMPTY);
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [reportFilters, setReportFilters] = useState({ category_id: '', status: '' });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -144,6 +147,30 @@ export default function Products() {
 
   const setF = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
+  // ── Report model ────────────────────────────────────────────────────────────
+  const reportSelects = [
+    { key: 'category_id', label: t('category') || 'Category', options: categories.map(c => ({ value: c.id, label: c.name })) },
+    { key: 'status', label: t('status') || 'Status', options: [{ value: 'active', label: t('active') || 'Active' }, { value: 'inactive', label: t('inactive') || 'Inactive' }] },
+  ];
+  let reportRows = products;
+  if (reportFilters.category_id) reportRows = reportRows.filter(p => String(p.category_id) === String(reportFilters.category_id));
+  if (reportFilters.status) reportRows = reportRows.filter(p => p.status === reportFilters.status);
+  const reportColumns = [
+    { header: t('sku') || 'SKU', key: 'sku', width: 1 },
+    { header: t('name') || 'Name', render: p => p.name + (p.brand ? ` (${p.brand})` : ''), width: 2 },
+    { header: t('category') || 'Category', render: p => p.Category?.name || '', width: 1.2 },
+    { header: t('totalStock') || 'Stock', key: 'stock', render: p => totalStock(p), align: 'right', width: 0.9 },
+    { header: t('costPrice') || 'Cost', key: 'cost_price', money: true, width: 1 },
+    { header: t('salePrice') || 'Sale', key: 'sale_price', money: true, width: 1 },
+    { header: t('stockValue') || 'Stock Value', key: 'stock_value', render: p => totalStock(p) * parseFloat(p.cost_price || 0), money: true, width: 1.1 },
+    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+  ];
+  const reportTotals = {
+    __label: t('total') || 'Total',
+    stock: reportRows.reduce((s, p) => s + totalStock(p), 0),
+    stock_value: reportRows.reduce((s, p) => s + totalStock(p) * parseFloat(p.cost_price || 0), 0),
+  };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -152,17 +179,34 @@ export default function Products() {
         title={t('products')}
         subtitle={t('productsSub')}
         action={
-          <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" />{t('addProduct')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              title={t('products') || 'Products Report'}
+              columns={reportColumns}
+              rows={reportRows}
+              totals={reportTotals}
+              filters={activeFilterList(reportFilters, reportSelects)}
+              filename="products-report.pdf"
+            />
+            <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" />{t('addProduct')}
+            </button>
+          </div>
         }
       />
 
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 space-y-3">
         <div className="relative max-w-md">
           <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" style={{ [isRTL ? 'right' : 'left']: '12px' }} />
           <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchProducts')} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <ReportFilters
+          value={reportFilters}
+          onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
+          onClear={() => setReportFilters({ category_id: '', status: '' })}
+          selects={reportSelects}
+          showDates={false}
+        />
       </div>
 
       {loading ? (
@@ -183,7 +227,7 @@ export default function Products() {
               </tr>
             </thead>
             <tbody>
-              {products.map(p => (
+              {reportRows.map(p => (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 font-mono text-blue-400 text-xs">{p.sku}</td>
                   <td className="p-4">
@@ -201,7 +245,7 @@ export default function Products() {
                   </td>
                 </tr>
               ))}
-              {products.length === 0 && (
+              {reportRows.length === 0 && (
                 <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noProducts')}</td></tr>
               )}
             </tbody>

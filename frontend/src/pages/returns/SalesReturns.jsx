@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   RotateCcw, Search, Loader2, Plus, Trash2,
   Banknote, Repeat, XCircle, Printer, ChevronDown,
-  User, Package, Hash,
+  User, Package, Hash, Eye,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
@@ -11,6 +11,8 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
+import ReportActions from '../../components/ui/ReportActions';
+import { money } from '../../utils/reportExport';
 import api from '../../api/axios';
 
 // ----- ProductDropdown: live-search dropdown for replacement products --------
@@ -375,11 +377,29 @@ export default function SalesReturns() {
         subtitle="Refund sold items back into stock, or exchange them for products of equal or higher value"
         accent="rose"
         action={
-          can('returns', 'create') && (
-            <button className="btn-primary flex items-center gap-2" onClick={openWizard}>
-              <Plus className="w-4 h-4" /> New Return
-            </button>
-          )
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              title="Sales Returns"
+              columns={[
+                { header: 'Return #', key: 'return_number', width: 1.2 },
+                { header: 'Date', render: r => new Date(r.return_date || r.created_at).toLocaleDateString('en-PK'), width: 1.1 },
+                { header: 'Type', render: r => r.return_type, width: 0.9 },
+                { header: 'Invoice', render: r => r.Sale?.invoice_number || '', width: 1.3 },
+                { header: 'Customer', render: r => r.Customer?.name || 'Walk-in', width: 1.5 },
+                { header: 'Returned Value', key: 'returned_value', money: true, width: 1.2 },
+                { header: 'Refund/Settle', render: r => (r.return_type === 'refund' ? money(r.refund_amount) : money(r.settlement_amount)), align: 'right', width: 1.2 },
+                { header: 'Status', key: 'status', width: 0.9 },
+              ]}
+              rows={returns}
+              totals={{ __label: 'Total', returned_value: returns.reduce((s, r) => s + parseFloat(r.returned_value || 0), 0) }}
+              filename="sales-returns.pdf"
+            />
+            {can('returns', 'create') && (
+              <button className="btn-primary flex items-center gap-2" onClick={openWizard}>
+                <Plus className="w-4 h-4" /> New Return
+              </button>
+            )}
+          </div>
         }
       />
 
@@ -458,8 +478,15 @@ export default function SalesReturns() {
                       />
                     </td>
                     <td className="py-3 text-right whitespace-nowrap">
-                      <button className="icon-btn" title="View" onClick={() => setDetail(r)}>
+                      <button
+                        className="icon-btn"
+                        title="Print return invoice"
+                        onClick={() => window.open(`/invoice/return-${r.id}?auto_print=1`, '_blank', 'noopener,noreferrer')}
+                      >
                         <Printer className="w-4 h-4" />
+                      </button>
+                      <button className="icon-btn" title="View details" onClick={() => setDetail(r)}>
+                        <Eye className="w-4 h-4" />
                       </button>
                       {can('returns', 'delete') &&
                         r.status === 'completed' &&
@@ -986,9 +1013,9 @@ export default function SalesReturns() {
               )}
               <button
                 className="btn-primary flex items-center gap-2"
-                onClick={() => window.print()}
+                onClick={() => window.open(`/invoice/return-${detail.id}?auto_print=1`, '_blank', 'noopener,noreferrer')}
               >
-                <Printer className="w-4 h-4" /> Print slip
+                <Printer className="w-4 h-4" /> Print Invoice
               </button>
             </div>
           </div>

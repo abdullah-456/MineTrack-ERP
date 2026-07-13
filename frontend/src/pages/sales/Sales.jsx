@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, Plus, Search, Eye, Loader2, Receipt, Calendar, CreditCard, ChevronRight } from 'lucide-react';
+import { TrendingUp, Plus, Search, Eye, Loader2, Receipt, Calendar, CreditCard, ChevronRight, Printer } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
+import ReportActions from '../../components/ui/ReportActions';
+import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
 
 const EMPTY_INSTALLMENT = {
@@ -33,9 +35,10 @@ export default function Sales() {
   const [form, setForm] = useState({
     customer_id: '', branch_id: '', employee_id: '', sale_type: 'cash',
     items: [{ product_id: '', quantity: 1, unit_price: '' }],
-    discount: '0', tax: '0', payment_method: 'cash',
+    discount: '0', tax: '0', payment_method: 'cash', description: '',
   });
   const [installmentPlan, setInstallmentPlan] = useState(EMPTY_INSTALLMENT);
+  const [reportFilters, setReportFilters] = useState({ from: '', to: '', sale_type: '', customer_id: '' });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -101,11 +104,15 @@ export default function Sales() {
     subtotal - (parseFloat(form.discount) || 0) + (parseFloat(form.tax) || 0),
   [subtotal, form.discount, form.tax]);
 
-  // Installment preview schedule
+  // Installment preview schedule — mirrors the backend: the customer's existing
+  // advance credit is applied on top of the cash down payment before splitting.
   const installmentPreview = useMemo(() => {
     if (form.sale_type !== 'installment') return [];
     const dp = parseFloat(installmentPlan.down_payment || 0);
-    const principal = total - dp;
+    const cust = customers.find(c => String(c.id) === String(form.customer_id));
+    const advance = cust ? Math.max(0, -parseFloat(cust.current_balance || 0)) : 0;
+    const advanceToDown = Math.min(advance, Math.max(0, total - dp));
+    const principal = total - dp - advanceToDown;
     if (principal <= 0 || !installmentPlan.number_of_installments) return [];
     const num = parseInt(installmentPlan.number_of_installments, 10);
     if (!num || num <= 0) return [];
@@ -122,7 +129,7 @@ export default function Sales() {
       });
     }
     return rows;
-  }, [form.sale_type, installmentPlan, total, lang]);
+  }, [form.sale_type, form.customer_id, customers, installmentPlan, total, lang]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -148,6 +155,7 @@ export default function Sales() {
         discount: parseFloat(form.discount) || 0,
         tax: parseFloat(form.tax) || 0,
         payment_method: form.payment_method,
+        description: form.description?.trim() || null,
         ...shopParams(),
       };
 
@@ -187,6 +195,30 @@ export default function Sales() {
     cash: 'badge-green', bank: 'badge-blue', credit: 'badge-yellow', installment: 'badge-purple', card: 'badge-blue',
   };
 
+  // Advance credit the selected customer already holds (negative balance).
+  const selectedCustomer = customers.find(c => String(c.id) === String(form.customer_id));
+  const selectedAdvance = selectedCustomer
+    ? Math.max(0, -parseFloat(selectedCustomer.current_balance || 0))
+    : 0;
+
+  // ── Report: filter the on-screen sales, then feed <ReportActions/> ──────────
+  const reportSelects = [
+    { key: 'sale_type', label: t('saleType') || 'Type', options: ['cash', 'bank', 'credit', 'installment', 'card'].map(v => ({ value: v, label: t(v) || v })) },
+    { key: 'customer_id', label: t('customer') || 'Customer', options: customers.map(c => ({ value: c.id, label: c.name })) },
+  ];
+  let reportRows = filterByDate(sales, 'sale_date', reportFilters.from, reportFilters.to);
+  if (reportFilters.sale_type) reportRows = reportRows.filter(s => s.sale_type === reportFilters.sale_type);
+  if (reportFilters.customer_id) reportRows = reportRows.filter(s => String(s.Customer?.id || s.customer_id) === String(reportFilters.customer_id));
+  const reportColumns = [
+    { header: t('invoiceNo') || 'Invoice #', key: 'invoice_number', width: 1.4 },
+    { header: t('date') || 'Date', render: s => new Date(s.sale_date).toLocaleDateString('en-PK'), width: 1.1 },
+    { header: t('customer') || 'Customer', render: s => s.Customer?.name || t('walkIn') || 'Walk-in', width: 1.6 },
+    { header: t('userBranch') || 'Branch', render: s => s.Branch?.name || '', width: 1.2 },
+    { header: t('saleType') || 'Type', render: s => t(s.sale_type) || s.sale_type, width: 1 },
+    { header: t('total') || 'Total', key: 'total', money: true, width: 1.1 },
+  ];
+  const reportTotals = { __label: t('total') || 'Total', total: reportRows.reduce((s, r) => s + parseFloat(r.total || 0), 0) };
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -195,25 +227,41 @@ export default function Sales() {
         title={t('sales')}
         subtitle={t('salesSub')}
         action={
-          <button
-            type="button"
-            onClick={() => {
-              setForm({ customer_id: '', branch_id: branches[0]?.id || '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_method: 'cash' });
-              setInstallmentPlan(EMPTY_INSTALLMENT);
-              setModal('create');
-            }}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />{t('newSale')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReportActions
+              title={t('sales') || 'Sales Report'}
+              columns={reportColumns}
+              rows={reportRows}
+              totals={reportTotals}
+              filters={activeFilterList(reportFilters, reportSelects)}
+              filename="sales-report.pdf"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setForm({ customer_id: '', branch_id: branches[0]?.id || '', employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_method: 'cash', description: '' });
+                setInstallmentPlan(EMPTY_INSTALLMENT);
+                setModal('create');
+              }}
+              className="btn-primary flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />{t('newSale')}
+            </button>
+          </div>
         }
       />
 
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 space-y-3">
         <div className="relative max-w-md">
           <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
           <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchInvoice')} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <ReportFilters
+          value={reportFilters}
+          onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
+          onClear={() => setReportFilters({ from: '', to: '', sale_type: '', customer_id: '' })}
+          selects={reportSelects}
+        />
       </div>
 
       {loading ? (
@@ -234,7 +282,7 @@ export default function Sales() {
               </tr>
             </thead>
             <tbody>
-              {sales.map(s => (
+              {reportRows.map(s => (
                 <tr key={s.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 font-mono text-rose-400 text-xs">{s.invoice_number}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>
@@ -255,12 +303,20 @@ export default function Sales() {
                   </td>
                   <td className="p-4 font-bold text-emerald-400">{formatPKR(s.total, lang)}</td>
                   <td className="p-4"><StatusBadge status={s.status} /></td>
-                  <td className="p-4 text-end">
-                    <button type="button" onClick={() => viewDetail(s.id)} className="icon-btn"><Eye className="w-4 h-4" /></button>
+                  <td className="p-4 text-end whitespace-nowrap">
+                    <button
+                      type="button"
+                      title={t('printInvoice') || 'Print invoice'}
+                      onClick={() => window.open(`/invoice/sale-${s.id}?auto_print=1`, '_blank', 'noopener,noreferrer')}
+                      className="icon-btn"
+                    >
+                      <Printer className="w-4 h-4" />
+                    </button>
+                    <button type="button" title={t('viewDetails') || 'View details'} onClick={() => viewDetail(s.id)} className="icon-btn"><Eye className="w-4 h-4" /></button>
                   </td>
                 </tr>
               ))}
-              {sales.length === 0 && (
+              {reportRows.length === 0 && (
                 <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noSales')}</td></tr>
               )}
             </tbody>
@@ -287,6 +343,14 @@ export default function Sales() {
                 </select>
                 {(form.sale_type === 'installment' || form.sale_type === 'credit') && !form.customer_id && (
                   <p className="text-xs text-amber-400 mt-1">⚠ {t('mustSelectRegisteredCustomer')}</p>
+                )}
+                {selectedAdvance > 0 && (
+                  <p className="text-xs text-emerald-400 mt-1">
+                    {t('advanceAvailable') || 'Advance available'}: {formatPKR(selectedAdvance, lang)}
+                    {(form.sale_type === 'credit' || form.sale_type === 'installment') && (
+                      <span style={{ color: 'var(--text-muted)' }}> — {t('advanceWillApply') || 'will be applied to this sale'}</span>
+                    )}
+                  </p>
                 )}
               </div>
               <div>
@@ -391,6 +455,17 @@ export default function Sales() {
                 <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('tax')}</label>
                 <input className="input" type="number" min="0" value={form.tax} onChange={e => setForm(f => ({ ...f, tax: e.target.value }))} />
               </div>
+            </div>
+
+            {/* Description / note */}
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
+              <textarea
+                className="input min-h-[60px] resize-none"
+                placeholder={t('saleDescriptionPlaceholder') || 'Optional note for this sale (e.g. delivery details, remarks)...'}
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              />
             </div>
 
             {/* Totals */}
@@ -500,6 +575,15 @@ export default function Sales() {
       {modal === 'detail' && detail && (
         <Modal title={t('saleDetail')} onClose={() => { setModal(null); setDetail(null); }} wide>
           <div className="space-y-4">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => window.open(`/invoice/sale-${detail.id}?auto_print=1`, '_blank', 'noopener,noreferrer')}
+                className="btn-primary flex items-center gap-2 text-sm"
+              >
+                <Printer className="w-4 h-4" />{t('printInvoice') || 'Print Invoice'}
+              </button>
+            </div>
             <div className="flex items-center gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20">
               <Receipt className="w-8 h-8 text-rose-400" />
               <div>
@@ -532,6 +616,13 @@ export default function Sales() {
                 <span className={`badge ${saleTypeBadgeColor[detail.sale_type] || 'badge-blue'}`}>{t(detail.sale_type) || detail.sale_type}</span>
               </div>
             </div>
+
+            {detail.description && (
+              <div className="rounded-lg p-3" style={{ background: 'var(--bg-elevated)' }}>
+                <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>{t('description') || 'Description'}</p>
+                <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{detail.description}</p>
+              </div>
+            )}
 
             <table className="w-full text-sm">
               <thead>

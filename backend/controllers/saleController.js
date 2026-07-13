@@ -155,7 +155,7 @@ exports.create = async (req, res) => {
 
     const {
       customer_id, branch_id, employee_id, sale_type, items, discount, tax, payment_method, payment_amount,
-      installment_plan,
+      installment_plan, description,
     } = req.body;
 
     // Installment and credit sales require a registered customer
@@ -191,12 +191,18 @@ exports.create = async (req, res) => {
       await transaction.rollback();
       return res.status(400).json({ message: 'Invalid branch for this shop' });
     }
+    // Any advance the customer paid earlier shows up as a negative current_balance
+    // (a credit in their favour). Capture it now, before the sale mutates the
+    // balance, so an installment sale can draw the advance down against its
+    // scheduled principal (a plain credit sale nets it automatically).
+    let customerAdvanceAvailable = 0;
     if (customer_id) {
       const cust = await db.Customer.findOne({ where: { id: customer_id, shop_id: shopId }, transaction });
       if (!cust) {
         await transaction.rollback();
         return res.status(400).json({ message: 'Invalid customer for this shop' });
       }
+      customerAdvanceAvailable = Math.max(0, -parseFloat(cust.current_balance || 0));
     }
     if (employee_id) {
       const emp = await db.Employee.findOne({ where: { id: parseInt(employee_id, 10), shop_id: shopId }, transaction });
@@ -291,6 +297,7 @@ exports.create = async (req, res) => {
       discount: saleDiscount,
       tax: saleTax,
       total,
+      description: (typeof description === 'string' && description.trim()) ? description.trim() : null,
       status: 'completed',
     }, { transaction });
 
@@ -386,20 +393,29 @@ exports.create = async (req, res) => {
         return res.status(400).json({ message: 'start_date is required for installment plans' });
       }
 
+      // Real cash down payment, plus any advance credit the customer already
+      // holds — the advance is applied on top of the cash down so the scheduled
+      // principal reflects what the customer still genuinely owes. This keeps the
+      // installment schedule in step with the customer's running balance (which
+      // already nets the advance via the sale charge below).
+      const realDown = parseFloat(dp || 0);
+      const advanceToDown = Math.round(Math.min(customerAdvanceAvailable, Math.max(0, total - realDown)) * 100) / 100;
+      const effectiveDown = Math.round((realDown + advanceToDown) * 100) / 100;
+
       const plan = await db.InstallmentPlan.create({
         sale_id: sale.id,
         customer_id,
         total_amount: total,
-        down_payment: parseFloat(dp || 0),
+        down_payment: effectiveDown,
         number_of_installments: parseInt(number_of_installments, 10),
         frequency: frequency || 'monthly',
         start_date: new Date(start_date),
-        status: 'active',
+        status: (total - effectiveDown) <= 0 ? 'closed' : 'active',
       }, { transaction });
 
       // Auto-generate schedule (no markup/interest — installments split the
       // remaining principal evenly).
-      const principal = total - parseFloat(dp || 0);
+      const principal = total - effectiveDown;
       const numInst = parseInt(number_of_installments, 10);
       const perInstallment = Math.round((principal / numInst) * 100) / 100;
 
@@ -409,14 +425,17 @@ exports.create = async (req, res) => {
         if ((frequency || 'monthly') === 'monthly') d.setMonth(d.getMonth() + (i - 1));
         else d.setDate(d.getDate() + (i - 1) * 7);
 
+        const dueAmount = i === numInst
+          ? Math.round((principal - perInstallment * (numInst - 1)) * 100) / 100
+          : perInstallment;
+
         scheduleRows.push({
           plan_id: plan.id,
           installment_no: i,
           due_date: d,
-          due_amount: i === numInst
-            ? Math.round((principal - perInstallment * (numInst - 1)) * 100) / 100
-            : perInstallment,
-          status: 'pending',
+          due_amount: dueAmount,
+          // Slots fully covered by the advance carry nothing to collect.
+          status: dueAmount <= 0 ? 'paid' : 'pending',
           late_fee: 0,
         });
       }

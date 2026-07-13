@@ -1,10 +1,12 @@
 import { jsPDF } from 'jspdf';
 import api from '../api/axios';
+import { getCompany } from './reportExport';
+import { amountInWords } from './amountInWords';
 
-// jsPDF's built-in fonts can't render Urdu/Arabic script (no glyph shaping),
-// so the downloaded PDF is always laid out in English regardless of the
-// active UI language — the Print button (real HTML + browser print-to-PDF)
-// is the correct path when a fully Urdu document is needed.
+// Downloadable employee transaction/pay slip — same letterhead & print-safe
+// styling as the on-screen slip and every other document (dark ink, company
+// details on top, amount in words, signature lines). Vector text stays crisp.
+
 const TITLES = {
   advance_given: 'Advance Slip',
   loan_given: 'Loan Slip',
@@ -19,95 +21,99 @@ async function fetchSlip(employeeId, txnId) {
   return data;
 }
 
-function buildDoc({ employee, transaction: txn, payroll }, shopName) {
+function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
   const doc = new jsPDF({ unit: 'mm', format: 'a5' });
-  const marginX = 14;
-  let y = 18;
+  const W = 148, margin = 14, right = W - margin;
+  let y = 16;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.setTextColor(79, 70, 229); // indigo, matches the print-page letterhead
-  doc.text(shopName || 'ESMS', marginX, y);
+  // ── Letterhead ──
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(17, 24, 39);
+  doc.text(company.name || 'Company', W / 2, y, { align: 'center' }); y += 5;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(70, 70, 70);
+  const contact = [company.address, company.phone && `Ph: ${company.phone}`, company.email].filter(Boolean).join('  |  ');
+  if (contact) { doc.text(contact, W / 2, y, { align: 'center' }); y += 4; }
+  if (company.owner_name) { doc.text(`Proprietor: ${company.owner_name}`, W / 2, y, { align: 'center' }); y += 4; }
+  y += 1; doc.setDrawColor(17, 24, 39); doc.setLineWidth(0.5); doc.line(margin, y, right, y); y += 6;
 
-  y += 7;
-  doc.setFontSize(12);
-  doc.setTextColor(17, 24, 39);
   const title = payroll ? TITLES.payment_made : (TITLES[txn.type] || 'Transaction Slip');
-  doc.text(title, marginX, y);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(17, 24, 39);
+  doc.text(title.toUpperCase(), W / 2, y, { align: 'center' }); y += 8;
 
-  y += 3;
-  doc.setDrawColor(79, 70, 229);
-  doc.setLineWidth(0.6);
-  doc.line(marginX, y, 148 - marginX, y);
-  y += 8;
-
-  doc.setFont('helvetica', 'normal');
+  // ── Detail rows ──
   doc.setFontSize(10);
-  doc.setTextColor(55, 65, 81);
-
   const row = (label, value) => {
-    doc.setTextColor(107, 114, 128);
-    doc.text(label, marginX, y);
-    doc.setTextColor(17, 24, 39);
-    doc.text(String(value), 148 - marginX, y, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 90, 90);
+    doc.text(label, margin, y);
+    doc.setFont('helvetica', 'bold'); doc.setTextColor(17, 24, 39);
+    doc.text(String(value), right, y, { align: 'right' });
     y += 6;
   };
-
   row('Employee', employee.name);
   if (employee.designation) row('Designation', employee.designation);
-  row('Date', new Date(txn.date).toLocaleDateString('en-PK'));
-  if (txn.method) row('Method', txn.method.toUpperCase());
+  row('Date', new Date(txn.date).toLocaleDateString('en-GB'));
+  if (txn.method) row('Method', String(txn.method).toUpperCase());
   if (txn.for_month) row('For Salary Month', txn.for_month);
   if (txn.notes) row('Notes', txn.notes);
 
-  y += 4;
-  doc.setDrawColor(229, 231, 235);
-  doc.line(marginX, y, 148 - marginX, y);
-  y += 8;
+  y += 2; doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.3); doc.line(margin, y, right, y); y += 7;
 
+  let headline;
   if (payroll) {
     row('Month', payroll.month);
     row('Basic Salary', fmt(payroll.basic_salary));
     if (payroll.bonus > 0) row('Bonus', `+${fmt(payroll.bonus)}`);
     if (payroll.deductions > 0) row('Deductions', `-${fmt(payroll.deductions)}`);
-    y += 2;
-    doc.setDrawColor(55, 65, 81);
-    doc.setLineWidth(0.5);
-    doc.line(marginX, y, 148 - marginX, y);
-    y += 7;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    row('Net Pay', fmt(payroll.net_pay));
+    y += 1; doc.setDrawColor(17, 24, 39); doc.setLineWidth(0.5); doc.line(margin, y, right, y); y += 7;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(17, 24, 39);
+    doc.text('Net Pay', margin, y);
+    doc.text(fmt(payroll.net_pay), right, y, { align: 'right' }); y += 8;
+    headline = payroll.net_pay;
   } else {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(107, 114, 128);
-    doc.text('AMOUNT', 74.25, y, { align: 'center' });
-    y += 8;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(20);
-    const incoming = txn.type === 'loan_repayment';
-    doc.setTextColor(...(incoming ? [5, 150, 105] : [79, 70, 229]));
-    doc.text(`${incoming ? '+' : ''}${fmt(txn.amount)}`, 74.25, y, { align: 'center' });
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(17, 24, 39);
+    doc.text('Amount', margin, y);
+    doc.text(fmt(txn.amount), right, y, { align: 'right' }); y += 8;
+    headline = txn.amount;
   }
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(156, 163, 175);
-  doc.text(
-    `${shopName || 'ESMS'} — Generated: ${new Date().toLocaleString('en-PK')}`,
-    74.25, 195, { align: 'center' },
-  );
+  // ── Amount in words ──
+  doc.setDrawColor(17, 24, 39); doc.setLineWidth(0.2);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(40, 40, 40);
+  const words = amountInWords(headline);
+  const wLines = doc.splitTextToSize(`Amount in words: ${words}`, right - margin - 4);
+  const boxH = wLines.length * 4 + 4;
+  doc.rect(margin, y, right - margin, boxH);
+  doc.text(wLines, margin + 2, y + 5); y += boxH + 12;
+
+  // ── Signatures ──
+  const colW = (right - margin) / 2;
+  doc.setDrawColor(80, 80, 80); doc.setLineWidth(0.3);
+  doc.line(margin, y, margin + colW - 8, y);
+  doc.line(margin + colW + 4, y, right, y);
+  y += 4;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(40, 40, 40);
+  doc.text('Prepared By', margin, y);
+  doc.text('Received Sign & Thumb', margin + colW + 4, y);
+
+  // ── Footer ──
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(150, 150, 150);
+  doc.text(`${company.name || ''} — Generated: ${new Date().toLocaleString('en-PK')}`, W / 2, 200, { align: 'center' });
 
   return doc;
 }
 
-// Fetches the slip, builds a PDF replicating it, and triggers a browser
-// download — a genuine file save, distinct from the Print action (which
-// opens the print dialog on the full bilingual HTML page).
-export async function downloadEmployeeSlip(employeeId, txnId, shopName) {
-  const data = await fetchSlip(employeeId, txnId);
-  const doc = buildDoc(data, shopName);
+// Fetches the slip + company profile, builds a professional PDF, downloads it.
+// `companyOrName` is optional — an object is used directly; otherwise the
+// company profile is fetched. A bare string is treated as the company name.
+export async function downloadEmployeeSlip(employeeId, txnId, companyOrName) {
+  const [data, fetchedCompany] = await Promise.all([
+    fetchSlip(employeeId, txnId),
+    getCompany().catch(() => ({})),
+  ]);
+  let company = fetchedCompany || {};
+  if (companyOrName && typeof companyOrName === 'object') company = companyOrName;
+  else if (typeof companyOrName === 'string' && !company.name) company = { name: companyOrName };
+
+  const doc = buildDoc(data, company);
   const safeName = (data.employee?.name || 'employee').replace(/[^a-z0-9]+/gi, '-');
   doc.save(`slip-${safeName}-${txnId}.pdf`);
 }
