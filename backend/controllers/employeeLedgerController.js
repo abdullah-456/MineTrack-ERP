@@ -60,7 +60,7 @@ exports.recordAdvance = async (req, res) => {
     await postVoucher(shopId, {
       type: 'payment',
       date: new Date(),
-      narration: `Advance (for ${for_month}) — ${employee.name}`,
+      narration: `Advance (for ${for_month}) — ${employee.name}${notes?.trim() ? ' — ' + notes.trim() : ''}`,
       createdBy: req.user.id,
       lines: [
         { accountCode: '05-EMPADVLOAN', debit: amt },
@@ -116,7 +116,7 @@ exports.recordLoan = async (req, res) => {
     await postVoucher(shopId, {
       type: 'payment',
       date: new Date(),
-      narration: `Loan — ${employee.name}`,
+      narration: `Loan — ${employee.name}${notes?.trim() ? ' — ' + notes.trim() : ''}`,
       createdBy: req.user.id,
       lines: [
         { accountCode: '05-EMPADVLOAN', debit: amt },
@@ -193,7 +193,7 @@ exports.receiveLoanPayment = async (req, res) => {
     await postVoucher(shopId, {
       type: 'receipt',
       date: new Date(),
-      narration: `Loan payment received — ${employee.name}`,
+      narration: `Loan payment received — ${employee.name}${notes?.trim() ? ' — ' + notes.trim() : ''}`,
       createdBy: req.user.id,
       lines: [
         { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', debit: amt },
@@ -366,7 +366,7 @@ exports.giveSalary = async (req, res) => {
       await postVoucher(shopId, {
         type: 'journal',
         date: new Date(),
-        narration: `Salary ${month} — ${employee.name}`,
+        narration: `Salary ${month} — ${employee.name} (Basic: ${basicSalary}, Bonus: ${bonusAmt}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
         createdBy: req.user.id,
         lines: [
           { accountCode: '07-SALARIES', debit: netExpense },

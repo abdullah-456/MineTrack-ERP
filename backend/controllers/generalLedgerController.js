@@ -55,7 +55,21 @@ exports.listEntries = async (req, res) => {
     if (!shopId) return;
 
     const where = { shop_id: shopId };
-    if (req.query.account_id) where.account_id = parseInt(req.query.account_id, 10);
+    if (req.query.account_id) {
+      where.account_id = parseInt(req.query.account_id, 10);
+    } else {
+      const excludeAccounts = await db.ChartOfAccount.findAll({
+        where: {
+          account_code: ['07-COGS', '05-STOCK']
+        },
+        attributes: ['id'],
+        raw: true
+      });
+      const excludeIds = excludeAccounts.map(a => a.id);
+      if (excludeIds.length > 0) {
+        where.account_id = { [Op.notIn]: excludeIds };
+      }
+    }
     if (req.query.from || req.query.to) {
       where.entry_date = {};
       if (req.query.from) where.entry_date[Op.gte] = new Date(req.query.from);

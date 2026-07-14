@@ -7,11 +7,14 @@ import {
 } from '../../components/print/PrintKit';
 
 // ─── number formatter ────────────────────────────────────────────────────────
-const fmt = (n) =>
-  (parseFloat(n) || 0).toLocaleString('en-PK', {
+const fmt = (n) => {
+  const val = parseFloat(n);
+  if (isNaN(val) || val === 0) return '—';
+  return val.toLocaleString('en-PK', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+};
 
 const fmtDate = (d) => {
   if (!d) return '-';
@@ -163,8 +166,8 @@ export default function LedgerVoucherPrint() {
                   {'\u00a0\u00a0'}
                   {l.account}
                 </td>
-                <td className="num">{l.side === 'Dr' ? fmt(l.val) : ''}</td>
-                <td className="num">{l.side === 'Cr' ? fmt(l.val) : ''}</td>
+                <td className="num">{l.side === 'Dr' ? fmt(l.val) : '—'}</td>
+                <td className="num">{l.side === 'Cr' ? fmt(l.val) : '—'}</td>
                 {/* Narration cell spans all entry rows */}
                 {i === 0 && (
                   <td rowSpan={lines.length} style={{ verticalAlign: 'top' }}>

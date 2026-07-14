@@ -4,7 +4,6 @@ module.exports = (sequelize, DataTypes) => {
   class PurchaseInvoice extends Model {
     static associate(models) {
       PurchaseInvoice.belongsTo(models.Supplier, { foreignKey: 'supplier_id' });
-      PurchaseInvoice.belongsTo(models.GoodsReceiptNote, { foreignKey: 'grn_id' });
       PurchaseInvoice.belongsTo(models.Voucher, { foreignKey: 'voucher_id' });
     }
   }

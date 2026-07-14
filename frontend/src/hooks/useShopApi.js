@@ -39,7 +39,10 @@ export function useShopApi() {
 }
 
 export function formatPKR(amount, lang = 'en') {
-  const n = parseFloat(amount) || 0;
+  const n = parseFloat(amount);
+  if (isNaN(n) || n === 0) {
+    return '—';
+  }
   return `Rs. ${n.toLocaleString(lang === 'ur' ? 'ur-PK' : 'en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 

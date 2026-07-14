@@ -164,6 +164,8 @@ exports.create = async (req, res) => {
       // payable/payment path as inventoryController.receiveStock, so it
       // always hits the supplier ledger + GL — not just a silent stock bump.
       if (initialQty > 0) {
+        const stockNotes = `Initial stock: ${initialQty} ${unit || 'Pcs'} of ${name} at Rs. ${cost_price}/unit`;
+        const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
         try {
           const { voucher } = await applySupplierStockPayment({
             shopId,
@@ -172,7 +174,7 @@ exports.create = async (req, res) => {
             paymentStatus: payment_status,
             paidAmountInput: paid_amount,
             paymentMethod: payment_method,
-            notes,
+            notes: finalNotes,
             createdBy: req.user.id,
           }, transaction);
           voucherId = voucher.id;
@@ -187,10 +189,11 @@ exports.create = async (req, res) => {
       // rather than a silent, unaccounted stock bump.
       const stockValue = Math.round((parseFloat(cost_price) || 0) * initialQty * 100) / 100;
       if (stockValue > 0) {
+        const stockNotes = `Initial stock: ${initialQty} ${unit || 'Pcs'} of ${name} at Rs. ${cost_price}/unit`;
         const voucher = await postVoucher(shopId, {
           type: 'journal',
           date: new Date(),
-          narration: `New product stock — ${name}`,
+          narration: `New product stock — ${stockNotes}`,
           createdBy: req.user.id,
           lines: [
             { accountCode: '05-STOCK', debit: stockValue },

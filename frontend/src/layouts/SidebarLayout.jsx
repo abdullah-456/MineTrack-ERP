@@ -31,7 +31,6 @@ const shopNavGroups = [
     labelKey: 'navProcurement',
     items: [
       { to: '/suppliers',         icon: Building2,       labelKey: 'suppliers',      module: 'suppliers',    action: 'read' },
-      { to: '/purchase-orders',   icon: FileBarChart2,   labelKey: 'purchaseOrders', module: 'purchases',    action: 'read' },
       { to: '/invoices',          icon: CreditCard,      labelKey: 'invoices',       module: 'sales',        action: 'read' },
     ]
   },

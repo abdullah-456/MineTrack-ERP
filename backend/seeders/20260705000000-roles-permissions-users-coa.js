@@ -45,7 +45,7 @@ module.exports = {
     // 3. Seed Permissions
     // ──────────────────────────────────────────────────────────────
     const modules = [
-      'users', 'shops', 'suppliers', 'products', 'inventory', 'purchases',
+      'users', 'shops', 'suppliers', 'products', 'inventory',
       'sales', 'customers', 'employees', 'accounting', 'reports',
       'returns'
     ];

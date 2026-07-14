@@ -40,7 +40,6 @@ const translations = {
     stock:           'Stock',
     categories:      'Categories',
     suppliers:       'Suppliers',
-    purchaseOrders:  'Purchase Orders',
     invoices:        'Invoices',
     customers:       'Customers',
     chartOfAccounts: 'Chart of Accounts',
@@ -354,6 +353,7 @@ const translations = {
     supplierCreated:        'Supplier created successfully',
     supplierUpdated:        'Supplier updated successfully',
 
+
     // ── Products & Categories ────────────────────────────────
     productsSub:            'Manage your product catalog and pricing',
     categoriesSub:          'Organize products into categories',
@@ -471,6 +471,7 @@ const translations = {
     directPurchaseHint:     'No supplier selected — the full cost is paid now from the account below.',
     insufficientStock:      'Insufficient stock',
     selectBranch:           'Please select a branch',
+    selectSupplier:         'Please select a supplier',
 
     // ── Invoices ─────────────────────────────────────────────
     invoicesSub:            'View and print invoices for all transactions',
@@ -516,6 +517,7 @@ const translations = {
     bank:                         'Bank Transfer',
     mobileWallet:                 'Mobile Wallet',
     paid:                         'Paid',
+    unpaid:                       'Unpaid',
     pending:                      'Pending',
     overdue:                      'Overdue',
     remaining:                    'Remaining',
@@ -707,7 +709,6 @@ const translations = {
     stock:            'اسٹاک',
     categories:       'زمرے',
     suppliers:        'سپلائرز',
-    purchaseOrders:   'خریداری آرڈرز',
     invoices:         'انوائسز',
     customers:        'گاہک',
     chartOfAccounts:  'چارٹ آف اکاؤنٹس',
@@ -1021,6 +1022,7 @@ const translations = {
     supplierCreated:        'سپلائر کامیابی سے بنایا گیا',
     supplierUpdated:        'سپلائر کامیابی سے اپ ڈیٹ ہوا',
 
+
     // ── Products & Categories ────────────────────────────────
     productsSub:            'مصنوعات کی فہرست اور قیمتوں کا انتظام',
     categoriesSub:          'مصنوعات کو زمرے میں ترتیب دیں',
@@ -1138,6 +1140,7 @@ const translations = {
     directPurchaseHint:     'کوئی سپلائر منتخب نہیں — پوری لاگت اب نیچے دیے گئے اکاؤنٹ سے ادا ہوگی۔',
     insufficientStock:      'اسٹاک ناکافی ہے',
     selectBranch:           'براہ کرم شاخ منتخب کریں',
+    selectSupplier:         'براہ کرم سپلائر منتخب کریں',
 
     // ── Invoices ─────────────────────────────────────────────
     invoicesSub:            'تمام لین دین کی انوائسز دیکھیں اور پرنٹ کریں',
@@ -1183,6 +1186,7 @@ const translations = {
     bank:                         'بینک ٹرانسفر',
     mobileWallet:                 'موبائل والیٹ',
     paid:                         'ادا شدہ',
+    unpaid:                       'غیر ادا شدہ',
     pending:                      'باقی',
     overdue:                      'میعاد گزری',
     remaining:                    'باقی',

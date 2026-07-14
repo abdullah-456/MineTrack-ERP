@@ -7,7 +7,6 @@ module.exports = (sequelize, DataTypes) => {
       Product.belongsTo(models.Category,        { foreignKey: 'category_id' });
       Product.hasMany(models.Stock,             { foreignKey: 'product_id', as: 'Stock' });
       Product.hasMany(models.ProductSupplier,   { foreignKey: 'product_id', as: 'ProductSuppliers' });
-      Product.hasMany(models.PurchaseOrderItem, { foreignKey: 'product_id' });
       Product.hasMany(models.SaleItem,          { foreignKey: 'product_id' });
       Product.hasMany(models.StockTransferItem, { foreignKey: 'product_id' });
       Product.hasMany(models.StockAdjustment,   { foreignKey: 'product_id' });

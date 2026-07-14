@@ -61,7 +61,6 @@ async function applySupplierStockPayment({
 
   const purchaseInvoice = await db.PurchaseInvoice.create({
     supplier_id: supplierRow.id,
-    grn_id: null,
     invoice_number,
     invoice_date: new Date(),
     due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
@@ -96,7 +95,7 @@ async function applySupplierStockPayment({
   const voucher = await postVoucher(shopId, {
     type: 'journal',
     date: new Date(),
-    narration: `Stock received — invoice ${invoice_number}`,
+    narration: `Stock received — invoice ${invoice_number}${notes?.trim() ? ' — ' + notes.trim() : ''}`,
     createdBy,
     lines: [
       { accountCode: '05-STOCK', debit: totalAmount },

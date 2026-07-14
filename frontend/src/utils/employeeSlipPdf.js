@@ -14,7 +14,11 @@ const TITLES = {
   payment_made: 'Pay Slip',
 };
 
-const fmt = (n) => `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
+const fmt = (n) => {
+  const val = parseFloat(n);
+  if (isNaN(val) || val === 0) return '—';
+  return `Rs. ${val.toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
+};
 
 async function fetchSlip(employeeId, txnId) {
   const { data } = await api.get(`/employees/${employeeId}/slips/${txnId}`);

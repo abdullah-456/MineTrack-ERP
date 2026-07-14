@@ -146,14 +146,6 @@ function App() {
                 element={<ProtectedRoute module="suppliers" action="read"><Suppliers /></ProtectedRoute>} />
               <Route path="/suppliers/:id"
                 element={<ProtectedRoute module="suppliers" action="read"><SupplierLedger /></ProtectedRoute>} />
-              <Route path="/purchase-orders"
-                element={<ProtectedRoute module="purchases" action="read"><ComingSoon title="Purchase Orders" /></ProtectedRoute>} />
-              <Route path="/purchase-orders/new"
-                element={<ProtectedRoute module="purchases" action="create"><ComingSoon title="New Purchase Order" /></ProtectedRoute>} />
-              <Route path="/purchase-orders/:id"
-                element={<ProtectedRoute module="purchases" action="read"><ComingSoon title="Purchase Order Detail" /></ProtectedRoute>} />
-              <Route path="/goods-receipt/new"
-                element={<ProtectedRoute module="purchases" action="create"><ComingSoon title="Goods Receipt Note" /></ProtectedRoute>} />
               <Route path="/invoices"
                 element={<ProtectedRoute module="sales" action="read"><Invoices /></ProtectedRoute>} />
               <Route path="/purchase-invoices"

@@ -7,7 +7,11 @@ import {
   INK, INK_SOFT,
 } from '../../components/print/PrintKit';
 
-const fmt = (n) => (parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n) => {
+  const val = parseFloat(n);
+  if (isNaN(val) || val === 0) return '—';
+  return val.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : '—');
 
 const TITLES = {
@@ -95,8 +99,8 @@ export default function VoucherPrintPage() {
                   {l.account_name}
                   {l.account_code && <span style={{ color: INK_SOFT }}> ({l.account_code})</span>}
                 </td>
-                <td className="num">{l.debit > 0 ? fmt(l.debit) : ''}</td>
-                <td className="num">{l.credit > 0 ? fmt(l.credit) : ''}</td>
+                <td className="num">{l.debit > 0 ? fmt(l.debit) : '—'}</td>
+                <td className="num">{l.credit > 0 ? fmt(l.credit) : '—'}</td>
                 {i === 0 && (
                   <td rowSpan={lines.length} style={{ verticalAlign: 'top' }}>{voucher.narration || ''}</td>
                 )}

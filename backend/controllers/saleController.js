@@ -377,6 +377,8 @@ exports.create = async (req, res) => {
       const customer = await db.Customer.findOne({ where: { id: customer_id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE });
       if (customer) {
         const chargeAmount = Math.round((total - payAmount) * 100) / 100;
+        const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
+
         if (chargeAmount !== 0) {
           await customer.update({
             current_balance: Math.round((parseFloat(customer.current_balance || 0) + chargeAmount) * 100) / 100,
@@ -387,19 +389,20 @@ exports.create = async (req, res) => {
             shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
             type: 'sale_charge',
             amount: total, method: null,
-            related_sale_id: sale.id, notes: `Sale ${invoice_number}`, created_by: req.user.id,
+            related_sale_id: sale.id, notes: `Sale ${invoice_number} — Bought: ${itemsSummary}`, created_by: req.user.id,
           }, { transaction });
         }
         if (payAmount > 0) {
           await db.CustomerTransaction.create({
             shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
             type: 'payment_received', amount: payAmount, method: finalPaymentMethod,
-            related_sale_id: sale.id, notes: `Sale ${invoice_number}`, created_by: req.user.id,
+            related_sale_id: sale.id, notes: `Payment for Sale ${invoice_number}`, created_by: req.user.id,
           }, { transaction });
         }
       }
     }
 
+    const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
     const paymentLine = payAmount > 0
       ? { accountCode: ['card', 'bank', 'mobile_wallet'].includes(finalPaymentMethod) ? '05-BANK' : '05-CASH', debit: payAmount }
       : null;
@@ -407,7 +410,7 @@ exports.create = async (req, res) => {
     await postVoucher(shopId, {
       type: 'receipt',
       date: sale.sale_date,
-      narration: `Sale ${invoice_number}`,
+      narration: `Sale ${invoice_number} — Bought: ${itemsSummary}`,
       createdBy: req.user.id,
       lines: [
         ...(paymentLine ? [paymentLine] : []),

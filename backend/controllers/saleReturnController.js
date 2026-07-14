@@ -264,6 +264,14 @@ exports.create = async (req, res) => {
     }
     restockCogsAmount = Math.round(restockCogsAmount * 100) / 100;
 
+    const returnedItemsSummary = returnLines.map(rl => {
+      const si = saleItemById[rl.sale_item_id];
+      const pName = si?.product_name || si?.Product?.name || 'Product';
+      const pUnit = si?.Product?.unit || 'Pcs';
+      return `${rl.quantity} ${pUnit} of ${pName}`;
+    }).join(', ');
+    let exchangeItemsSummary = '';
+
     let refundAmount = 0;
     let settlementAmount = 0;
     let exchangeSale = null;
@@ -294,7 +302,7 @@ exports.create = async (req, res) => {
               await db.CustomerTransaction.create({
                 shop_id: shopId, customer_id: customer.id, date: new Date(),
                 type: 'return_credit', amount: creditApplied, method: null,
-                related_sale_id: sale.id, notes: `Return of sale ${sale.invoice_number}`,
+                related_sale_id: sale.id, notes: `Return of sale ${sale.invoice_number} — Returned: ${returnedItemsSummary}`,
                 created_by: req.user.id,
               }, { transaction });
             }
@@ -372,6 +380,9 @@ exports.create = async (req, res) => {
         exLines.push({ product, qty, unitPrice, lineTotal });
       }
       exSubtotal = Math.round(exSubtotal * 100) / 100;
+      exchangeItemsSummary = exLines.map(el => {
+        return `${el.qty} ${el.product.unit || 'Pcs'} of ${el.product.name}`;
+      }).join(', ');
       exchangeCogsAmount = Math.round(
         exLines.reduce((s, l) => s + l.qty * parseFloat(l.product.cost_price || 0), 0) * 100,
       ) / 100;
@@ -552,7 +563,9 @@ exports.create = async (req, res) => {
       await postVoucher(shopId, {
         type: return_type === 'exchange' ? 'journal' : 'payment',
         date: ret.return_date,
-        narration: `${return_type === 'exchange' ? 'Exchange' : 'Return'} ${return_number} (sale ${sale.invoice_number})`,
+        narration: return_type === 'exchange'
+          ? `Exchange ${return_number} (sale ${sale.invoice_number}) — Returned: ${returnedItemsSummary} | Exchanged for: ${exchangeItemsSummary}`
+          : `Return ${return_number} (sale ${sale.invoice_number}) — Returned: ${returnedItemsSummary}`,
         createdBy: req.user.id,
         lines: glLines,
       }, transaction);

@@ -10,7 +10,11 @@ const TXN_LABELS = {
   adjustment: 'Adjustment',
 };
 
-const fmt = (n) => `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+const fmt = (n) => {
+  const val = parseFloat(n);
+  if (isNaN(val) || val === 0) return '—';
+  return `Rs. ${val.toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+};
 
 export default function SupplierStatementPrint() {
   const { id } = useParams();

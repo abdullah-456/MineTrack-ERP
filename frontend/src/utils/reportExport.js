@@ -66,8 +66,11 @@ export async function getCompany(params = {}) {
 export function clearCompanyCache() { _companyCache = null; }
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
-export const money = (n) =>
-  `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
+export const money = (n) => {
+  const val = parseFloat(n);
+  if (isNaN(val) || val === 0) return '—';
+  return `Rs. ${val.toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
+};
 
 // Quantity/weight fields (kg) — always exactly one decimal place, e.g. 5 → "5.0 kg", 5.25 → "5.3 kg"
 export const qty = (n) =>
@@ -173,7 +176,7 @@ function createWriter(company, { title, meta = [], filters = [] }) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(70, 70, 70);
       doc.text([`Generated: ${nowStamp()}`, ...engMeta].join('     '), margin, yy); yy += 4;
       if (engFilters.length) {
-        const fLine = 'Filters:  ' + engFilters.map(f => `${f.label}: ${f.value}`).join('     ');
+        const fLine = engFilters.map(f => `${f.label}: ${f.value}`).join('     ');
         const w = doc.splitTextToSize(fLine, contentW); doc.text(w, margin, yy); yy += w.length * 4;
       }
     }
@@ -345,7 +348,7 @@ function letterheadHTML(company, title, meta = [], filters = []) {
     .filter(Boolean).map(esc).join(' &nbsp;|&nbsp; ');
   const metaLine = [`Generated: ${nowStamp()}`, ...meta].map(esc).join(' &nbsp;&nbsp; ');
   const filterLine = filters.length
-    ? `<div class="filters"><strong>Filters:</strong> ${filters.map(f => `${esc(f.label)}: ${esc(f.value)}`).join(' &nbsp;&nbsp; ')}</div>`
+    ? `<div class="filters">${filters.map(f => `${esc(f.label)}: ${esc(f.value)}`).join(' &nbsp;&nbsp; ')}</div>`
     : '';
   return `
     <div class="lh">

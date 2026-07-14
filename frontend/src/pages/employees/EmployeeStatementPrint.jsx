@@ -131,11 +131,11 @@ export default function EmployeeStatementPrint() {
                   </td>
                   {/* Debit column */}
                   <td className="num" style={{ fontWeight: 700, color: '#b91c1c' }}>
-                    {isDebit ? fmt(txn.amount) : ''}
+                    {isDebit ? fmt(txn.amount) : '—'}
                   </td>
                   {/* Credit column */}
                   <td className="num" style={{ fontWeight: 700, color: '#047857' }}>
-                    {!isDebit ? fmt(txn.amount) : ''}
+                    {!isDebit ? fmt(txn.amount) : '—'}
                   </td>
                   <td style={{ textTransform: 'uppercase', color: INK_SOFT }}>{txn.method || '—'}</td>
                   <td style={{ color: INK }}>{txn.notes || '—'}</td>

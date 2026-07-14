@@ -286,6 +286,9 @@ exports.receiveStock = async (req, res) => {
       // Payment panel (Paid? Yes/No/Partial → amount, method) + PurchaseInvoice
       // + SupplierTransaction + GL voucher — shared with productController.create.
       const totalAmount = Math.round(unitCost * qty * 100) / 100;
+      const stockNotes = `Received ${qty} ${product.unit || 'Pcs'} of ${product.name} at Rs. ${unitCost}/unit`;
+      const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
+
       try {
         await applySupplierStockPayment({
           shopId,
@@ -294,7 +297,7 @@ exports.receiveStock = async (req, res) => {
           paymentStatus: payment_status,
           paidAmountInput: paid_amount,
           paymentMethod: payment_method,
-          notes,
+          notes: finalNotes,
           createdBy: req.user.id,
         }, transaction);
       } catch (err) {
@@ -308,6 +311,9 @@ exports.receiveStock = async (req, res) => {
       // Dr Stock / Cr Cash|Bank. The SupplierTransaction (supplier_id = null)
       // is what utils/cashHelpers.computeCashFlow reads to drop live cash-in-hand.
       const stockValue = Math.round(unitCost * qty * 100) / 100;
+      const stockNotes = `Received ${qty} ${product.unit || 'Pcs'} of ${product.name} at Rs. ${unitCost}/unit`;
+      const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
+
       if (stockValue > 0) {
         const method = ['cash', 'bank'].includes(payment_method) ? payment_method : null;
         if (!method) {
@@ -330,14 +336,14 @@ exports.receiveStock = async (req, res) => {
           paid_amount: stockValue,
           remaining_amount: 0,
           method,
-          notes: notes?.trim() || `Direct ${method} purchase — ${product.name}`,
+          notes: finalNotes,
           created_by: req.user.id,
         }, { transaction });
 
         await postVoucher(shopId, {
           type: 'payment',
           date: new Date(),
-          narration: `Stock purchased (${method}) — ${product.name}`,
+          narration: `Stock purchased (${method}) — ${finalNotes}`,
           createdBy: req.user.id,
           lines: [
             { accountCode: '05-STOCK', debit: stockValue },

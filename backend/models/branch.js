@@ -6,7 +6,6 @@ module.exports = (sequelize, DataTypes) => {
       Branch.belongsTo(models.Shop,         { foreignKey: 'shop_id' });
       Branch.hasMany(models.User,           { foreignKey: 'branch_id' });
       Branch.hasMany(models.Stock,          { foreignKey: 'branch_id' });
-      Branch.hasMany(models.PurchaseOrder,  { foreignKey: 'branch_id' });
       Branch.hasMany(models.Sale,           { foreignKey: 'branch_id' });
       Branch.hasMany(models.Employee,       { foreignKey: 'branch_id' });
       Branch.hasMany(models.Expense,        { foreignKey: 'branch_id' });
