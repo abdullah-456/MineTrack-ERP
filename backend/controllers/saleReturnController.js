@@ -575,76 +575,76 @@ exports.create = async (req, res) => {
 // (everyone else's void requests, once an admin approves them).
 async function performVoidReturn(ret, shopId, req, transaction) {
   // Pull restocked goods back out of stock.
-    let voidCogsAmount = 0;
-    for (const rl of ret.ReturnItems || []) {
-      if (!(rl.restock && rl.condition === 'resellable')) continue;
-      const stock = await db.Stock.findOne({
-        where: { product_id: rl.product_id, branch_id: ret.branch_id },
-        transaction, lock: transaction.LOCK.UPDATE,
-      });
-      if (stock) {
-        const newQty = Math.max(0, parseFloat(stock.quantity_on_hand || 0) - parseFloat(rl.quantity || 0));
-        await stock.update({ quantity_on_hand: newQty }, { transaction });
-        await db.StockMovement.create({
-          product_id: rl.product_id,
-          branch_id: ret.branch_id,
-          ref_type: 'return_void',
-          ref_id: ret.id,
-          quantity: -rl.quantity,
-          balance_after: newQty,
-        }, { transaction });
+  let voidCogsAmount = 0;
+  for (const rl of ret.ReturnItems || []) {
+    if (!(rl.restock && rl.condition === 'resellable')) continue;
+    const stock = await db.Stock.findOne({
+      where: { product_id: rl.product_id, branch_id: ret.branch_id },
+      transaction, lock: transaction.LOCK.UPDATE,
+    });
+    if (stock) {
+      const newQty = Math.max(0, parseFloat(stock.quantity_on_hand || 0) - parseFloat(rl.quantity || 0));
+      await stock.update({ quantity_on_hand: newQty }, { transaction });
+      await db.StockMovement.create({
+        product_id: rl.product_id,
+        branch_id: ret.branch_id,
+        ref_type: 'return_void',
+        ref_id: ret.id,
+        quantity: -rl.quantity,
+        balance_after: newQty,
+      }, { transaction });
 
-        const voidedProduct = await db.Product.findByPk(rl.product_id, { transaction, attributes: ['cost_price'] });
-        voidCogsAmount += rl.quantity * parseFloat(voidedProduct?.cost_price || 0);
-      }
+      const voidedProduct = await db.Product.findByPk(rl.product_id, { transaction, attributes: ['cost_price'] });
+      voidCogsAmount += rl.quantity * parseFloat(voidedProduct?.cost_price || 0);
     }
-    voidCogsAmount = Math.round(voidCogsAmount * 100) / 100;
+  }
+  voidCogsAmount = Math.round(voidCogsAmount * 100) / 100;
 
-    // Reverse a balance credit if the refund was applied to a credit/installment sale.
-    let reinstatedCredit = 0;
-    if (ret.refund_method === 'store_credit' && ret.customer_id) {
-      const customer = await db.Customer.findOne({
-        where: { id: ret.customer_id, shop_id: shopId },
-        transaction, lock: transaction.LOCK.UPDATE,
-      });
-      if (customer) {
-        await customer.update({
-          current_balance: parseFloat(customer.current_balance || 0) + parseFloat(ret.returned_value),
-        }, { transaction });
-        reinstatedCredit = parseFloat(ret.returned_value);
-        await db.CustomerTransaction.create({
-          shop_id: shopId, customer_id: customer.id, date: new Date(),
-          type: 'adjustment', amount: reinstatedCredit, method: null,
-          related_sale_id: ret.sale_id, notes: `Void return ${ret.return_number} — reinstated credit`,
-          created_by: req.user.id,
-        }, { transaction });
-      }
+  // Reverse a balance credit if the refund was applied to a credit/installment sale.
+  let reinstatedCredit = 0;
+  if (ret.refund_method === 'store_credit' && ret.customer_id) {
+    const customer = await db.Customer.findOne({
+      where: { id: ret.customer_id, shop_id: shopId },
+      transaction, lock: transaction.LOCK.UPDATE,
+    });
+    if (customer) {
+      await customer.update({
+        current_balance: parseFloat(customer.current_balance || 0) + parseFloat(ret.returned_value),
+      }, { transaction });
+      reinstatedCredit = parseFloat(ret.returned_value);
+      await db.CustomerTransaction.create({
+        shop_id: shopId, customer_id: customer.id, date: new Date(),
+        type: 'adjustment', amount: reinstatedCredit, method: null,
+        related_sale_id: ret.sale_id, notes: `Void return ${ret.return_number} — reinstated credit`,
+        created_by: req.user.id,
+      }, { transaction });
     }
+  }
 
-    // Reverses exactly what createReturn's refund voucher posted for this
-    // return — mirrors the two effects void() actually performs above (stock
-    // pulled back out; store-credit reinstated), nothing more.
-    const voidGlLines = [];
-    if (voidCogsAmount > 0) {
-      voidGlLines.push({ accountCode: '07-COGS', debit: voidCogsAmount });
-      voidGlLines.push({ accountCode: '05-STOCK', credit: voidCogsAmount });
-    }
-    if (reinstatedCredit > 0) {
-      voidGlLines.push({ accountCode: '05-AR', debit: reinstatedCredit });
-      voidGlLines.push({ accountCode: '06-RETURNS', credit: reinstatedCredit });
-    }
-    if (voidGlLines.length > 0) {
-      await postVoucher(shopId, {
-        type: 'journal',
-        date: new Date(),
-        narration: `Void return ${ret.return_number}`,
-        createdBy: req.user.id,
-        lines: voidGlLines,
-      }, transaction);
-    }
+  // Reverses exactly what createReturn's refund voucher posted for this
+  // return — mirrors the two effects void() actually performs above (stock
+  // pulled back out; store-credit reinstated), nothing more.
+  const voidGlLines = [];
+  if (voidCogsAmount > 0) {
+    voidGlLines.push({ accountCode: '07-COGS', debit: voidCogsAmount });
+    voidGlLines.push({ accountCode: '05-STOCK', credit: voidCogsAmount });
+  }
+  if (reinstatedCredit > 0) {
+    voidGlLines.push({ accountCode: '05-AR', debit: reinstatedCredit });
+    voidGlLines.push({ accountCode: '06-RETURNS', credit: reinstatedCredit });
+  }
+  if (voidGlLines.length > 0) {
+    await postVoucher(shopId, {
+      type: 'journal',
+      date: new Date(),
+      narration: `Void return ${ret.return_number}`,
+      createdBy: req.user.id,
+      lines: voidGlLines,
+    }, transaction);
+  }
 
-    await ret.update({ status: 'void' }, { transaction });
-    return ret;
+  await ret.update({ status: 'void' }, { transaction });
+  return ret;
 }
 
 // ── POST /api/returns/:id/void ───────────────────────────────────────────────

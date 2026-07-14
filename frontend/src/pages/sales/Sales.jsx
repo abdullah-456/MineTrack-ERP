@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { TrendingUp, Plus, Search, Eye, Loader2, Receipt, Printer } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
-import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -368,7 +368,7 @@ export default function Sales() {
                       <div className="flex gap-1.5 items-center">
                         <div className="relative w-20">
                           <input
-                            className="input w-full pe-7" type="number" min="0.001" step="0.001"
+                            className="input w-full pe-7" type="number" min="0.1" step="0.1"
                             max={avail || undefined} value={item.quantity}
                             onChange={e => updateLine(i, 'quantity', e.target.value)}
                           />
@@ -387,7 +387,7 @@ export default function Sales() {
                     </div>
                     {lineQty > 0 && linePrice > 0 && (
                       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {lineQty} {t('kg') || 'kg'} × {formatPKR(linePrice, lang)} = <span className="font-semibold text-emerald-400">{formatPKR(lineQty * linePrice, lang)}</span>
+                        {formatQty(lineQty)} {t('kg') || 'kg'} × {formatPKR(linePrice, lang)} = <span className="font-semibold text-emerald-400">{formatPKR(lineQty * linePrice, lang)}</span>
                       </p>
                     )}
                     {avail !== null && lineQty > avail && (
@@ -519,7 +519,7 @@ export default function Sales() {
                 {(detail.SaleItems || []).map(item => (
                   <tr key={item.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                     <td className="p-2" style={{ color: 'var(--text-primary)' }}>{item.Product?.name || item.product_name}</td>
-                    <td className="p-2" style={{ color: 'var(--text-secondary)' }}>{item.quantity} {t('kg') || 'kg'}</td>
+                    <td className="p-2" style={{ color: 'var(--text-secondary)' }}>{formatQty(item.quantity)} {t('kg') || 'kg'}</td>
                     <td className="p-2 text-end text-emerald-400">{formatPKR(item.line_total, lang)}</td>
                   </tr>
                 ))}

@@ -69,6 +69,10 @@ export function clearCompanyCache() { _companyCache = null; }
 export const money = (n) =>
   `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
 
+// Quantity/weight fields (kg) — always exactly one decimal place, e.g. 5 → "5.0", 5.25 → "5.3"
+export const qty = (n) =>
+  (parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
 const asText = (v) => (v === null || v === undefined ? '' : String(v));
 
 // Resolve a column definition + row into a display string.
@@ -77,10 +81,11 @@ function cellText(col, row) {
   const v = col.render ? col.render(row) : row[col.key];
   if (v === null || v === undefined) return '';
   if (col.money) return money(v);
+  if (col.qty) return qty(v);
   return asText(v);
 }
 function cellAlign(col) {
-  return col.align || (col.money ? 'right' : 'left');
+  return col.align || (col.money || col.qty ? 'right' : 'left');
 }
 
 const nowStamp = () => new Date().toLocaleString('en-PK');
@@ -205,7 +210,7 @@ function createWriter(company, { title, meta = [], filters = [] }) {
       if (totals) {
         rowCells(engColumns.map((c, i) => {
           if (i === 0 && totals.__label !== undefined) return { text: toEnglishText(totals.__label || 'Total'), align: 'left' };
-          if (totals[c.key] !== undefined) return { text: c.money ? money(totals[c.key]) : toEnglishText(asText(totals[c.key])), align: cellAlign(c) };
+          if (totals[c.key] !== undefined) return { text: c.money ? money(totals[c.key]) : c.qty ? qty(totals[c.key]) : toEnglishText(asText(totals[c.key])), align: cellAlign(c) };
           return { text: '', align: cellAlign(c) };
         }), widths, { bold: true, fill: [226, 232, 240] });
       }
@@ -322,7 +327,7 @@ function tableHTML({ columns, rows = [], totals }) {
   const totalRow = totals
     ? `<tr class="totals">${columns.map((c, i) => {
         if (i === 0 && totals.__label !== undefined) return `<td class="a-left">${esc(totals.__label || 'Total')}</td>`;
-        if (totals[c.key] !== undefined) return `<td class="a-${cellAlign(c)}">${esc(c.money ? money(totals[c.key]) : totals[c.key])}</td>`;
+        if (totals[c.key] !== undefined) return `<td class="a-${cellAlign(c)}">${esc(c.money ? money(totals[c.key]) : c.qty ? qty(totals[c.key]) : totals[c.key])}</td>`;
         return `<td></td>`;
       }).join('')}</tr>`
     : '';

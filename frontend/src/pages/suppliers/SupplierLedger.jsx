@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, Wallet, CreditCard, Loader2, Printer, Plus, History } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
-import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import api from '../../api/axios';
@@ -30,6 +30,22 @@ export default function SupplierLedger() {
   const [saving, setSaving] = useState(false);
   const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', notes: '' });
   const [openingForm, setOpeningForm] = useState({ amount: '', date: new Date().toISOString().slice(0, 10) });
+
+  // Open a printable voucher in a new tab for a single transaction
+  const openVoucher = (txn, supplierName) => {
+    const params = new URLSearchParams({
+      module:     'supplier',
+      txnType:    txn.type,
+      entityName: supplierName || '',
+      amount:     txn.amount || txn.paid_amount || txn.total_amount || 0,
+      date:       txn.date,
+      method:     txn.method || '',
+      notes:      txn.notes  || '',
+      voucherNo:  txn.id,
+      shopName:   '',
+    });
+    window.open(`/ledger-voucher?${params.toString()}`, '_blank');
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -207,6 +223,7 @@ export default function SupplierLedger() {
                 <th className="text-end p-4">{t('remaining') || 'Remaining'}</th>
                 <th className="text-start p-4">{t('method') || 'Method'}</th>
                 <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
+                <th className="p-4"></th>
               </tr>
             </thead>
             <tbody>
@@ -219,10 +236,21 @@ export default function SupplierLedger() {
                   <td className="p-4 text-end text-red-400 font-semibold">{formatPKR(txn.remaining_amount, lang)}</td>
                   <td className="p-4 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>{txn.method || '—'}</td>
                   <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(txn.running_balance, lang)}</td>
+                  <td className="p-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() => openVoucher(txn, supplier.company_name)}
+                      title="Print Voucher"
+                      className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-hover)]"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {transaction_history.length === 0 && (
-                <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
+                <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
               )}
             </tbody>
           </table>
@@ -248,7 +276,7 @@ export default function SupplierLedger() {
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{p.product_name}</td>
                   <td className="p-4 text-xs font-mono text-amber-400">{p.sku}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{p.branch}</td>
-                  <td className="p-4 text-end font-bold text-emerald-400">+{p.quantity}</td>
+                  <td className="p-4 text-end font-bold text-emerald-400">+{formatQty(p.quantity)}</td>
                 </tr>
               ))}
               {products_received.length === 0 && (

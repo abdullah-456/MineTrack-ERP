@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Building2, Package, AlertTriangle, TrendingUp, Plus, Loader2, ArrowDownUp, RefreshCw, Eye, ListFilter } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
-import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import { StockBadge } from '../../components/ui/StatusBadge';
@@ -177,6 +177,12 @@ export default function Inventory() {
         if (formReceive.payment_status === 'partial') {
           payload.paid_amount = parseFloat(formReceive.paid_amount) || 0;
         }
+      } else {
+        // No supplier — direct purchase; the full cost is deducted now from
+        // the chosen account (only cash/bank are valid without a supplier).
+        payload.payment_method = ['cash', 'bank'].includes(formReceive.payment_method)
+          ? formReceive.payment_method
+          : 'cash';
       }
       await api.post('/inventory/receive', payload);
       success(t('stockReceived') || 'Stock received successfully');
@@ -229,7 +235,7 @@ export default function Inventory() {
 
   const statCards = [
     { label: t('totalProducts'), value: totals.total_products || 0, icon: Package, color: 'text-blue-400' },
-    { label: t('totalStock'), value: totals.total_units || 0, icon: TrendingUp, color: 'text-emerald-400' },
+    { label: t('totalStock'), value: formatQty(totals.total_units || 0, lang), icon: TrendingUp, color: 'text-emerald-400' },
     { label: t('stockValue'), value: formatPKR(totals.total_value, lang), icon: Building2, color: 'text-amber-400' },
     { label: t('lowStockItems'), value: totals.low_stock_count || 0, icon: AlertTriangle, color: 'text-red-400' },
   ];
@@ -244,8 +250,8 @@ export default function Inventory() {
           { header: t('product') || 'Product', render: m => m.Product?.name || '', width: 1.8 },
           { header: t('userBranch') || 'Branch', render: m => m.Branch?.name || '', width: 1.1 },
           { header: t('type') || 'Type', render: m => m.ref_type || '', width: 1 },
-          { header: t('quantity') || 'Qty', render: m => `${m.quantity > 0 ? '+' : ''}${m.quantity}`, align: 'right', width: 1 },
-          { header: t('currentStock') || 'Balance', render: m => m.balance_after, align: 'right', width: 1 },
+          { header: t('quantity') || 'Qty', render: m => `${m.quantity > 0 ? '+' : ''}${formatQty(m.quantity)}`, align: 'right', width: 1 },
+          { header: t('currentStock') || 'Balance', render: m => formatQty(m.balance_after), align: 'right', width: 1 },
         ],
         rows: movements,
         filters: [
@@ -260,7 +266,7 @@ export default function Inventory() {
           { header: t('product') || 'Product', render: r => r.Product?.name || '', width: 2 },
           { header: t('sku') || 'SKU', render: r => r.Product?.sku || '', width: 1.1 },
           { header: t('userBranch') || 'Branch', render: r => r.Branch?.name || '', width: 1.1 },
-          { header: t('currentStock') || 'Stock', key: 'stock', render: r => parseFloat(r.quantity_on_hand) || 0, align: 'right', width: 0.9 },
+          { header: t('currentStock') || 'Stock', key: 'stock', render: r => parseFloat(r.quantity_on_hand) || 0, qty: true, align: 'right', width: 0.9 },
           { header: t('supplier') || 'Supplier', render: r => r.Product?.ProductSuppliers?.[0]?.Supplier?.company_name || '', width: 1.4 },
           { header: t('stockValue') || 'Stock Value', key: 'stock_value', render: r => (parseFloat(r.quantity_on_hand) || 0) * parseFloat(r.Product?.cost_price || 0), money: true, width: 1.2 },
         ],
@@ -468,7 +474,7 @@ export default function Inventory() {
                       <tr key={row.product_id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s' }} className="hover:bg-[var(--bg-hover)]">
                         <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{row.name}</td>
                         <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{row.category}</td>
-                        <td className="p-4 font-mono text-emerald-400">{row.total_stock} {t('kg') || 'kg'}</td>
+                        <td className="p-4 font-mono text-emerald-400">{formatQty(row.total_stock)} {t('kg') || 'kg'}</td>
                         <td className="p-4"><StockBadge qty={row.current_inventory} reorder={row.reorder_level} /></td>
                         <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{row.reorder_level}</td>
                         <td className="p-4">
@@ -550,9 +556,9 @@ export default function Inventory() {
                       <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{m.Branch?.name}</td>
                       <td className="p-4">{getMovementBadge(m.ref_type)}</td>
                       <td className={`p-4 text-end font-bold text-base ${m.quantity > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {m.quantity > 0 ? `+${m.quantity}` : m.quantity} {t('kg') || 'kg'}
+                        {m.quantity > 0 ? `+${formatQty(m.quantity)}` : formatQty(m.quantity)} {t('kg') || 'kg'}
                       </td>
-                      <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{m.balance_after} {t('kg') || 'kg'}</td>
+                      <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatQty(m.balance_after)} {t('kg') || 'kg'}</td>
                     </tr>
                   ))}
                   {movements.length === 0 && (
@@ -614,8 +620,8 @@ export default function Inventory() {
                 <input
                   className="input"
                   type="number"
-                  min="0.001"
-                  step="0.001"
+                  min="0.1"
+                  step="0.1"
                   required
                   value={formReceive.quantity}
                   onChange={e => setFormReceive(f => ({ ...f, quantity: e.target.value }))}
@@ -694,6 +700,30 @@ export default function Inventory() {
               );
             })()}
 
+            {!formReceive.supplier_id && (() => {
+              const totalCost = (parseFloat(formReceive.quantity) || 0) * (parseFloat(formReceive.purchase_price) || 0);
+              const method = ['cash', 'bank'].includes(formReceive.payment_method) ? formReceive.payment_method : 'cash';
+              return (
+                <div className="rounded-lg p-3 space-y-3" style={{ border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-elevated)' }}>
+                  <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>{t('paymentMethod') || 'Payment Method'} *</label>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {t('directPurchaseHint') || 'No supplier selected — the full cost is paid now from the account below.'}
+                  </p>
+                  <select
+                    className="input"
+                    value={method}
+                    onChange={e => setFormReceive(f => ({ ...f, payment_method: e.target.value }))}
+                  >
+                    <option value="cash">{t('cash') || 'Cash'}</option>
+                    <option value="bank">{t('bank') || 'Bank'}</option>
+                  </select>
+                  {totalCost > 0 && (
+                    <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
+                  )}
+                </div>
+              );
+            })()}
+
             <div>
               <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Notes / Remarks</label>
               <textarea
@@ -764,8 +794,8 @@ export default function Inventory() {
                 <input
                   className="input"
                   type="number"
-                  min="0.001"
-                  step="0.001"
+                  min="0.1"
+                  step="0.1"
                   required
                   value={formAdjust.quantity}
                   onChange={e => setFormAdjust(f => ({ ...f, quantity: e.target.value }))}

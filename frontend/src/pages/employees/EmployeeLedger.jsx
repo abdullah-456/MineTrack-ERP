@@ -58,6 +58,22 @@ export default function EmployeeLedger() {
   const [loanForm, setLoanForm] = useState({ amount: '', method: 'cash', notes: '' });
   const [receivableForm, setReceivableForm] = useState({ amount: '', method: 'cash', notes: '' });
 
+  // Open a printable voucher in a new tab for a single transaction
+  const openVoucher = (txn, employeeName) => {
+    const params = new URLSearchParams({
+      module:     'employee',
+      txnType:    txn.type,
+      entityName: employeeName || '',
+      amount:     txn.amount,
+      date:       txn.date,
+      method:     txn.method || '',
+      notes:      txn.notes  || '',
+      voucherNo:  txn.id,
+      shopName:   '',
+    });
+    window.open(`/ledger-voucher?${params.toString()}`, '_blank');
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -221,6 +237,7 @@ export default function EmployeeLedger() {
                 <th className="text-start p-4">{t('method') || 'Method'}</th>
                 <th className="text-start p-4">{t('notes') || 'Notes'}</th>
                 <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
+                <th className="p-4"></th>
               </tr>
             </thead>
             <tbody>
@@ -239,10 +256,21 @@ export default function EmployeeLedger() {
                   <td className="p-4 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>{txn.method || '—'}</td>
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{txn.notes || '—'}</td>
                   <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(txn.running_balance, lang)}</td>
+                  <td className="p-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() => openVoucher(txn, employee.name)}
+                      title="Print Voucher"
+                      className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-hover)]"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {transaction_history.length === 0 && (
-                <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
+                <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
               )}
             </tbody>
           </table>

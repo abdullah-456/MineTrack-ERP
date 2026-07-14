@@ -50,7 +50,9 @@ export default function EmployeeStatementPrint() {
     opening_balance: t('openingBalance') || 'Opening Balance',
     adjustment: t('adjustment') || 'Adjustment',
   };
-  const IN_TYPES = new Set(['salary_due', 'loan_repayment', 'opening_balance', 'adjustment']);
+  // Debit side = liability to employee increases (we OWE more)
+  // Credit side = cash goes out / liability reduces
+  const DEBIT_TYPES = new Set(['salary_due', 'loan_given', 'advance_given', 'deduction', 'opening_balance', 'adjustment']);
 
   const summaryCards = [
     { label: t('totalSalaryAccrued') || 'Total Salary Accrued', value: summary.total_salary_accrued },
@@ -108,7 +110,8 @@ export default function EmployeeStatementPrint() {
             <tr>
               <th style={{ width: '13%' }}>{t('date') || 'Date'}</th>
               <th>{t('type') || 'Type'}</th>
-              <th className="num" style={{ width: '15%' }}>{t('amount') || 'Amount'}</th>
+              <th className="num" style={{ width: '14%' }}>{t('debit') || 'Debit'}</th>
+              <th className="num" style={{ width: '14%' }}>{t('credit') || 'Credit'}</th>
               <th style={{ width: '11%' }}>{t('method') || 'Method'}</th>
               <th>{t('notes') || 'Notes'}</th>
               <th className="num" style={{ width: '16%' }}>{t('runningBalance') || 'Balance'}</th>
@@ -116,7 +119,7 @@ export default function EmployeeStatementPrint() {
           </thead>
           <tbody>
             {transaction_history.map(txn => {
-              const inflow = IN_TYPES.has(txn.type);
+              const isDebit = DEBIT_TYPES.has(txn.type);
               return (
                 <tr key={txn.id}>
                   <td>{new Date(txn.date).toLocaleDateString('en-GB')}</td>
@@ -126,8 +129,13 @@ export default function EmployeeStatementPrint() {
                       <span style={{ color: INK_SOFT }}> · {txn.for_month} · {txn.cleared ? (t('cleared') || 'Cleared') : (t('pending') || 'Pending')}</span>
                     )}
                   </td>
-                  <td className="num" style={{ fontWeight: 700, color: inflow ? '#047857' : '#b91c1c' }}>
-                    {inflow ? '+' : '−'}{fmt(txn.amount)}
+                  {/* Debit column */}
+                  <td className="num" style={{ fontWeight: 700, color: '#b91c1c' }}>
+                    {isDebit ? fmt(txn.amount) : ''}
+                  </td>
+                  {/* Credit column */}
+                  <td className="num" style={{ fontWeight: 700, color: '#047857' }}>
+                    {!isDebit ? fmt(txn.amount) : ''}
                   </td>
                   <td style={{ textTransform: 'uppercase', color: INK_SOFT }}>{txn.method || '—'}</td>
                   <td style={{ color: INK }}>{txn.notes || '—'}</td>
@@ -136,7 +144,7 @@ export default function EmployeeStatementPrint() {
               );
             })}
             {transaction_history.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', color: INK_SOFT }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
+              <tr><td colSpan={7} style={{ textAlign: 'center', color: INK_SOFT }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
             )}
           </tbody>
         </table>

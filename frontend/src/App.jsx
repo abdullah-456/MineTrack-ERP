@@ -45,7 +45,8 @@ import Sales      from './pages/sales/Sales';
 import SalesReturns from './pages/returns/SalesReturns';
 import Invoices          from './pages/invoices/Invoices';
 import InvoicePrintPage  from './pages/invoices/InvoicePrintPage';
-import VoucherPrintPage  from './pages/accounting/VoucherPrintPage';
+import VoucherPrintPage      from './pages/accounting/VoucherPrintPage';
+import LedgerVoucherPrint   from './pages/accounting/LedgerVoucherPrint';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -83,6 +84,7 @@ function App() {
             {/* ── Standalone Invoice Print Page (new tab, no sidebar) ── */}
             <Route path="/invoice/:invoiceId" element={<InvoicePrintPage />} />
             <Route path="/vouchers/:voucherId" element={<VoucherPrintPage />} />
+            <Route path="/ledger-voucher" element={<LedgerVoucherPrint />} />
             <Route path="/suppliers/:id/statement" element={<SupplierStatementPrint />} />
             <Route path="/employees/:id/statement" element={<EmployeeStatementPrint />} />
             <Route path="/employees/:employeeId/slip/:txnId" element={<EmployeeSlipPrint />} />

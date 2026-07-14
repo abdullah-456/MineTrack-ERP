@@ -159,7 +159,7 @@ export default function Products() {
     { header: t('sku') || 'SKU', key: 'sku', width: 1 },
     { header: t('name') || 'Name', render: p => p.name + (p.brand ? ` (${p.brand})` : ''), width: 2 },
     { header: t('category') || 'Category', render: p => p.Category?.name || '', width: 1.2 },
-    { header: t('totalStock') || 'Stock', key: 'stock', render: p => totalStock(p), align: 'right', width: 0.9 },
+    { header: t('totalStock') || 'Stock', key: 'stock', render: p => totalStock(p), qty: true, align: 'right', width: 0.9 },
     { header: t('costPrice') || 'Cost', key: 'cost_price', money: true, width: 1 },
     { header: t('salePrice') || 'Sale', key: 'sale_price', money: true, width: 1 },
     { header: t('stockValue') || 'Stock Value', key: 'stock_value', render: p => totalStock(p) * parseFloat(p.cost_price || 0), money: true, width: 1.1 },
@@ -303,7 +303,7 @@ export default function Products() {
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('initialStock')} ({t('kg') || 'kg'})</label>
-                    <input className="input" type="number" min="0" step="0.001" value={form.initial_quantity} onChange={setF('initial_quantity')} />
+                    <input className="input" type="number" min="0" step="0.1" value={form.initial_quantity} onChange={setF('initial_quantity')} />
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')}</label>
@@ -328,9 +328,8 @@ export default function Products() {
                         key={opt}
                         type="button"
                         onClick={() => setForm(f => ({ ...f, payment_status: opt }))}
-                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-all ${
-                          form.payment_status === opt ? 'bg-emerald-500 text-white' : ''
-                        }`}
+                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-all ${form.payment_status === opt ? 'bg-emerald-500 text-white' : ''
+                          }`}
                         style={form.payment_status !== opt ? { backgroundColor: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' } : {}}
                       >
                         {opt === 'unpaid' ? (t('no') || 'No') : opt === 'paid' ? (t('yes') || 'Yes') : (t('partial') || 'Partial')}

@@ -42,3 +42,8 @@ export function formatPKR(amount, lang = 'en') {
   const n = parseFloat(amount) || 0;
   return `Rs. ${n.toLocaleString(lang === 'ur' ? 'ur-PK' : 'en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
+
+export function formatQty(amount, lang = 'en') {
+  const n = parseFloat(amount) || 0;
+  return n.toLocaleString(lang === 'ur' ? 'ur-PK' : 'en-PK', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}

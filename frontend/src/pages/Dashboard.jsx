@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
-import { useShopApi } from '../hooks/useShopApi';
+import { useShopApi, formatQty } from '../hooks/useShopApi';
 import ReportActions from '../components/ui/ReportActions';
 import ReportFilters, { filterByDate } from '../components/ui/ReportFilters';
 import { money } from '../utils/reportExport';
@@ -74,6 +74,7 @@ export default function Dashboard() {
   const [recentSales, setRecentSales] = useState([]);
   const [lowStock, setLowStock] = useState([]);
   const [balances, setBalances] = useState(null);
+  const [moneyFlow, setMoneyFlow] = useState({ total_received: 0, total_spent: 0, net: 0 });
   const [inventoryTotals, setInventoryTotals] = useState({});
   const [allExpenses, setAllExpenses] = useState([]);
   const [reportRange, setReportRange] = useState({ from: '', to: '' });
@@ -85,14 +86,17 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const [salesRes, balancesRes, invRes, expRes] = await Promise.all([
+      const [salesRes, balancesRes, invRes, expRes, flowRes] = await Promise.all([
         api.get('/sales/stats', { params: shopParams() }),
         api.get('/balances').catch(() => ({ data: null })),
         api.get('/inventory/summary', { params: shopParams() }).catch(() => ({ data: { totals: {} } })),
         api.get('/expenses', { params: shopParams() }).catch(() => ({ data: { expenses: [] } })),
+        api.get('/money-flow', { params: { ...shopParams(), from: reportRange.from || undefined, to: reportRange.to || undefined } })
+          .catch(() => ({ data: { total_received: 0, total_spent: 0, net: 0 } })),
       ]);
       setInventoryTotals(invRes.data?.totals || {});
       setAllExpenses(expRes.data?.expenses || []);
+      setMoneyFlow(flowRes.data || { total_received: 0, total_spent: 0, net: 0 });
 
       const d = salesRes.data;
       setStats(d.stats || {});
@@ -118,7 +122,7 @@ export default function Dashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [shopParams, t]);
+  }, [shopParams, t, reportRange.from, reportRange.to]);
 
   useEffect(() => {
     loadDashboard();
@@ -128,6 +132,10 @@ export default function Dashboard() {
 
   const hr = new Date().getHours();
   const greeting = hr < 12 ? t('goodMorning') : hr < 17 ? t('goodAfternoon') : t('goodEvening');
+
+  // Business-wide money in/out is financial data — show only to admin & accountant,
+  // matching the admin-only cash/bank balance pills.
+  const showMoneyFlow = ['admin', 'accountant'].includes(user?.role);
 
   const roleLabels = {
     super_admin: t('roleSuperAdmin'),
@@ -171,10 +179,17 @@ export default function Dashboard() {
         ],
       },
       {
+        heading: `${t('moneyFlow') || 'Money Flow'} (${rangeLabel})`,
+        rows: [
+          { label: t('totalReceived') || 'Total Received', value: money(moneyFlow.total_received) },
+          { label: t('totalSpent') || 'Total Spent', value: money(moneyFlow.total_spent) },
+        ],
+      },
+      {
         heading: t('inventory') || 'Inventory',
         rows: [
           { label: t('totalProducts') || 'Total Products', value: String(inventoryTotals.total_products || 0) },
-          { label: t('totalStock') || 'Total Stock Units', value: String(inventoryTotals.total_units || 0) },
+          { label: t('totalStock') || 'Total Stock Units', value: formatQty(inventoryTotals.total_units || 0) },
           { label: t('stockValue') || 'Stock Value', value: money(inventoryTotals.total_value) },
           { label: t('lowStockItems') || 'Low Stock Items', value: String(inventoryTotals.low_stock_count || stats.low_stock_count || 0) },
         ],
@@ -203,7 +218,7 @@ export default function Dashboard() {
         columns: [
           { header: t('name') || 'Product', render: r => r.name, width: 2 },
           { header: t('sku') || 'SKU', render: r => r.sku, width: 1.2 },
-          { header: t('currentStock') || 'Stock', render: r => r.stock, align: 'right', width: 1 },
+          { header: t('currentStock') || 'Stock', render: r => r.stock, qty: true, align: 'right', width: 1 },
           { header: t('reorderLevel') || 'Reorder', render: r => r.reorder, align: 'right', width: 1 },
         ],
         rows: lowStock,
@@ -313,7 +328,7 @@ export default function Dashboard() {
       </div>
 
       {/* Second Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className={`grid grid-cols-1 gap-4 ${showMoneyFlow ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
         <StatCard
           title={t('weekSales')}
           value={stats.week_sales_total || 0}
@@ -322,6 +337,26 @@ export default function Dashboard() {
           icon={TrendingUp}
           color="bg-indigo-500/20 text-indigo-500"
         />
+        {showMoneyFlow && (
+          <>
+            <StatCard
+              title={t('totalReceived')}
+              value={moneyFlow.total_received || 0}
+              prefix="Rs. "
+              sub={reportRange.from || reportRange.to ? rangeLabel : (t('allTime') || 'All time')}
+              icon={Wallet}
+              color="bg-emerald-500/20 text-emerald-500"
+            />
+            <StatCard
+              title={t('totalSpent')}
+              value={moneyFlow.total_spent || 0}
+              prefix="Rs. "
+              sub={reportRange.from || reportRange.to ? rangeLabel : (t('allTime') || 'All time')}
+              icon={Banknote}
+              color="bg-red-500/20 text-red-500"
+            />
+          </>
+        )}
       </div>
 
       {/* Charts Row */}
@@ -431,7 +466,7 @@ export default function Dashboard() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className={`text-lg font-bold ${item.stock === 0 ? 'text-red-500' : 'text-yellow-500'}`}>
-                    {item.stock} {t('kg') || 'kg'}
+                    {formatQty(item.stock)} {t('kg') || 'kg'}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--text-faint)' }}>/ {item.reorder} min</p>
                 </div>

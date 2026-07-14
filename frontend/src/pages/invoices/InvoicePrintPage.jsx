@@ -11,14 +11,15 @@ import {
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 const fmtPKR = (n) => `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtQty = (n) => (parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 /* ── print-safe status chip (light fill + dark ink + border) ── */
 function StatusChip({ status }) {
   const map = {
-    paid:      { bg: '#dcfce7', color: '#065f46', bd: '#16a34a' },
-    partial:   { bg: '#fef9c3', color: '#854d0e', bd: '#ca8a04' },
-    pending:   { bg: '#fee2e2', color: '#991b1b', bd: '#dc2626' },
-    overdue:   { bg: '#fee2e2', color: '#7f1d1d', bd: '#dc2626' },
+    paid: { bg: '#dcfce7', color: '#065f46', bd: '#16a34a' },
+    partial: { bg: '#fef9c3', color: '#854d0e', bd: '#ca8a04' },
+    pending: { bg: '#fee2e2', color: '#991b1b', bd: '#dc2626' },
+    overdue: { bg: '#fee2e2', color: '#7f1d1d', bd: '#dc2626' },
     completed: { bg: '#dcfce7', color: '#065f46', bd: '#16a34a' },
     cancelled: { bg: '#f3f4f6', color: '#374151', bd: '#9ca3af' },
   };
@@ -164,7 +165,7 @@ function SaleInvoice({ data }) {
       <ItemsTable items={items} rowOf={(it) => ({
         name: it.Product?.name || it.product_name || '—',
         sku: it.Product?.sku,
-        qty: it.quantity,
+        qty: fmtQty(it.quantity),
         price: fmtPKR(parseFloat(it.line_total || 0) / (parseFloat(it.quantity) || 1)),
         amount: fmtPKR(it.line_total),
       })} />
@@ -280,7 +281,7 @@ function ReturnInvoice({ data }) {
       <ItemsTable items={items} rowOf={(it) => ({
         name: it.Product?.name || `Product #${it.product_id}`,
         sku: it.Product?.sku,
-        qty: it.quantity,
+        qty: fmtQty(it.quantity),
         price: fmtPKR(it.unit_price),
         amount: fmtPKR(it.line_total),
       })} />

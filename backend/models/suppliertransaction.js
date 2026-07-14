@@ -20,8 +20,10 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     supplier_id: {
+      // Nullable: a direct cash/bank stock purchase not tied to any supplier is
+      // recorded here with supplier_id = null so it still counts as cash out.
       type: DataTypes.INTEGER,
-      allowNull: false
+      allowNull: true
     },
     date: {
       type: DataTypes.DATE,

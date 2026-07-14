@@ -1,4 +1,5 @@
 import { useTheme } from '../../context/ThemeContext';
+import { formatQty } from '../../hooks/useShopApi';
 
 export default function StatusBadge({ status }) {
   const { t } = useTheme();
@@ -45,7 +46,7 @@ export default function StatusBadge({ status }) {
 export function StockBadge({ qty, reorder = 5 }) {
   const { t } = useTheme();
   const unit = t('kg') || 'kg';
-  if (qty === 0) return <span className="badge badge-red">0 {unit}</span>;
-  if (qty <= reorder) return <span className="badge badge-yellow">{qty} {unit}</span>;
-  return <span className="badge badge-green">{qty} {unit}</span>;
+  if (qty === 0) return <span className="badge badge-red">{formatQty(qty)} {unit}</span>;
+  if (qty <= reorder) return <span className="badge badge-yellow">{formatQty(qty)} {unit}</span>;
+  return <span className="badge badge-green">{formatQty(qty)} {unit}</span>;
 }

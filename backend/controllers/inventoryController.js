@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { applySupplierStockPayment } = require('../utils/supplierPayment');
 const { postVoucher } = require('../utils/postVoucher');
+const { assertCashAvailable, debitBankAccount } = require('../utils/cashHelpers');
 
 const stockIncludes = [
   {
@@ -301,20 +302,46 @@ exports.receiveStock = async (req, res) => {
         return res.status(err.statusCode || 500).json({ message: err.message || 'Internal server error' });
       }
     } else {
-      // No supplier attached — stock is still being introduced into the
-      // business, so it still needs a voucher (Dr Stock, Cr Capital & Equity)
-      // rather than a silent, unaccounted stock bump. Mirrors the same
-      // fallback in productController.create for new-product initial stock.
+      // No supplier attached — treat this as a direct cash/bank purchase of
+      // stock: the buyer pays for it out of the shop's own cash or bank, so the
+      // full cost is deducted from the chosen account and booked as
+      // Dr Stock / Cr Cash|Bank. The SupplierTransaction (supplier_id = null)
+      // is what utils/cashHelpers.computeCashFlow reads to drop live cash-in-hand.
       const stockValue = Math.round(unitCost * qty * 100) / 100;
       if (stockValue > 0) {
-        await postVoucher(shopId, {
-          type: 'journal',
+        const method = ['cash', 'bank'].includes(payment_method) ? payment_method : null;
+        if (!method) {
+          await transaction.rollback();
+          return res.status(400).json({ message: 'payment_method (cash or bank) is required when receiving stock without a supplier' });
+        }
+
+        if (method === 'bank') {
+          await debitBankAccount(shopId, stockValue, transaction);
+        } else {
+          await assertCashAvailable(shopId, stockValue, transaction);
+        }
+
+        await db.SupplierTransaction.create({
+          shop_id: shopId,
+          supplier_id: null,
           date: new Date(),
-          narration: `Stock received — ${product.name}`,
+          type: 'stock_received',
+          total_amount: stockValue,
+          paid_amount: stockValue,
+          remaining_amount: 0,
+          method,
+          notes: notes?.trim() || `Direct ${method} purchase — ${product.name}`,
+          created_by: req.user.id,
+        }, { transaction });
+
+        await postVoucher(shopId, {
+          type: 'payment',
+          date: new Date(),
+          narration: `Stock purchased (${method}) — ${product.name}`,
           createdBy: req.user.id,
           lines: [
             { accountCode: '05-STOCK', debit: stockValue },
-            { accountCode: '01-CAPITAL', credit: stockValue },
+            { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', credit: stockValue },
           ],
         }, transaction);
       }

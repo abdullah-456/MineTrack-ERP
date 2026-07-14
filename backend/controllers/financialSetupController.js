@@ -72,6 +72,94 @@ exports.completeSetup = async (req, res) => {
   }
 };
 
+// ── GET /api/money-flow ───────────────────────────────────────────────────────
+// Total money Received into and Spent out of the shop's liquid accounts
+// (Cash in Hand + Bank), derived from the General Ledger so it stays accurate
+// no matter which module moved the money — every sale, purchase, expense,
+// refund, supplier/customer/employee payment posts a voucher through
+// utils/postVoucher, so the GL is the single source of truth.
+//
+//   Total Received = sum of DEBITS to 05-CASH / 05-BANK  (money in)
+//   Total Spent    = sum of CREDITS to 05-CASH / 05-BANK  (money out)
+//
+// Owner-capital movements (opening balances, capital injections, drawings) and
+// contra transfers between the shop's own cash/bank are excluded so the figures
+// reflect real business activity rather than the initial float or self-transfers.
+// Optional ?from=&to= narrows the window (defaults to all time).
+exports.getMoneyFlow = async (req, res) => {
+  const shopId = req.user.shop_id;
+  if (!shopId) return res.status(403).json({ message: 'No shop context' });
+
+  try {
+    const { from, to } = req.query;
+
+    // chart_of_accounts is global/shared across shops, keyed by stable codes.
+    const liquid = await db.ChartOfAccount.findAll({
+      where: { account_code: { [Op.in]: ['05-CASH', '05-BANK'] } },
+      attributes: ['id'],
+    });
+    const liquidIds = liquid.map(a => a.id);
+    if (!liquidIds.length) {
+      return res.json({ total_received: 0, total_spent: 0, net: 0 });
+    }
+
+    // Vouchers to exclude: those touching an equity account (capital / opening /
+    // drawings) and contra transfers between the shop's own accounts.
+    const equity = await db.ChartOfAccount.findAll({
+      where: { account_type: 'equity' },
+      attributes: ['id'],
+    });
+    const equityIds = equity.map(a => a.id);
+
+    const excluded = new Set();
+    if (equityIds.length) {
+      const eqVouchers = await db.GeneralLedger.findAll({
+        where: { shop_id: shopId, account_id: { [Op.in]: equityIds } },
+        attributes: ['voucher_id'],
+        group: ['voucher_id'],
+        raw: true,
+      });
+      eqVouchers.forEach(r => excluded.add(r.voucher_id));
+    }
+    const contraVouchers = await db.Voucher.findAll({
+      where: { shop_id: shopId, voucher_type: 'contra' },
+      attributes: ['id'],
+      raw: true,
+    });
+    contraVouchers.forEach(v => excluded.add(v.id));
+
+    const where = { shop_id: shopId, account_id: { [Op.in]: liquidIds } };
+    if (excluded.size) where.voucher_id = { [Op.notIn]: [...excluded] };
+    if (from || to) {
+      where.entry_date = {};
+      if (from) where.entry_date[Op.gte] = new Date(from);
+      if (to) where.entry_date[Op.lte] = new Date(`${to}T23:59:59.999Z`);
+    }
+
+    const agg = await db.GeneralLedger.findOne({
+      where,
+      attributes: [
+        [db.sequelize.fn('SUM', db.sequelize.col('debit')), 'total_debit'],
+        [db.sequelize.fn('SUM', db.sequelize.col('credit')), 'total_credit'],
+      ],
+      raw: true,
+    });
+
+    const round2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+    const totalReceived = round2(agg?.total_debit || 0);
+    const totalSpent = round2(agg?.total_credit || 0);
+
+    return res.json({
+      total_received: totalReceived,
+      total_spent: totalSpent,
+      net: round2(totalReceived - totalSpent),
+    });
+  } catch (error) {
+    console.error('getMoneyFlow error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 // ── GET /api/company ──────────────────────────────────────────────────────────
 // Lightweight company/shop profile for report & document headers (name, owner,
 // contact + logo). Scoped to the caller's shop; super-admins may pass ?shop_id.
