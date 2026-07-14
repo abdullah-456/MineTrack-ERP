@@ -88,7 +88,7 @@ export default function VoucherPrintPage() {
               <th style={{ width: '40%' }}>Particulars</th>
               <th className="num" style={{ width: '18%' }}>Debit ( )</th>
               <th className="num" style={{ width: '18%' }}>Credit ( )</th>
-              <th>Narration</th>
+              <th>Description</th>
             </tr>
           </thead>
           <tbody>

@@ -235,7 +235,7 @@ export default function EmployeeLedger() {
                 <th className="text-start p-4">{t('type') || 'Type'}</th>
                 <th className="text-end p-4">{t('amount') || 'Amount'}</th>
                 <th className="text-start p-4">{t('method') || 'Method'}</th>
-                <th className="text-start p-4">{t('notes') || 'Notes'}</th>
+                <th className="text-start p-4">{t('description') || 'Description'}</th>
                 <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
                 <th className="p-4"></th>
               </tr>
@@ -384,7 +384,7 @@ export default function EmployeeLedger() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
               <textarea className="input min-h-[60px]" value={advanceForm.notes} onChange={e => setAdvanceForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
             <div className="flex gap-3 pt-2">
@@ -410,7 +410,7 @@ export default function EmployeeLedger() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
               <textarea className="input min-h-[60px]" value={loanForm.notes} onChange={e => setLoanForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
             <div className="flex gap-3 pt-2">
@@ -446,7 +446,7 @@ export default function EmployeeLedger() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
               <textarea className="input min-h-[60px]" value={receivableForm.notes} onChange={e => setReceivableForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
             <div className="flex gap-3 pt-2">

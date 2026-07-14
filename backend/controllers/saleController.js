@@ -364,6 +364,9 @@ exports.create = async (req, res) => {
     const arDebitAmount = Math.round((total - payAmount) * 100) / 100;
     const revenueCreditAmount = total;
 
+    // customerName is resolved inside the customer block below and used in the
+    // GL narration outside it — must be declared here to stay in scope.
+    let customerName = 'Walk-in Customer';
 
     // Ledger trail for the customer: EVERY sale tied to a registered customer
     // gets a full-value charge entry plus (if anything was paid now) a payment
@@ -376,6 +379,7 @@ exports.create = async (req, res) => {
     if (customer_id) {
       const customer = await db.Customer.findOne({ where: { id: customer_id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE });
       if (customer) {
+        customerName = customer.name;
         const chargeAmount = Math.round((total - payAmount) * 100) / 100;
         const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
 
@@ -389,14 +393,14 @@ exports.create = async (req, res) => {
             shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
             type: 'sale_charge',
             amount: total, method: null,
-            related_sale_id: sale.id, notes: `Sale ${invoice_number} — Bought: ${itemsSummary}`, created_by: req.user.id,
+            related_sale_id: sale.id, notes: `Customer ${customer.name} purchased ${itemsSummary}`, created_by: req.user.id,
           }, { transaction });
         }
         if (payAmount > 0) {
           await db.CustomerTransaction.create({
             shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
             type: 'payment_received', amount: payAmount, method: finalPaymentMethod,
-            related_sale_id: sale.id, notes: `Payment for Sale ${invoice_number}`, created_by: req.user.id,
+            related_sale_id: sale.id, notes: `Payment of Rs. ${payAmount} received from ${customer.name} via ${finalPaymentMethod}`, created_by: req.user.id,
           }, { transaction });
         }
       }
@@ -410,7 +414,7 @@ exports.create = async (req, res) => {
     await postVoucher(shopId, {
       type: 'receipt',
       date: sale.sale_date,
-      narration: `Sale ${invoice_number} — Bought: ${itemsSummary}`,
+      narration: `${customerName} purchased ${itemsSummary}`,
       createdBy: req.user.id,
       lines: [
         ...(paymentLine ? [paymentLine] : []),
@@ -419,6 +423,7 @@ exports.create = async (req, res) => {
         ...(cogsTotal > 0 ? [{ accountCode: '07-COGS', debit: cogsTotal }, { accountCode: '05-STOCK', credit: cogsTotal }] : []),
       ],
     }, transaction);
+
 
     await transaction.commit();
 

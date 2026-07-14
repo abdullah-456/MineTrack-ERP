@@ -222,6 +222,7 @@ export default function SupplierLedger() {
                 <th className="text-end p-4">{t('paid') || 'Paid'}</th>
                 <th className="text-end p-4">{t('remaining') || 'Remaining'}</th>
                 <th className="text-start p-4">{t('method') || 'Method'}</th>
+                <th className="text-start p-4">{t('description') || 'Description'}</th>
                 <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
                 <th className="p-4"></th>
               </tr>
@@ -235,6 +236,7 @@ export default function SupplierLedger() {
                   <td className="p-4 text-end text-emerald-400 font-semibold">{formatPKR(txn.paid_amount, lang)}</td>
                   <td className="p-4 text-end text-red-400 font-semibold">{formatPKR(txn.remaining_amount, lang)}</td>
                   <td className="p-4 text-xs uppercase" style={{ color: 'var(--text-muted)' }}>{txn.method || '—'}</td>
+                  <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{txn.notes || '—'}</td>
                   <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(txn.running_balance, lang)}</td>
                   <td className="p-4 text-center">
                     <button
@@ -250,7 +252,7 @@ export default function SupplierLedger() {
                 </tr>
               ))}
               {transaction_history.length === 0 && (
-                <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
+                <tr><td colSpan={9} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
               )}
             </tbody>
           </table>
@@ -333,7 +335,7 @@ export default function SupplierLedger() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
               <textarea className="input min-h-[60px]" value={paymentForm.notes} onChange={e => setPaymentForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
             <div className="flex gap-3 pt-2">

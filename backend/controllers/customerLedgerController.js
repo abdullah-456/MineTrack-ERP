@@ -50,10 +50,10 @@ exports.recordPayment = async (req, res) => {
 
     await customer.update({ current_balance: newBalance }, { transaction });
 
-    const advNote = advancePortion > 0
-      ? `Advance credit: ${advancePortion.toFixed(2)}`
-      : null;
-    const finalNotes = [notes?.trim() || null, advNote].filter(Boolean).join(' — ') || null;
+    const defaultPaymentNote = advancePortion > 0
+      ? `Payment received from ${customer.name} including advance credit of Rs. ${advancePortion}`
+      : `Payment received from ${customer.name}`;
+    const finalNotes = notes?.trim() ? `${notes.trim()} — ${defaultPaymentNote}` : defaultPaymentNote;
 
     const txn = await db.CustomerTransaction.create({
       shop_id: shopId, customer_id: customer.id,
@@ -66,8 +66,8 @@ exports.recordPayment = async (req, res) => {
       type: 'receipt',
       date: date ? new Date(date) : new Date(),
       narration: advancePortion > 0
-        ? `Customer payment (incl. advance) — ${customer.name}`
-        : `Customer payment — ${customer.name}`,
+        ? `Payment received from ${customer.name} including advance credit`
+        : `Payment received from ${customer.name}`,
       createdBy: req.user.id,
       lines: [
         { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', debit: amt },

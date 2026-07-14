@@ -95,7 +95,7 @@ async function applySupplierStockPayment({
   const voucher = await postVoucher(shopId, {
     type: 'journal',
     date: new Date(),
-    narration: `Stock received — invoice ${invoice_number}${notes?.trim() ? ' — ' + notes.trim() : ''}`,
+    narration: `Stock received from ${supplierRow.company_name}${notes?.trim() ? ' — ' + notes.trim() : ''}`,
     createdBy,
     lines: [
       { accountCode: '05-STOCK', debit: totalAmount },

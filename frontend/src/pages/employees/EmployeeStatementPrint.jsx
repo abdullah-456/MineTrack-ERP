@@ -113,7 +113,7 @@ export default function EmployeeStatementPrint() {
               <th className="num" style={{ width: '14%' }}>{t('debit') || 'Debit'}</th>
               <th className="num" style={{ width: '14%' }}>{t('credit') || 'Credit'}</th>
               <th style={{ width: '11%' }}>{t('method') || 'Method'}</th>
-              <th>{t('notes') || 'Notes'}</th>
+              <th>{t('description') || 'Description'}</th>
               <th className="num" style={{ width: '16%' }}>{t('runningBalance') || 'Balance'}</th>
             </tr>
           </thead>

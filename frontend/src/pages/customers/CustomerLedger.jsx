@@ -122,7 +122,7 @@ export default function CustomerLedger() {
                 { header: t('debit') || 'Debit', render: r => !['payment_received', 'return_credit'].includes(r.type) ? money(r.amount) : '', align: 'right', width: 1.1 },
                 { header: t('credit') || 'Credit', render: r => ['payment_received', 'return_credit'].includes(r.type) ? money(r.amount) : '', align: 'right', width: 1.1 },
                 { header: t('method') || 'Method', render: r => r.method || '', width: 1 },
-                { header: t('notes') || 'Notes', render: r => r.notes || '', width: 2 },
+                { header: t('description') || 'Description', render: r => r.notes || '', width: 2 },
                 { header: t('runningBalance') || 'Balance', render: r => money(r.running_balance), align: 'right', width: 1.2 },
               ]}
               rows={transaction_history}
@@ -189,7 +189,7 @@ export default function CustomerLedger() {
                 <th className="text-end p-4">{t('debit') || 'Debit'}</th>
                 <th className="text-end p-4">{t('credit') || 'Credit'}</th>
                 <th className="text-start p-4">{t('method') || 'Method'}</th>
-                <th className="text-start p-4">{t('notes') || 'Notes'}</th>
+                <th className="text-start p-4">{t('description') || 'Description'}</th>
                 <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
                 <th className="p-4"></th>
               </tr>
@@ -287,7 +287,7 @@ export default function CustomerLedger() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
               <textarea className="input min-h-[60px]" value={paymentForm.notes} onChange={e => setPaymentForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
             <div className="flex gap-3 pt-2">

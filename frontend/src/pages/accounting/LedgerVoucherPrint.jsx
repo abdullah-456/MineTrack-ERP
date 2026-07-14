@@ -155,7 +155,7 @@ export default function LedgerVoucherPrint() {
               <th style={{ width: '40%' }}>Particulars</th>
               <th className="num" style={{ width: '19%' }}>Debit ( )</th>
               <th className="num" style={{ width: '19%' }}>Credit ( )</th>
-              <th>Narration</th>
+              <th>Description</th>
             </tr>
           </thead>
           <tbody>
@@ -168,7 +168,7 @@ export default function LedgerVoucherPrint() {
                 </td>
                 <td className="num">{l.side === 'Dr' ? fmt(l.val) : '—'}</td>
                 <td className="num">{l.side === 'Cr' ? fmt(l.val) : '—'}</td>
-                {/* Narration cell spans all entry rows */}
+                {/* Description cell spans all entry rows */}
                 {i === 0 && (
                   <td rowSpan={lines.length} style={{ verticalAlign: 'top' }}>
                     {notes || ''}

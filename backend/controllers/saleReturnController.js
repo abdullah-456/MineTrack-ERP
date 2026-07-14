@@ -302,7 +302,7 @@ exports.create = async (req, res) => {
               await db.CustomerTransaction.create({
                 shop_id: shopId, customer_id: customer.id, date: new Date(),
                 type: 'return_credit', amount: creditApplied, method: null,
-                related_sale_id: sale.id, notes: `Return of sale ${sale.invoice_number} — Returned: ${returnedItemsSummary}`,
+                related_sale_id: sale.id, notes: `Items returned by customer: ${returnedItemsSummary}`,
                 created_by: req.user.id,
               }, { transaction });
             }
@@ -564,8 +564,8 @@ exports.create = async (req, res) => {
         type: return_type === 'exchange' ? 'journal' : 'payment',
         date: ret.return_date,
         narration: return_type === 'exchange'
-          ? `Exchange ${return_number} (sale ${sale.invoice_number}) — Returned: ${returnedItemsSummary} | Exchanged for: ${exchangeItemsSummary}`
-          : `Return ${return_number} (sale ${sale.invoice_number}) — Returned: ${returnedItemsSummary}`,
+          ? `Returned: ${returnedItemsSummary} and exchanged for: ${exchangeItemsSummary}`
+          : `Returned: ${returnedItemsSummary}`,
         createdBy: req.user.id,
         lines: glLines,
       }, transaction);
@@ -628,7 +628,7 @@ async function performVoidReturn(ret, shopId, req, transaction) {
       await db.CustomerTransaction.create({
         shop_id: shopId, customer_id: customer.id, date: new Date(),
         type: 'adjustment', amount: reinstatedCredit, method: null,
-        related_sale_id: ret.sale_id, notes: `Void return ${ret.return_number} — reinstated credit`,
+        related_sale_id: ret.sale_id, notes: `Voided return and reinstated credit`,
         created_by: req.user.id,
       }, { transaction });
     }
@@ -650,7 +650,7 @@ async function performVoidReturn(ret, shopId, req, transaction) {
     await postVoucher(shopId, {
       type: 'journal',
       date: new Date(),
-      narration: `Void return ${ret.return_number}`,
+      narration: `Voided return and reversed entries`,
       createdBy: req.user.id,
       lines: voidGlLines,
     }, transaction);

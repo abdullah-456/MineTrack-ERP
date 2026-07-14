@@ -107,7 +107,7 @@ export default function EmployeeSlipPrint() {
               <tr><td style={{ color: INK_SOFT }}>{t('forMonth') || 'For Salary Month'}</td><td style={{ fontWeight: 700 }}>{txn.for_month}</td></tr>
             )}
             {txn.notes && (
-              <tr><td style={{ color: INK_SOFT }}>{t('notes') || 'Notes'}</td><td>{txn.notes}</td></tr>
+              <tr><td style={{ color: INK_SOFT }}>{t('description') || 'Description'}</td><td>{txn.notes}</td></tr>
             )}
           </tbody>
         </table>

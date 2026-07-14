@@ -84,7 +84,7 @@ export default function SupplierStatementPrint() {
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Type</th><th className="num">Total</th><th className="num">Paid</th><th className="num">Remaining</th><th>Method</th><th className="num">Balance</th>
+              <th>Date</th><th>Type</th><th>Description</th><th className="num">Total</th><th className="num">Paid</th><th className="num">Remaining</th><th>Method</th><th className="num">Balance</th>
             </tr>
           </thead>
           <tbody>
@@ -92,6 +92,7 @@ export default function SupplierStatementPrint() {
               <tr key={txn.id}>
                 <td>{new Date(txn.date).toLocaleDateString('en-PK')}</td>
                 <td>{TXN_LABELS[txn.type] || txn.type}</td>
+                <td style={{ fontSize: 11, color: '#374151' }}>{txn.notes || '—'}</td>
                 <td className="num">{fmt(txn.total_amount)}</td>
                 <td className="num">{fmt(txn.paid_amount)}</td>
                 <td className="num">{fmt(txn.remaining_amount)}</td>

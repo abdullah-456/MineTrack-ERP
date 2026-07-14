@@ -81,7 +81,7 @@ exports.recordPayment = async (req, res) => {
           shop_id: shopId, supplier_id: supplier.id,
           date: date ? new Date(date) : new Date(),
           type: 'payment_made', total_amount: applied, paid_amount: applied, remaining_amount: 0,
-          method, stock_batch_id: inv.id, notes: notes?.trim() || null, created_by: req.user.id,
+          method, stock_batch_id: inv.id, notes: notes?.trim() || `Payment made to ${supplier.company_name}`, created_by: req.user.id,
         }, { transaction }));
       }
     }
@@ -94,7 +94,7 @@ exports.recordPayment = async (req, res) => {
         shop_id: shopId, supplier_id: supplier.id,
         date: date ? new Date(date) : new Date(),
         type: 'payment_made', total_amount: unallocated, paid_amount: unallocated, remaining_amount: 0,
-        method, stock_batch_id: null, notes: notes?.trim() || null, created_by: req.user.id,
+        method, stock_batch_id: null, notes: notes?.trim() || `Payment made to ${supplier.company_name}`, created_by: req.user.id,
       }, { transaction }));
     }
 
@@ -102,7 +102,7 @@ exports.recordPayment = async (req, res) => {
     await postVoucher(shopId, {
       type: 'payment',
       date: date ? new Date(date) : new Date(),
-      narration: `Supplier payment — ${supplier.company_name}`,
+      narration: `Payment made to ${supplier.company_name}`,
       createdBy: req.user.id,
       lines: [
         ...(allocatable > 0 ? [{ accountCode: '03-AP', debit: allocatable }] : []),
@@ -162,6 +162,7 @@ exports.recordOpeningBalance = async (req, res) => {
       remaining_amount: amt,
       method: null,
       stock_batch_id: null,
+      notes: `Opening balance recorded for ${supplier.company_name}`,
       created_by: req.user.id,
     }, { transaction });
 
@@ -169,7 +170,7 @@ exports.recordOpeningBalance = async (req, res) => {
       await postVoucher(shopId, {
         type: 'journal',
         date: date ? new Date(date) : new Date(),
-        narration: `Opening balance — ${supplier.company_name}`,
+        narration: `Opening balance recorded for ${supplier.company_name}`,
         createdBy: req.user.id,
         lines: [
           { accountCode: '01-CAPITAL', debit: amt },

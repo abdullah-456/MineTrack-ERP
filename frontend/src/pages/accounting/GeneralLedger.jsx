@@ -54,7 +54,7 @@ export default function GeneralLedger() {
     { header: t('date') || 'Date', render: e => new Date(e.date).toLocaleDateString('en-PK'), width: 1.1 },
     { header: t('voucherNo') || 'Voucher #', key: 'voucher_number', width: 1.1 },
     { header: t('account') || 'Account', key: 'account_name', width: 1.6 },
-    { header: t('narration') || 'Narration', key: 'narration', width: 2.4 },
+    { header: t('description') || 'Description', key: 'narration', width: 2.4 },
     { header: t('debit') || 'Debit', key: 'debit', money: true, width: 1.1 },
     { header: t('credit') || 'Credit', key: 'credit', money: true, width: 1.1 },
     { header: t('runningBalance') || 'Balance', key: 'running_balance', money: true, width: 1.2 },
@@ -129,7 +129,7 @@ export default function GeneralLedger() {
                 <th className="text-start p-4">{t('date') || 'Date'}</th>
                 <th className="text-start p-4">{t('voucherNo') || 'Voucher #'}</th>
                 <th className="text-start p-4">{t('account') || 'Account'}</th>
-                <th className="text-start p-4">{t('narration') || 'Narration'}</th>
+                <th className="text-start p-4">{t('description') || 'Description'}</th>
                 <th className="text-end p-4">{t('debit') || 'Debit'}</th>
                 <th className="text-end p-4">{t('credit') || 'Credit'}</th>
                 <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
