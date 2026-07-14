@@ -24,17 +24,34 @@ async function fetchSlip(employeeId, txnId) {
 function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
   const doc = new jsPDF({ unit: 'mm', format: 'a5' });
   const W = 148, margin = 14, right = W - margin;
-  let y = 16;
 
-  // ── Letterhead ──
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(17, 24, 39);
-  doc.text(company.name || 'Company', W / 2, y, { align: 'center' }); y += 5;
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(70, 70, 70);
+  // ── Letterhead ── solid brand-colour band (indigo, emerald accent stripe),
+  // reversed light-on-colour text so it stays readable against the fill.
   const contact = [company.address, company.phone && `Ph: ${company.phone}`, company.email].filter(Boolean).join('  |  ');
-  if (contact) { doc.text(contact, W / 2, y, { align: 'center' }); y += 4; }
-  if (company.owner_name) { doc.text(`Proprietor: ${company.owner_name}`, W / 2, y, { align: 'center' }); y += 4; }
-  y += 1; doc.setDrawColor(17, 24, 39); doc.setLineWidth(0.5); doc.line(margin, y, right, y); y += 6;
+  const lines = 1 + (contact ? 1 : 0) + (company.owner_name ? 1 : 0);
+  const bandH = 9 + lines * 5;
 
+  doc.setFillColor(67, 56, 202); doc.rect(0, 0, W, bandH, 'F');
+  doc.setFillColor(5, 150, 105); doc.rect(0, bandH, W, 1.4, 'F');
+
+  if (company.logo_url) {
+    try {
+      const props = doc.getImageProperties(company.logo_url);
+      let lw = 18, lh = (lw * props.height) / props.width;
+      const maxLh = Math.min(12, bandH - 4);
+      if (lh > maxLh) { lh = maxLh; lw = (lh * props.width) / props.height; }
+      doc.addImage(company.logo_url, props.fileType || 'PNG', margin, Math.max(2, (bandH - lh) / 2), lw, lh);
+    } catch { /* invalid logo — ignore */ }
+  }
+
+  let y = (bandH - lines * 4.6) / 2 + 4.6;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(255, 255, 255);
+  doc.text(company.name || 'Company', W / 2, y, { align: 'center' }); y += 4.6;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(224, 231, 255);
+  if (contact) { doc.text(contact, W / 2, y, { align: 'center' }); y += 4.6; }
+  if (company.owner_name) { doc.text(`Proprietor: ${company.owner_name}`, W / 2, y, { align: 'center' }); y += 4.6; }
+
+  y = bandH + 1.4 + 8;
   const title = payroll ? TITLES.payment_made : (TITLES[txn.type] || 'Transaction Slip');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(17, 24, 39);
   doc.text(title.toUpperCase(), W / 2, y, { align: 'center' }); y += 8;
@@ -59,10 +76,14 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
 
   let headline;
   if (payroll) {
+    const advanceDeduction = payroll.advance_deduction || 0;
+    const manualDeductions = Math.max(0, (payroll.deductions || 0) - advanceDeduction);
     row('Month', payroll.month);
     row('Basic Salary', fmt(payroll.basic_salary));
-    if (payroll.bonus > 0) row('Bonus', `+${fmt(payroll.bonus)}`);
-    if (payroll.deductions > 0) row('Deductions', `-${fmt(payroll.deductions)}`);
+    row('Advance', advanceDeduction > 0 ? `-${fmt(advanceDeduction)}` : '-');
+    row('Bonus', payroll.bonus > 0 ? `+${fmt(payroll.bonus)}` : '-');
+    row('Deductions', manualDeductions > 0 ? `-${fmt(manualDeductions)}` : '-');
+    row('Others', '-');
     y += 1; doc.setDrawColor(17, 24, 39); doc.setLineWidth(0.5); doc.line(margin, y, right, y); y += 7;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(17, 24, 39);
     doc.text('Net Pay', margin, y);

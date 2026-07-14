@@ -69,11 +69,33 @@ export function clearCompanyCache() { _companyCache = null; }
 export const money = (n) =>
   `Rs. ${(parseFloat(n) || 0).toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
 
-// Quantity/weight fields (kg) — always exactly one decimal place, e.g. 5 → "5.0", 5.25 → "5.3"
+// Quantity/weight fields (kg) — always exactly one decimal place, e.g. 5 → "5.0 kg", 5.25 → "5.3 kg"
 export const qty = (n) =>
-  (parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  `${(parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg`;
 
 const asText = (v) => (v === null || v === undefined ? '' : String(v));
+
+// ── Letterhead brand colours (shared by PDF + HTML) ──────────────────────────
+// A calm, professional indigo → emerald accent so every document reads as
+// company stationery without hurting print legibility (all body text stays dark).
+const BRAND_RGB = [67, 56, 202];        // indigo-700  → company name & main rule
+const BRAND_ACCENT_RGB = [5, 150, 105]; // emerald-600 → thin accent rule
+const TITLE_RGB = [49, 46, 129];        // indigo-900  → document title
+export const BRAND_HEX = '#4338ca';
+export const BRAND_ACCENT_HEX = '#059669';
+const TITLE_HEX = '#312e81';
+
+// Draw an uploaded logo (data URL / image URL) on the left of a jsPDF letterhead.
+// Returns nothing; silently skips anything jsPDF can't decode.
+function drawPdfLogo(doc, logo, x, y, maxW, maxH) {
+  if (!logo) return;
+  try {
+    const props = doc.getImageProperties(logo);
+    let w = maxW, h = (w * props.height) / props.width;
+    if (h > maxH) { h = maxH; w = (h * props.width) / props.height; }
+    doc.addImage(logo, props.fileType || 'PNG', x, y, w, h);
+  } catch { /* invalid logo — ignore */ }
+}
 
 // Resolve a column definition + row into a display string.
 // Column: { header, key, align?, money?, render?(row) }
@@ -124,15 +146,28 @@ function createWriter(company, { title, meta = [], filters = [] }) {
   let y = 0;
 
   const drawLetterhead = (full) => {
-    let yy = 14;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(17, 24, 39);
-    doc.text(engCompany.name || 'Company', pageW / 2, yy, { align: 'center' }); yy += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(70, 70, 70);
+    // Solid brand-colour band behind the company block (edge-to-edge), with a
+    // thin accent stripe underneath — text inside the band is reversed
+    // (light-on-colour) so it stays readable against the fill.
     const contact = [engCompany.address, engCompany.phone && `Ph: ${engCompany.phone}`, engCompany.email].filter(Boolean).join('   |   ');
-    if (contact) { doc.text(contact, pageW / 2, yy, { align: 'center' }); yy += 4; }
-    if (engCompany.owner_name) { doc.text(`Proprietor: ${engCompany.owner_name}`, pageW / 2, yy, { align: 'center' }); yy += 4; }
-    yy += 2; doc.setDrawColor(17, 24, 39); doc.setLineWidth(0.5); doc.line(margin, yy, pageW - margin, yy); yy += 6;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(17, 24, 39);
+    const lines = 1 + (contact ? 1 : 0) + (engCompany.owner_name ? 1 : 0);
+    const bandH = 10 + lines * 5.4;
+
+    doc.setFillColor(...BRAND_RGB); doc.rect(0, 0, pageW, bandH, 'F');
+    doc.setFillColor(...BRAND_ACCENT_RGB); doc.rect(0, bandH, pageW, 1.6, 'F');
+
+    const logoH = Math.min(16, bandH - 4);
+    drawPdfLogo(doc, engCompany.logo_url, margin, Math.max(3, (bandH - logoH) / 2), 26, logoH);
+
+    let yy = (bandH - lines * 5) / 2 + 5;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(255, 255, 255);
+    doc.text(engCompany.name || 'Company', pageW / 2, yy, { align: 'center' }); yy += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(224, 231, 255);
+    if (contact) { doc.text(contact, pageW / 2, yy, { align: 'center' }); yy += 5; }
+    if (engCompany.owner_name) { doc.text(`Proprietor: ${engCompany.owner_name}`, pageW / 2, yy, { align: 'center' }); yy += 5; }
+
+    yy = bandH + 1.6 + 7;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...TITLE_RGB);
     doc.text((engTitle || 'Document').toUpperCase(), pageW / 2, yy, { align: 'center' }); yy += 5;
     if (full) {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(70, 70, 70);
@@ -272,14 +307,19 @@ function esc(s) {
 
 const PRINT_CSS = `
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #111827; margin: 22px; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111827; margin: 0; }
+  .page { padding: 22px; }
+  .lh { position: relative; background: ${BRAND_HEX}; margin: -22px -22px 0; padding: 14px 22px;
+        border-bottom: 4px solid ${BRAND_ACCENT_HEX}; }
+  .lh .logo { position: absolute; left: 22px; top: 50%; transform: translateY(-50%);
+              max-height: 56px; max-width: 110px; object-fit: contain; background: #fff;
+              border-radius: 6px; padding: 3px; }
   .company { text-align: center; }
-  .company h1 { font-size: 22px; margin: 0 0 4px; color: #111827; }
-  .company .contact { font-size: 11.5px; color: #374151; }
-  .company .owner { font-size: 11.5px; color: #374151; margin-top: 2px; }
-  hr { border: none; border-top: 2px solid #111827; margin: 10px 0 8px; }
+  .company h1 { font-size: 22px; margin: 0 0 4px; color: #ffffff; }
+  .company .contact { font-size: 11.5px; color: #e0e7ff; }
+  .company .owner { font-size: 11.5px; color: #e0e7ff; margin-top: 2px; }
   .title { text-align: center; font-size: 15px; font-weight: 800; letter-spacing: 1.5px;
-           text-transform: uppercase; margin-bottom: 6px; color: #111827; }
+           text-transform: uppercase; margin: 14px 0 6px; color: ${TITLE_HEX}; }
   .meta { font-size: 10px; color: #374151; text-align: center; }
   .filters { font-size: 10px; color: #1f2937; margin: 8px 0; padding: 6px 8px;
              background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; }
@@ -297,7 +337,7 @@ const PRINT_CSS = `
   .sign { display: flex; justify-content: space-between; margin-top: 48px; font-size: 12px; font-weight: 700; }
   .sign > div { width: 44%; } .sign .line { border-top: 1px solid #111827; margin-bottom: 4px; height: 1px; }
   .foot { margin-top: 20px; text-align: center; font-size: 9px; color: #6b7280; }
-  @media print { body { margin: 12mm; } @page { margin: 8mm; } }
+  @media print { @page { margin: 6mm; } }
 `;
 
 function letterheadHTML(company, title, meta = [], filters = []) {
@@ -308,12 +348,14 @@ function letterheadHTML(company, title, meta = [], filters = []) {
     ? `<div class="filters"><strong>Filters:</strong> ${filters.map(f => `${esc(f.label)}: ${esc(f.value)}`).join(' &nbsp;&nbsp; ')}</div>`
     : '';
   return `
-    <div class="company">
-      <h1>${esc(company.name || 'Company')}</h1>
-      ${contact ? `<div class="contact">${contact}</div>` : ''}
-      ${company.owner_name ? `<div class="owner">Proprietor: ${esc(company.owner_name)}</div>` : ''}
+    <div class="lh">
+      ${company.logo_url ? `<img class="logo" src="${esc(company.logo_url)}" alt=""/>` : ''}
+      <div class="company">
+        <h1>${esc(company.name || 'Company')}</h1>
+        ${contact ? `<div class="contact">${contact}</div>` : ''}
+        ${company.owner_name ? `<div class="owner">Proprietor: ${esc(company.owner_name)}</div>` : ''}
+      </div>
     </div>
-    <hr/>
     <div class="title">${esc(title || 'Document')}</div>
     <div class="meta">${metaLine}</div>
     ${filterLine}`;
@@ -341,10 +383,12 @@ const signHTML = (signature) => (signature
 export function buildReportHTML({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature }) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Report')}</title>
   <style>${PRINT_CSS}</style></head><body>
-    ${letterheadHTML(company, title, meta, filters)}
-    ${tableHTML({ columns, rows, totals })}
-    ${signHTML(signature)}
-    <div class="foot">${esc(company.name || '')} — computer generated report</div>
+    <div class="page">
+      ${letterheadHTML(company, title, meta, filters)}
+      ${tableHTML({ columns, rows, totals })}
+      ${signHTML(signature)}
+      <div class="foot">${esc(company.name || '')} — computer generated report</div>
+    </div>
   </body></html>`;
 }
 
@@ -358,11 +402,13 @@ export function buildDetailHTML({ company = {}, title, meta = [], filters = [], 
   const tablesHtml = allTables.map(tb => `${tb.heading ? `<div class="sec-h">${esc(tb.heading)}</div>` : ''}${tableHTML(tb)}`).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Detail')}</title>
   <style>${PRINT_CSS}</style></head><body>
-    ${letterheadHTML(company, title, meta, filters)}
-    ${secHtml}
-    ${tablesHtml}
-    ${signHTML(signature)}
-    <div class="foot">${esc(company.name || '')} — computer generated document</div>
+    <div class="page">
+      ${letterheadHTML(company, title, meta, filters)}
+      ${secHtml}
+      ${tablesHtml}
+      ${signHTML(signature)}
+      <div class="foot">${esc(company.name || '')} — computer generated document</div>
+    </div>
   </body></html>`;
 }
 

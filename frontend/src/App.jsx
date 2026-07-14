@@ -24,6 +24,7 @@ import Branches from './pages/admin/Branches';
 import Expenses from './pages/expenses/Expenses';
 import Roles from './pages/admin/Roles';
 import DeletionRequests from './pages/admin/DeletionRequests';
+import CompanyProfile from './pages/admin/CompanyProfile';
 
 // Business modules
 import Suppliers  from './pages/suppliers/Suppliers';
@@ -117,6 +118,8 @@ function App() {
                 element={<ProtectedRoute module="roles" action="read"><Roles /></ProtectedRoute>} />
               <Route path="/admin/deletion-requests"
                 element={<ProtectedRoute module="users" action="read"><DeletionRequests /></ProtectedRoute>} />
+              <Route path="/admin/company-profile"
+                element={<ProtectedRoute module="users" action="update"><CompanyProfile /></ProtectedRoute>} />
 
               {/* Sales */}
               <Route path="/sales"

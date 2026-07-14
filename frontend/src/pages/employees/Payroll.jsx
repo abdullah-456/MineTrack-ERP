@@ -30,6 +30,22 @@ export default function Payroll() {
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [advanceForSelectedMonth, setAdvanceForSelectedMonth] = useState(0);
   const [salaryForm, setSalaryForm] = useState({ month: currentMonth, bonus: '', deductions: '', method: 'cash' });
+  const [paidMonths, setPaidMonths] = useState(new Set()); // months already given for modalEmp
+  const [minGiveMonth, setMinGiveMonth] = useState(currentMonth); // earliest selectable month (native calendar bound)
+  const [monthError, setMonthError] = useState(''); // only set right after an invalid pick attempt
+
+  // Salary is always given month-by-month in order, so the month right after
+  // the most recently paid one is both the native <input type="month">'s
+  // `min` bound (greys out already-given months in the picker) and the
+  // default selection — this mirrors EmployeeLedger's minAdvanceMonth pattern.
+  const nextMonthStr = (m) => {
+    const [y, mo] = m.split('-').map(Number);
+    return new Date(Date.UTC(y, mo, 1)).toISOString().slice(0, 7);
+  };
+  const formatMonthLabel = (m) => {
+    const [y, mo] = m.split('-').map(Number);
+    return new Date(y, mo - 1, 1).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK', { month: 'long', year: 'numeric' });
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -52,11 +68,21 @@ export default function Payroll() {
   const openGiveSalary = async (emp) => {
     setModalEmp(emp);
     setSalaryForm({ month: currentMonth, bonus: '', deductions: '', method: 'cash' });
+    setPaidMonths(new Set());
+    setMinGiveMonth(currentMonth);
+    setMonthError('');
     setLedgerLoading(true);
     try {
       const { data } = await api.get(`/employees/${emp.id}/ledger`, { params: shopParams() });
+      const paid = new Set((data.payroll_history || []).map(p => p.month));
+      // payroll_history is sorted month DESC, so [0] is the latest paid month.
+      const latestPaid = data.payroll_history?.[0]?.month;
+      const nextMonth = latestPaid ? nextMonthStr(latestPaid) : currentMonth;
+      setPaidMonths(paid);
+      setMinGiveMonth(nextMonth);
+      setSalaryForm(f => ({ ...f, month: nextMonth }));
       const pending = (data.transaction_history || [])
-        .filter(t2 => t2.type === 'advance_given' && !t2.cleared && t2.for_month === currentMonth)
+        .filter(t2 => t2.type === 'advance_given' && !t2.cleared && t2.for_month === nextMonth)
         .reduce((s, t2) => s + parseFloat(t2.amount || 0), 0);
       setAdvanceForSelectedMonth(pending);
     } catch (e) {
@@ -83,6 +109,20 @@ export default function Payroll() {
     }
   }, [modalEmp, shopParams]);
 
+  // Blocks re-selecting a month whose salary was already given — the native
+  // `min` bound on the input already greys these out for the common
+  // sequential case, this is the explicit safety net + user-facing message.
+  // The message only appears right after a blocked attempt (not persistently).
+  const handleMonthChange = (value) => {
+    if (paidMonths.has(value) || value < minGiveMonth) {
+      setMonthError(`${t('salaryAlreadyGivenFor') || 'Salary for'} ${formatMonthLabel(value)} ${t('salaryAlreadyGivenSuffix') || 'is already given'}`);
+      return;
+    }
+    setMonthError('');
+    setSalaryForm(f => ({ ...f, month: value }));
+    refreshAdvanceForMonth(value);
+  };
+
   const handleDownloadSlip = async (employeeId, txnId) => {
     setDownloadingId(txnId);
     try {
@@ -101,6 +141,10 @@ export default function Payroll() {
 
   const submitSalary = async (e) => {
     e.preventDefault();
+    if (paidMonths.has(salaryForm.month) || salaryForm.month < minGiveMonth) {
+      error(`${t('salaryAlreadyGivenFor') || 'Salary for'} ${formatMonthLabel(salaryForm.month)} ${t('salaryAlreadyGivenSuffix') || 'is already given'}`);
+      return;
+    }
     setSaving(true);
     // Open the tab synchronously (still inside the click gesture) so the
     // payslip can auto-print — opening it after the await gets silently
@@ -241,9 +285,12 @@ export default function Payroll() {
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('month') || 'Month'} *</label>
               <input
-                className="input" type="month" required value={salaryForm.month}
-                onChange={e => { setSalaryForm(f => ({ ...f, month: e.target.value })); refreshAdvanceForMonth(e.target.value); }}
+                className="input" type="month" required min={minGiveMonth} value={salaryForm.month}
+                onChange={e => handleMonthChange(e.target.value)}
               />
+              {monthError && (
+                <p className="text-xs text-amber-400 mt-1">{monthError}</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

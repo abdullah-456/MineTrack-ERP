@@ -71,6 +71,7 @@ export default function EmployeeSlipPrint() {
   const title = TITLES[txn.type] || (t('transactionSlip') || 'Transaction Slip');
   const isIncoming = txn.type === 'loan_repayment';
   const headlineAmount = payroll ? payroll.net_pay : txn.amount;
+  const manualDeductions = payroll ? Math.max(0, (payroll.deductions || 0) - (payroll.advance_deduction || 0)) : 0;
 
   return (
     <>
@@ -117,12 +118,28 @@ export default function EmployeeSlipPrint() {
             <tbody>
               <tr><td style={{ color: INK_SOFT }}>{t('month') || 'Month'}</td><td className="num" style={{ fontWeight: 700 }}>{payroll.month}</td></tr>
               <tr><td style={{ color: INK_SOFT }}>{t('basicSalary') || 'Basic Salary'}</td><td className="num">{fmt(payroll.basic_salary)}</td></tr>
-              {payroll.bonus > 0 && (
-                <tr><td style={{ color: INK_SOFT }}>{t('bonus') || 'Bonus'}</td><td className="num" style={{ color: '#047857' }}>+{fmt(payroll.bonus)}</td></tr>
-              )}
-              {payroll.deductions > 0 && (
-                <tr><td style={{ color: INK_SOFT }}>{t('deductions') || 'Deductions'}</td><td className="num" style={{ color: '#b91c1c' }}>−{fmt(payroll.deductions)}</td></tr>
-              )}
+              <tr>
+                <td style={{ color: INK_SOFT }}>{t('giveAdvance') || 'Advance'}</td>
+                <td className="num" style={{ color: payroll.advance_deduction > 0 ? '#b91c1c' : INK }}>
+                  {payroll.advance_deduction > 0 ? `−${fmt(payroll.advance_deduction)}` : '-'}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ color: INK_SOFT }}>{t('bonus') || 'Bonus'}</td>
+                <td className="num" style={{ color: payroll.bonus > 0 ? '#047857' : INK }}>
+                  {payroll.bonus > 0 ? `+${fmt(payroll.bonus)}` : '-'}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ color: INK_SOFT }}>{t('deductions') || 'Deductions'}</td>
+                <td className="num" style={{ color: manualDeductions > 0 ? '#b91c1c' : INK }}>
+                  {manualDeductions > 0 ? `−${fmt(manualDeductions)}` : '-'}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ color: INK_SOFT }}>{t('others') || 'Others'}</td>
+                <td className="num">-</td>
+              </tr>
               <tr className="total"><td style={{ fontWeight: 800 }}>{t('netPay') || 'Net Pay'}</td><td className="num" style={{ fontWeight: 800 }}>{fmt(payroll.net_pay)}</td></tr>
             </tbody>
           </table>

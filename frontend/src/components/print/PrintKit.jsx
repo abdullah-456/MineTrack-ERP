@@ -15,6 +15,8 @@ export const INK = '#111827';        // primary text (near-black)
 export const INK_SOFT = '#374151';   // secondary text — still high-contrast
 export const LINE = '#111827';       // table & box borders
 export const LINE_SOFT = '#9ca3af';  // subtle internal rules
+export const BRAND = '#4338ca';      // letterhead brand (indigo-700)
+export const BRAND_ACCENT = '#059669'; // letterhead accent (emerald-600)
 
 export function PrintStyles() {
   return (
@@ -62,31 +64,45 @@ export function PrintStyles() {
   );
 }
 
-// Letterhead — company details on top, exactly like the stationery sample.
+// Letterhead — solid brand-colour band (bleeds to the sheet's own edges via a
+// negative margin matching `.sheet`'s padding) with reversed light-on-colour
+// text so it stays readable against the fill; document title sits below it on
+// the plain white body in dark ink.
 export function CompanyHeader({ company = {}, docTitle }) {
   const contact = [company.address, company.phone && `Ph: ${company.phone}`, company.email]
     .filter(Boolean).join('   |   ');
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+      <div style={{
+        position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: 46, margin: '-16mm -15mm 0', padding: '14px 15mm',
+        background: BRAND, borderBottom: `4px solid ${BRAND_ACCENT}`,
+      }}>
         {company.logo_url && (
-          <img src={company.logo_url} alt="" style={{ height: 46, objectFit: 'contain' }} />
+          <img
+            src={company.logo_url}
+            alt=""
+            style={{
+              position: 'absolute', left: '15mm', top: '50%', transform: 'translateY(-50%)',
+              maxHeight: 52, maxWidth: 120, objectFit: 'contain',
+              background: '#fff', borderRadius: 6, padding: 3,
+            }}
+          />
         )}
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.3, color: INK }}>
+          <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.3, color: '#fff' }}>
             {company.name || 'Company Name'}
           </div>
-          {contact && <div style={{ fontSize: 11.5, color: INK_SOFT, marginTop: 3 }}>{contact}</div>}
+          {contact && <div style={{ fontSize: 11.5, color: '#e0e7ff', marginTop: 3 }}>{contact}</div>}
           {company.owner_name && (
-            <div style={{ fontSize: 11.5, color: INK_SOFT, marginTop: 1 }}>Proprietor: {company.owner_name}</div>
+            <div style={{ fontSize: 11.5, color: '#e0e7ff', marginTop: 1 }}>Proprietor: {company.owner_name}</div>
           )}
         </div>
       </div>
-      <div style={{ borderTop: `2px solid ${INK}`, margin: '10px 0 0' }} />
       {docTitle && (
         <div style={{
           textAlign: 'center', fontSize: 15, fontWeight: 800, letterSpacing: 1.5,
-          textTransform: 'uppercase', padding: '8px 0 2px', color: INK,
+          textTransform: 'uppercase', padding: '12px 0 2px', color: '#312e81',
         }}>
           {docTitle}
         </div>

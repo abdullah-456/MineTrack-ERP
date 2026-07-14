@@ -29,6 +29,13 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0.00
     },
+    // Portion of `deductions` that came from clearing an uncleared salary
+    // advance (see giveSalary) — kept separate so payslips can itemize
+    // Advance vs manual Deductions instead of a single combined figure.
+    advance_deduction: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0.00
+    },
     bonus: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0.00

@@ -170,9 +170,11 @@ export default function Sales() {
   const reportColumns = [
     { header: t('invoiceNo') || 'Invoice #', key: 'invoice_number', width: 1.4 },
     { header: t('date') || 'Date', render: s => new Date(s.sale_date).toLocaleDateString('en-PK'), width: 1.1 },
-    { header: t('customer') || 'Customer', render: s => s.Customer?.name || t('walkIn') || 'Walk-in', width: 1.6 },
-    { header: t('userBranch') || 'Branch', render: s => s.Branch?.name || '', width: 1.2 },
-    { header: t('saleType') || 'Type', render: s => t(s.sale_type) || s.sale_type, width: 1 },
+    { header: t('customer') || 'Customer', render: s => s.Customer?.name || t('walkIn') || 'Walk-in', width: 1.4 },
+    { header: t('userBranch') || 'Branch', render: s => s.Branch?.name || '', width: 1.1 },
+    { header: t('product') || 'Products Sold', render: s => (s.SaleItems || []).map(i => i.Product?.name || i.product_name || '').filter(Boolean).join(', ') || '—', width: 2 },
+    { header: t('quantity') || 'Qty', render: s => (s.SaleItems || []).map(i => `${formatQty(i.quantity)}`).join(', ') || '—', width: 1 },
+    { header: t('saleType') || 'Type', render: s => t(s.sale_type) || s.sale_type, width: 0.9 },
     { header: t('total') || 'Total', key: 'total', money: true, width: 1.1 },
   ];
   const reportTotals = { __label: t('total') || 'Total', total: reportRows.reduce((s, r) => s + parseFloat(r.total || 0), 0) };

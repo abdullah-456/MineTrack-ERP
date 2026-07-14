@@ -68,6 +68,7 @@ const shopNavGroups = [
   {
     labelKey: 'navAdmin',
     items: [
+      { to: '/admin/company-profile', icon: Store,     labelKey: 'companyProfile',   module: 'users', action: 'update' },
       { to: '/admin/users',      icon: ShieldCheck,   labelKey: 'users',            module: 'users', action: 'read' },
       { to: '/admin/audit-log',  icon: FileBarChart2, labelKey: 'auditLog',         module: 'users', action: 'read' },
       { to: '/admin/board-of-directors', icon: Crown, labelKey: 'boardOfDirectors', module: 'board_directors', action: 'read' },

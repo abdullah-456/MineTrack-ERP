@@ -43,7 +43,9 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     logo_url: {
-      type: DataTypes.STRING,
+      // Stores a base64 data URL of the uploaded company logo — needs more than
+      // VARCHAR(255), so we use MEDIUMTEXT (mapped from TEXT('medium') on MySQL).
+      type: DataTypes.TEXT('medium'),
       allowNull: true
     },
     status: {

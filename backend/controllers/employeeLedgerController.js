@@ -324,6 +324,7 @@ exports.giveSalary = async (req, res) => {
       month,
       basic_salary: basicSalary,
       deductions: totalDeductions,
+      advance_deduction: advanceDeduction,
       bonus: bonusAmt,
       net_pay: netPay,
       status: 'paid',
@@ -505,6 +506,7 @@ exports.getTransactionSlip = async (req, res) => {
         basic_salary: parseFloat(txn.Payroll.basic_salary || 0),
         bonus: parseFloat(txn.Payroll.bonus || 0),
         deductions: parseFloat(txn.Payroll.deductions || 0),
+        advance_deduction: parseFloat(txn.Payroll.advance_deduction || 0),
         net_pay: parseFloat(txn.Payroll.net_pay || 0),
       } : null,
     });

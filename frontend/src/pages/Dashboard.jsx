@@ -189,7 +189,7 @@ export default function Dashboard() {
         heading: t('inventory') || 'Inventory',
         rows: [
           { label: t('totalProducts') || 'Total Products', value: String(inventoryTotals.total_products || 0) },
-          { label: t('totalStock') || 'Total Stock Units', value: formatQty(inventoryTotals.total_units || 0) },
+          { label: t('totalWeightKg') || 'Total Weight (kg)', value: `${formatQty(inventoryTotals.total_units || 0)} kg` },
           { label: t('stockValue') || 'Stock Value', value: money(inventoryTotals.total_value) },
           { label: t('lowStockItems') || 'Low Stock Items', value: String(inventoryTotals.low_stock_count || stats.low_stock_count || 0) },
         ],

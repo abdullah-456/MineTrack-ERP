@@ -178,6 +178,58 @@ exports.getCompany = async (req, res) => {
   }
 };
 
+// ── PUT /api/company ──────────────────────────────────────────────────────────
+// Lets a shop admin edit the company profile shown on every report / document
+// letterhead: name, owner, contact details and the logo (a base64 data URL, or
+// null to remove it). Scoped to the caller's own shop.
+exports.updateCompany = async (req, res) => {
+  const shopId = req.user.shop_id;
+  if (!shopId) return res.status(403).json({ message: 'No shop context' });
+
+  const { name, owner_name, email, phone, address, logo_url } = req.body;
+
+  // Guard the logo payload: only accept an image data URL (or null/'' to clear).
+  if (logo_url !== undefined && logo_url !== null && logo_url !== '') {
+    if (typeof logo_url !== 'string' || !/^data:image\/(png|jpe?g|gif|webp);base64,/.test(logo_url)) {
+      return res.status(400).json({ message: 'Logo must be a PNG, JPG, GIF or WEBP image.' });
+    }
+    // ~1.5 MB of base64 (data URLs run ~33% larger than the raw image).
+    if (logo_url.length > 2_000_000) {
+      return res.status(400).json({ message: 'Logo image is too large. Please use a smaller image.' });
+    }
+  }
+
+  try {
+    const shop = await db.Shop.findByPk(shopId);
+    if (!shop) return res.status(404).json({ message: 'Shop not found' });
+
+    const updates = {};
+    if (name !== undefined)       updates.name = String(name).trim();
+    if (owner_name !== undefined) updates.owner_name = owner_name ? String(owner_name).trim() : null;
+    if (email !== undefined)      updates.email = email ? String(email).trim() : null;
+    if (phone !== undefined)      updates.phone = phone ? String(phone).trim() : null;
+    if (address !== undefined)    updates.address = address ? String(address).trim() : null;
+    if (logo_url !== undefined)   updates.logo_url = logo_url || null;
+
+    if (updates.name === '') return res.status(400).json({ message: 'Company name is required.' });
+
+    await shop.update(updates);
+
+    return res.json({
+      company: {
+        id: shop.id, name: shop.name, owner_name: shop.owner_name,
+        email: shop.email, phone: shop.phone, address: shop.address, logo_url: shop.logo_url,
+      },
+    });
+  } catch (error) {
+    console.error('updateCompany error:', error);
+    if (error.name === 'SequelizeValidationError') {
+      return res.status(400).json({ message: error.errors?.[0]?.message || 'Invalid data.' });
+    }
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 // ── GET /api/bank-accounts ────────────────────────────────────────────────────
 // Returns all active bank accounts for the shop.
 exports.listBankAccounts = async (req, res) => {

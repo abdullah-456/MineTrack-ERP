@@ -260,7 +260,7 @@ export default function Inventory() {
         ].filter(Boolean),
       }
     : {
-        title: t('currentInventory') || 'Current Inventory',
+        title: `${(t('currentInventory') || 'Current Inventory').replace(/\s*\([^)]*\)/g, '')} (${branchFilter ? (branches.find(b => String(b.id) === String(branchFilter))?.name || branchFilter) : (t('allBranches') || 'All Branches').replace(/\s*\([^)]*\)/g, '')})`,
         filename: 'inventory-report.pdf',
         columns: [
           { header: t('product') || 'Product', render: r => r.Product?.name || '', width: 2 },
