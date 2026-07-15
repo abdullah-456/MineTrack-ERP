@@ -1,10 +1,10 @@
 require('dotenv').config({ override: true });
 const express = require('express');
-const cors    = require('cors');
-const helmet  = require('helmet');
-const morgan  = require('morgan');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const db      = require('./models');
+const db = require('./models');
 
 const authRoutes = require('./routes/authRoutes');
 const shopRoutes = require('./routes/shopRoutes');
@@ -12,8 +12,9 @@ const userRoutes = require('./routes/userRoutes');
 const branchRoutes = require('./routes/branchRoutes');
 const businessRoutes = require('./routes/businessRoutes');
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 5000;
+app.set('trust proxy', 1); // Render (and most PaaS) sit behind a reverse proxy
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(helmet());
@@ -62,9 +63,9 @@ const apiLimiter = rateLimit({
 app.use('/api', apiLimiter);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.use('/api/auth/login',   authLimiter);
+app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/refresh', authLimiter);
-app.use('/api/auth',  authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/shops', shopRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/branches', branchRoutes);
