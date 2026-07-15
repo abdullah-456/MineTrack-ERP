@@ -49,8 +49,6 @@ export default function LoginPage() {
     }
   };
 
-  const quickFill = (email, password) => setForm({ email, password });
-
   const langs = [
     { code: 'en', label: 'English', flag: '🇬🇧' },
     { code: 'ur', label: 'اردو',    flag: '🇵🇰' },
@@ -186,39 +184,6 @@ export default function LoginPage() {
               {loading ? t('signingIn') : t('signIn')}
             </button>
           </form>
-
-          {/* Demo accounts */}
-          <div className="mt-6 pt-6" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-            <p className="text-xs font-medium mb-3 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-              {t('demoAccounts')}
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { label: 'Super Admin', email: 'superadmin@esms.local',       pw: 'SuperAdmin@123', color: 'badge-purple' },
-                { label: 'Admin',       email: 'admin@demo.esms.local',       pw: 'Admin@123',      color: 'badge-blue' },
-                { label: 'Accountant',  email: 'accountant@demo.esms.local',  pw: 'Accountant@123', color: 'badge-green' },
-                { label: 'Cashier',     email: 'cashier@demo.esms.local',     pw: 'User@123',       color: 'badge-yellow' },
-              ].map(acc => (
-                <button
-                  key={acc.label}
-                  type="button"
-                  onClick={() => quickFill(acc.email, acc.pw)}
-                  className="flex items-center gap-2 p-2 rounded-lg border transition-all text-left"
-                  style={{
-                    backgroundColor: 'var(--bg-elevated)',
-                    borderColor: 'var(--border-input)',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-input)'}
-                  onMouseLeave={e => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
-                >
-                  <span className={`badge ${acc.color}`}>{acc.label}</span>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs mt-2 text-center" style={{ color: 'var(--text-faint)' }}>
-              {t('clickBadge')}
-            </p>
-          </div>
         </div>
 
         <p className="text-center text-xs mt-6" style={{ color: 'var(--text-faint)' }}>
