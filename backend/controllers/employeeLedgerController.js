@@ -407,7 +407,7 @@ exports.getLedger = async (req, res) => {
     });
 
     const signFor = {
-      salary_due: 1, loan_repayment: 1, opening_balance: 1, adjustment: 1,
+      salary_due: 1, loan_repayment: 1, opening_balance: 1, adjustment: 1, receivable_collected: 1,
       advance_given: -1, loan_given: -1, payment_made: -1, deduction: -1,
     };
     let running = 0;
@@ -512,6 +512,131 @@ exports.getTransactionSlip = async (req, res) => {
     });
   } catch (error) {
     console.error('getEmployeeTransactionSlip error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── GET /employees/:id/clearance-certificate ─────────────────────────────────
+exports.getClearanceCertificate = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const employee = await db.Employee.findOne({
+      where: { id: req.params.id, shop_id: shopId },
+      include: [{ model: db.Branch, attributes: ['id', 'name'] }],
+    });
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    if (employee.status !== 'terminated') {
+      return res.status(400).json({ message: 'Clearance certificate is only available for terminated employees' });
+    }
+
+    const payrollHistory = await db.Payroll.findAll({
+      where: { employee_id: employee.id },
+      order: [['month', 'DESC']],
+    });
+
+    const txns = await db.EmployeeTransaction.findAll({
+      where: { employee_id: employee.id },
+      order: [['date', 'ASC'], ['id', 'ASC']],
+    });
+
+    const totalSalaryAccrued = txns.filter(t => t.type === 'salary_due').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const totalPaid = txns.filter(t => t.type === 'payment_made').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const loanGiven = txns.filter(t => t.type === 'loan_given').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const loanRepaid = txns.filter(t => t.type === 'loan_repayment').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const loanReceivable = Math.max(0, Math.round((loanGiven - loanRepaid) * 100) / 100);
+    const advanceGiven = txns.filter(t => t.type === 'advance_given').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    const advancePending = txns
+      .filter(t => t.type === 'advance_given' && !t.cleared)
+      .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+
+    const currentPayable = parseFloat(employee.current_payable || 0);
+    const salaryPayable = Math.max(0, Math.round(currentPayable * 100) / 100);
+    const salaryReceivable = Math.max(0, Math.round(-currentPayable * 100) / 100);
+    const threshold = 0.01;
+
+    const clearanceItems = [
+      {
+        key: 'salary_payable',
+        label: 'Outstanding salary payable to employee',
+        amount: salaryPayable,
+        cleared: salaryPayable < threshold,
+      },
+      {
+        key: 'salary_receivable',
+        label: 'Salary overpayment receivable from employee',
+        amount: salaryReceivable,
+        cleared: salaryReceivable < threshold,
+      },
+      {
+        key: 'loan_receivable',
+        label: 'Outstanding loan balance',
+        amount: loanReceivable,
+        cleared: loanReceivable < threshold,
+      },
+      {
+        key: 'advance_pending',
+        label: 'Uncleared salary advances',
+        amount: Math.round(advancePending * 100) / 100,
+        cleared: advancePending < threshold,
+      },
+    ];
+
+    const pendingAdvances = txns
+      .filter(t => t.type === 'advance_given' && !t.cleared)
+      .map(t => ({
+        id: t.id,
+        date: t.date,
+        amount: parseFloat(t.amount || 0),
+        for_month: t.for_month,
+        notes: t.notes,
+      }));
+
+    const fullyCleared = clearanceItems.every(i => i.cleared);
+
+    return res.json({
+      employee: {
+        id: employee.id,
+        name: employee.name,
+        designation: employee.designation,
+        cnic: employee.cnic,
+        phone: employee.phone,
+        address: employee.address,
+        basic_salary: parseFloat(employee.basic_salary || 0),
+        hire_date: employee.hire_date,
+        terminated_at: employee.terminated_at,
+        termination_notes: employee.termination_notes,
+        branch: employee.Branch?.name || null,
+        status: employee.status,
+      },
+      summary: {
+        total_salary_accrued: Math.round(totalSalaryAccrued * 100) / 100,
+        total_paid: Math.round(totalPaid * 100) / 100,
+        current_payable: currentPayable,
+        loan_given: Math.round(loanGiven * 100) / 100,
+        loan_receivable: loanReceivable,
+        advance_given: Math.round(advanceGiven * 100) / 100,
+        advance_pending: Math.round(advancePending * 100) / 100,
+      },
+      clearance: {
+        items: clearanceItems,
+        fully_cleared: fullyCleared,
+        pending_advances: pendingAdvances,
+      },
+      payroll_history: payrollHistory.map(p => ({
+        month: p.month,
+        basic_salary: parseFloat(p.basic_salary || 0),
+        bonus: parseFloat(p.bonus || 0),
+        deductions: parseFloat(p.deductions || 0),
+        advance_deduction: parseFloat(p.advance_deduction || 0),
+        net_pay: parseFloat(p.net_pay || 0),
+        status: p.status,
+      })),
+      issued_at: new Date(),
+    });
+  } catch (error) {
+    console.error('getClearanceCertificate error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };

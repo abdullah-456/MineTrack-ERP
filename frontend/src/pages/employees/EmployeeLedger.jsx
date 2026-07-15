@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, UserCheck, Wallet, CreditCard, Loader2, Printer, Download, Plus, HandCoins, PiggyBank } from 'lucide-react';
+import { ArrowLeft, UserCheck, Wallet, CreditCard, Loader2, Printer, Download, Plus, HandCoins, PiggyBank, FileCheck } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
@@ -9,6 +9,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
+import { openClearancePrint } from '../../utils/employeeClearancePdf';
 
 // Transaction types that represent an actual physical hand-off of money —
 // these get a printable/downloadable slip. Accounting-only legs (salary_due
@@ -45,6 +46,7 @@ export default function EmployeeLedger() {
     deduction: t('deduction') || 'Deduction',
     opening_balance: t('openingBalance') || 'Opening Balance',
     adjustment: t('adjustment') || 'Adjustment',
+    receivable_collected: t('receivableCollected') || 'Receivable Collected',
   };
 
   const [ledger, setLedger] = useState(null);
@@ -163,6 +165,11 @@ export default function EmployeeLedger() {
             <button type="button" onClick={() => window.open(`/employees/${id}/statement`, '_blank', 'noopener,noreferrer')} className="btn-secondary flex items-center gap-2">
               <Printer className="w-4 h-4" />{t('printStatement') || 'Print Statement'}
             </button>
+            {employee.status === 'terminated' && (
+              <button type="button" onClick={() => openClearancePrint(id)} className="btn-secondary flex items-center gap-2 text-emerald-400">
+                <FileCheck className="w-4 h-4" />{t('clearanceCertificate') || 'Clearance Certificate'}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => { setAdvanceForm({ amount: '', method: 'cash', for_month: minAdvanceMonth, notes: '' }); setModal('advance'); }}

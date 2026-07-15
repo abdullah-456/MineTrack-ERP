@@ -14,8 +14,7 @@ async function getAccountId(code, transaction) {
 
 async function generateVoucherNumber(shopId, transaction) {
   const count = await db.Voucher.count({ where: { shop_id: shopId }, transaction });
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  return `VCH-${shopId}-${date}-${String(count + 1).padStart(4, '0')}`;
+  return `VCH-${String(count + 1).padStart(5, '0')}`;
 }
 
 // ── postVoucher ────────────────────────────────────────────────────────────────

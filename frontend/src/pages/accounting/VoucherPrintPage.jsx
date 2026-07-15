@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import api from '../../api/axios';
+import { formatVoucherNumber } from '../../utils/ledgerFormat';
 import {
   PrintStyles, PrintActionBar, CompanyHeader, AmountWords, SignatureRow, DocFooter,
   INK, INK_SOFT,
@@ -77,7 +78,7 @@ export default function VoucherPrintPage() {
 
         {/* Voucher No + Date */}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, margin: '4px 0 10px', color: INK }}>
-          <div><span style={{ color: INK_SOFT }}>Voucher No.</span> <strong>: {voucher.voucher_number}</strong></div>
+          <div><span style={{ color: INK_SOFT }}>Voucher No.</span> <strong>: {formatVoucherNumber(voucher.voucher_number)}</strong></div>
           <div><span style={{ color: INK_SOFT }}>Date</span> <strong>: {fmtDate(voucher.voucher_date)}</strong></div>
         </div>
 

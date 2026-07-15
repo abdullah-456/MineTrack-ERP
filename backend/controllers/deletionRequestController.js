@@ -60,7 +60,9 @@ async function applyModuleDeletion(module, entityId, shopId, req, transaction) {
     }
     case 'employees': {
       const row = await db.Employee.findOne({ where: { id: entityId, shop_id: shopId }, transaction });
-      if (row && row.status !== 'terminated') await row.update({ status: 'terminated' }, { transaction });
+      if (row && row.status !== 'terminated') {
+        await row.update({ status: 'terminated', terminated_at: new Date() }, { transaction });
+      }
       return !!row;
     }
     case 'board_directors': {

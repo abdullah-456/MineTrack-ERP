@@ -18,6 +18,7 @@ const generalLedgerController = require('../controllers/generalLedgerController'
 const auditLogController = require('../controllers/auditLogController');
 const boardMemberController = require('../controllers/boardMemberController');
 const expenseController = require('../controllers/expenseController');
+const financialReportsController = require('../controllers/financialReportsController');
 const roleController = require('../controllers/roleController');
 const deletionRequestController = require('../controllers/deletionRequestController');
 const auditLog = require('../middleware/auditLog');
@@ -72,8 +73,11 @@ router.get(   '/employees/latest-payslips', authorize('employees', 'read'), empl
 router.get(   '/employees/:id',          authorize('employees', 'read'),   employeeController.get);
 router.post(  '/employees',              authorize('employees', 'create'), employeeController.create);
 router.put(   '/employees/:id',          authorize('employees', 'update'), employeeController.update);
+router.get(   '/employees/:id/termination-preview', authorize('employees', 'read'), employeeController.getTerminationPreview);
+router.post(  '/employees/:id/terminate', authorize('employees', 'delete'), employeeController.terminate);
 router.delete('/employees/:id',          authorize('employees', 'delete'), employeeController.remove);
 router.get(   '/employees/:id/ledger',   authorize('employees', 'read'),   employeeLedgerController.getLedger);
+router.get(   '/employees/:id/clearance-certificate', authorize('employees', 'read'), employeeLedgerController.getClearanceCertificate);
 router.get(   '/employees/:id/slips/:txnId', authorize('employees', 'read'), employeeLedgerController.getTransactionSlip);
 router.post(  '/employees/:id/advances', authorize('employees', 'update'), employeeLedgerController.recordAdvance);
 router.post(  '/employees/:id/loans',    authorize('employees', 'update'), employeeLedgerController.recordLoan);
@@ -103,6 +107,11 @@ router.get(   '/invoices/:id',           authorize('sales', 'read'),   invoiceCo
 router.get(   '/accounting/chart-of-accounts', authorize('accounting', 'read'), generalLedgerController.listChartOfAccounts);
 router.get(   '/accounting/general-ledger',    authorize('accounting', 'read'), generalLedgerController.listEntries);
 router.get(   '/accounting/vouchers/:id',       authorize('accounting', 'read'), generalLedgerController.getVoucher);
+
+// Financial Reports (derived from General Ledger)
+router.get(   '/reports/trial-balance',    authorize('reports', 'read'), financialReportsController.trialBalance);
+router.get(   '/reports/profit-and-loss', authorize('reports', 'read'), financialReportsController.profitAndLoss);
+router.get(   '/reports/balance-sheet',   authorize('reports', 'read'), financialReportsController.balanceSheet);
 
 // Financial Setup (first-time wizard) & Cash Sessions
 router.post(  '/financial-setup',        financialSetupController.completeSetup);

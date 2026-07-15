@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserCheck, Plus, Search, Edit, Loader2, Calendar, BookOpen, Trash2 } from 'lucide-react';
+import { UserCheck, Plus, Search, Edit, Loader2, Calendar, BookOpen, Trash2, FileCheck } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -10,6 +10,8 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
+import { openClearancePrint } from '../../utils/employeeClearancePdf';
+import TerminateEmployeeModal from '../../components/employees/TerminateEmployeeModal';
 
 const EMPTY = {
   name: '', designation: '', cnic: '', phone: '', address: '',
@@ -20,7 +22,7 @@ const EMPTY = {
 export default function Employees() {
   const navigate = useNavigate();
   const { t, lang } = useTheme();
-  const { success, error, confirm } = useToast();
+  const { success, error } = useToast();
   const { shopParams, branches } = useShopApi();
   const isRTL = lang === 'ur';
 
@@ -31,6 +33,7 @@ export default function Employees() {
   const [form, setForm] = useState(EMPTY);
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [terminateTarget, setTerminateTarget] = useState(null);
   const [reportFilters, setReportFilters] = useState({ from: '', to: '', branch_id: '', status: '' });
 
   const fetchData = useCallback(async () => {
@@ -47,20 +50,15 @@ export default function Employees() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const handleDelete = async (emp) => {
-    const ok = await confirm({ title: t('delete'), message: t('confirmDeleteEmployee'), confirmLabel: t('delete'), cancelLabel: t('cancel') });
-    if (!ok) return;
-    try {
-      const res = await api.delete(`/employees/${emp.id}`, { params: shopParams() });
-      success(res.status === 202 ? t('deletionRequestSubmitted') : t('employeeTerminated'));
-      fetchData();
-    } catch (err) {
-      error(err.response?.data?.message || t('toastErrorGeneric'));
-    }
-  };
+  const handleDelete = (emp) => setTerminateTarget(emp);
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (modal === 'edit' && form.status === 'terminated' && selected.status !== 'terminated') {
+      setModal(null);
+      setTerminateTarget(selected);
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -189,6 +187,9 @@ export default function Employees() {
                   <td className="p-4 text-end">
                     <div className="flex justify-end gap-1.5">
                       <button type="button" onClick={() => navigate(`/employees/${emp.id}`)} className="icon-btn" title={t('viewLedger') || 'Ledger'}><BookOpen className="w-4 h-4" /></button>
+                      {emp.status === 'terminated' && (
+                        <button type="button" onClick={() => openClearancePrint(emp.id)} className="icon-btn text-emerald-400" title={t('clearanceCertificate') || 'Clearance Certificate'}><FileCheck className="w-4 h-4" /></button>
+                      )}
                       <button type="button" onClick={() => { setSelected(emp); setForm({ name: emp.name, designation: emp.designation || '', cnic: emp.cnic || '', phone: emp.phone || '', address: emp.address || '', basic_salary: emp.basic_salary, hire_date: emp.hire_date?.slice(0, 10) || '', branch_id: emp.branch_id, status: emp.status }); setModal('edit'); }} className="icon-btn"><Edit className="w-4 h-4" /></button>
                       <button type="button" onClick={() => handleDelete(emp)} className="icon-btn text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </div>
@@ -260,6 +261,14 @@ export default function Employees() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {terminateTarget && (
+        <TerminateEmployeeModal
+          employee={terminateTarget}
+          onClose={() => setTerminateTarget(null)}
+          onDone={fetchData}
+        />
       )}
     </div>
   );

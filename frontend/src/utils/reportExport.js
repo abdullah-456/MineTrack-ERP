@@ -196,7 +196,7 @@ function createWriter(company, { title, meta = [], filters = [] }) {
   };
 
   // Draw one bordered row of cells; measures wrapped text & handles page breaks.
-  const rowCells = (cells, widths, { bold = false, fill = null } = {}) => {
+  const rowCells = (cells, widths, { bold = false, fill = null, showBottomBorder = true } = {}) => {
     let maxLines = 1;
     cells.forEach((c, i) => {
       c._lines = doc.splitTextToSize(asText(c.text), widths[i] - padX * 2);
@@ -208,13 +208,29 @@ function createWriter(company, { title, meta = [], filters = [] }) {
     const totalW = widths.reduce((a, b) => a + b, 0);
     if (fill) { doc.setFillColor(...fill); doc.rect(margin, y, totalW, rowH, 'F'); }
     doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(8.7); doc.setTextColor(17, 24, 39);
+    
+    // Draw borders: outer box + internal vertical dividers
     doc.setDrawColor(120, 120, 120); doc.setLineWidth(0.15);
+    doc.line(margin, y, margin + totalW, y); // top
+    doc.line(margin, y, margin, y + rowH); // left
+    doc.line(margin + totalW, y, margin + totalW, y + rowH); // right
+    if (showBottomBorder) {
+      doc.line(margin, y + rowH, margin + totalW, y + rowH); // bottom
+    }
+    
+    // Draw vertical dividers between cells
+    let xDiv = margin;
+    for (let i = 0; i < widths.length - 1; i++) {
+      xDiv += widths[i];
+      doc.line(xDiv, y, xDiv, y + rowH);
+    }
+    
+    // Draw text in each cell
     cells.forEach((c, i) => {
       let tx = x + padX;
       if (c.align === 'right') tx = x + widths[i] - padX;
       else if (c.align === 'center') tx = x + widths[i] / 2;
       doc.text(c._lines, tx, y + padY + lineH - 1.2, { align: c.align || 'left' });
-      doc.rect(x, y, widths[i], rowH);
       x += widths[i];
     });
     y += rowH;
@@ -237,20 +253,22 @@ function createWriter(company, { title, meta = [], filters = [] }) {
         ], widths, { });
       });
     },
-    table({ columns, rows = [], totals }) {
+    table({ columns, rows = [], totals, groupKey }) {
       const widths = resolveWidths(columns, contentW);
       const engColumns = columns.map(c => ({ ...c, header: toEnglishText(c.header) }));
-      rowCells(engColumns.map(c => ({ text: c.header, align: cellAlign(c) })), widths, { bold: true, fill: [235, 238, 242] });
+      rowCells(engColumns.map(c => ({ text: c.header, align: cellAlign(c) })), widths, { bold: true, fill: [235, 238, 242], showBottomBorder: true });
       if (!rows.length) rowCells([{ text: 'No records.', align: 'center' }], [contentW]);
       rows.forEach((row, idx) => {
-        rowCells(engColumns.map(c => ({ text: toEnglishText(cellText(c, row)), align: cellAlign(c) })), widths, { fill: idx % 2 ? [249, 250, 251] : null });
+        const nextRow = rows[idx + 1];
+        const showBottomBorder = !nextRow || (groupKey && nextRow[groupKey] !== row[groupKey]);
+        rowCells(engColumns.map(c => ({ text: toEnglishText(cellText(c, row)), align: cellAlign(c) })), widths, { fill: idx % 2 ? [249, 250, 251] : null, showBottomBorder });
       });
       if (totals) {
         rowCells(engColumns.map((c, i) => {
           if (i === 0 && totals.__label !== undefined) return { text: toEnglishText(totals.__label || 'Total'), align: 'left' };
           if (totals[c.key] !== undefined) return { text: c.money ? money(totals[c.key]) : c.qty ? qty(totals[c.key]) : toEnglishText(asText(totals[c.key])), align: cellAlign(c) };
           return { text: '', align: cellAlign(c) };
-        }), widths, { bold: true, fill: [226, 232, 240] });
+        }), widths, { bold: true, fill: [226, 232, 240], showBottomBorder: true });
       }
     },
     signature(left = 'Prepared By', right = 'Received / Verified By') {
@@ -271,15 +289,15 @@ function createWriter(company, { title, meta = [], filters = [] }) {
 const slugFile = (title, kind) => `${(title || kind).toLowerCase().replace(/[^a-z0-9]+/gi, '-')}.pdf`;
 
 // List report: one table + optional totals + optional signature.
-export function downloadReportPDF({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, filename }) {
+export function downloadReportPDF({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, filename, groupKey }) {
   const w = createWriter(company, { title, meta, filters });
-  w.table({ columns, rows, totals });
+  w.table({ columns, rows, totals, groupKey });
   if (signature) w.signature();
   w.save(filename, slugFile(title, 'report'));
 }
 
 // Multi-section professional document: label/value sections + one or more tables.
-export function downloadDocumentPDF({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature, filename }) {
+export function downloadDocumentPDF({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature, filename, groupKey }) {
   const w = createWriter(company, { title, meta, filters });
   sections.forEach(s => {
     if (s.heading) w.heading(s.heading);
@@ -289,7 +307,7 @@ export function downloadDocumentPDF({ company = {}, title, meta = [], filters = 
   const allTables = [...(table ? [table] : []), ...(tables || [])];
   allTables.forEach(tb => {
     if (tb.heading) w.heading(tb.heading);
-    w.table(tb);
+    w.table({ ...tb, groupKey });
     w.space(3);
   });
   if (signature) w.signature();
@@ -330,7 +348,9 @@ const PRINT_CSS = `
   th, td { border: 1px solid #111827; padding: 6px 8px; }
   th { background: #eef0f4; font-weight: 700; text-align: left; color: #111827; }
   .a-left { text-align: left; } .a-right { text-align: right; } .a-center { text-align: center; }
-  tr.totals td { font-weight: 800; background: #e2e8f0; }
+  tbody tr td { border-bottom: none; }
+  tr.group-border td { border-bottom: 1px solid #111827; }
+  tr.totals td { font-weight: 800; background: #e2e8f0; border-bottom: 1px solid #111827; }
   .empty { text-align: center; color: #6b7280; font-style: italic; padding: 16px; }
   .sec { margin-bottom: 12px; }
   .sec-h { font-size: 11px; font-weight: 800; color: #374151; text-transform: uppercase;
@@ -364,10 +384,15 @@ function letterheadHTML(company, title, meta = [], filters = []) {
     ${filterLine}`;
 }
 
-function tableHTML({ columns, rows = [], totals }) {
+function tableHTML({ columns, rows = [], totals, groupKey }) {
   const head = columns.map(c => `<th class="a-${cellAlign(c)}">${esc(c.header)}</th>`).join('');
   const body = rows.length
-    ? rows.map(r => `<tr>${columns.map(c => `<td class="a-${cellAlign(c)}">${esc(cellText(c, r))}</td>`).join('')}</tr>`).join('')
+    ? rows.map((r, idx) => {
+        const nextRow = rows[idx + 1];
+        const showBorder = !nextRow || (groupKey && nextRow[groupKey] !== r[groupKey]);
+        const borderClass = showBorder ? ' group-border' : '';
+        return `<tr${borderClass}>${columns.map(c => `<td class="a-${cellAlign(c)}">${esc(cellText(c, r))}</td>`).join('')}</tr>`;
+      }).join('')
     : `<tr><td colspan="${columns.length}" class="empty">No records for the selected filters.</td></tr>`;
   const totalRow = totals
     ? `<tr class="totals">${columns.map((c, i) => {
@@ -383,26 +408,26 @@ const signHTML = (signature) => (signature
   ? `<div class="sign"><div><div class="line"></div>Prepared By</div><div><div class="line"></div>Received Sign &amp; Thumb</div></div>`
   : '');
 
-export function buildReportHTML({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature }) {
+export function buildReportHTML({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, groupKey }) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Report')}</title>
   <style>${PRINT_CSS}</style></head><body>
     <div class="page">
       ${letterheadHTML(company, title, meta, filters)}
-      ${tableHTML({ columns, rows, totals })}
+      ${tableHTML({ columns, rows, totals, groupKey })}
       ${signHTML(signature)}
       <div class="foot">${esc(company.name || '')} — computer generated report</div>
     </div>
   </body></html>`;
 }
 
-export function buildDetailHTML({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature }) {
+export function buildDetailHTML({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature, groupKey }) {
   const secHtml = sections.map(s => `
     <div class="sec">
       ${s.heading ? `<div class="sec-h">${esc(s.heading)}</div>` : ''}
       <table class="kv">${s.rows.filter(Boolean).map(r => `<tr><td class="k">${esc(r.label)}</td><td class="v">${esc(r.value)}</td></tr>`).join('')}</table>
     </div>`).join('');
   const allTables = [...(table ? [table] : []), ...(tables || [])];
-  const tablesHtml = allTables.map(tb => `${tb.heading ? `<div class="sec-h">${esc(tb.heading)}</div>` : ''}${tableHTML(tb)}`).join('');
+  const tablesHtml = allTables.map(tb => `${tb.heading ? `<div class="sec-h">${esc(tb.heading)}</div>` : ''}${tableHTML({ ...tb, groupKey })}`).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Detail')}</title>
   <style>${PRINT_CSS}</style></head><body>
     <div class="page">

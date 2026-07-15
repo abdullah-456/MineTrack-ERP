@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
+const { applyTerminationSettlements, loadTerminationPreview } = require('../utils/employeeTermination');
 
 const employeeIncludes = [
   { model: db.Branch, attributes: ['id', 'name'] },
@@ -99,8 +100,12 @@ exports.update = async (req, res) => {
     const employee = await db.Employee.findOne({ where: { id: req.params.id, shop_id: shopId } });
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
 
-    const fields = ['name', 'designation', 'cnic', 'phone', 'address', 'basic_salary', 'hire_date', 'branch_id', 'status'];
+    const wasTerminated = employee.status === 'terminated';
+    const fields = ['name', 'designation', 'cnic', 'phone', 'address', 'basic_salary', 'hire_date', 'branch_id', 'status', 'termination_notes'];
     fields.forEach(f => { if (req.body[f] !== undefined) employee[f] = req.body[f]; });
+    if (req.body.status === 'terminated' && !wasTerminated) {
+      employee.terminated_at = new Date();
+    }
     await employee.save();
 
     const full = await db.Employee.findByPk(employee.id, { include: employeeIncludes });
@@ -112,22 +117,81 @@ exports.update = async (req, res) => {
 };
 
 exports.remove = async (req, res) => {
+  // Legacy DELETE — forwards to terminate without settlements.
+  req.body = { ...(req.body || {}), settlements: null };
+  return exports.terminate(req, res);
+};
+
+exports.getTerminationPreview = async (req, res) => {
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
-    const employee = await db.Employee.findOne({ where: { id: req.params.id, shop_id: shopId } });
+    const employee = await db.Employee.findOne({
+      where: { id: req.params.id, shop_id: shopId },
+      include: [{ model: db.Branch, attributes: ['id', 'name'] }],
+    });
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    if (employee.status === 'terminated') {
+      return res.status(400).json({ message: 'Employee is already terminated' });
+    }
+
+    const balances = await loadTerminationPreview(employee);
+    return res.json({ employee, balances });
+  } catch (error) {
+    console.error('getTerminationPreview error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.terminate = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const employee = await db.Employee.findOne({
+      where: { id: req.params.id, shop_id: shopId },
+    });
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    if (employee.status === 'terminated') {
+      return res.status(400).json({ message: 'Employee is already terminated' });
+    }
+
+    const { termination_notes, settlements } = req.body || {};
 
     const { pending } = await requestOrAllowDelete({
       req, res, shopId, module: 'employees', entityId: employee.id, entityLabel: employee.name,
     });
     if (pending) return;
 
-    await employee.update({ status: 'terminated' });
-    return res.json({ message: 'Employee terminated', employee });
+    const transaction = await db.sequelize.transaction();
+    try {
+      const locked = await db.Employee.findOne({
+        where: { id: employee.id, shop_id: shopId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+
+      if (settlements) {
+        await applyTerminationSettlements(locked, shopId, settlements, req.user.id, transaction);
+      }
+
+      await locked.update({
+        status: 'terminated',
+        terminated_at: new Date(),
+        termination_notes: termination_notes?.trim() || null,
+      }, { transaction });
+
+      await transaction.commit();
+
+      const full = await db.Employee.findByPk(employee.id, { include: employeeIncludes });
+      return res.json({ message: 'Employee terminated', employee: full });
+    } catch (error) {
+      if (!transaction.finished) await transaction.rollback();
+      throw error;
+    }
   } catch (error) {
-    console.error('removeEmployee error:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error('terminateEmployee error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 };

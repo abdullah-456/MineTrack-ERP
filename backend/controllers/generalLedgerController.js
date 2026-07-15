@@ -2,6 +2,20 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 
+// In "All Accounts" view, sales post four GL lines (e.g. Cash, Sales, COGS, Stock).
+// Hide the internal COGS ↔ Stock pair so each transaction shows its two main accounts.
+// Stock stays visible when it is the primary leg (purchases, opening stock, etc.).
+function filterMainLedgerRows(rows) {
+  const vouchersWithCogs = new Set(
+    rows.filter(r => r.account_code === '07-COGS').map(r => r.voucher_id),
+  );
+  return rows.filter(r => {
+    if (r.account_code === '07-COGS') return false;
+    if (r.account_code === '05-STOCK' && vouchersWithCogs.has(r.voucher_id)) return false;
+    return true;
+  });
+}
+
 // ── GET /accounting/chart-of-accounts ────────────────────────────────────────
 // Chart of Accounts rows are shared/global (not shop-scoped), but each
 // account's displayed balance is computed from THIS shop's GeneralLedger rows
@@ -57,18 +71,6 @@ exports.listEntries = async (req, res) => {
     const where = { shop_id: shopId };
     if (req.query.account_id) {
       where.account_id = parseInt(req.query.account_id, 10);
-    } else {
-      const excludeAccounts = await db.ChartOfAccount.findAll({
-        where: {
-          account_code: ['07-COGS', '05-STOCK']
-        },
-        attributes: ['id'],
-        raw: true
-      });
-      const excludeIds = excludeAccounts.map(a => a.id);
-      if (excludeIds.length > 0) {
-        where.account_id = { [Op.notIn]: excludeIds };
-      }
     }
     if (req.query.from || req.query.to) {
       where.entry_date = {};
@@ -82,12 +84,13 @@ exports.listEntries = async (req, res) => {
         { model: db.ChartOfAccount, attributes: ['id', 'account_code', 'account_name', 'account_type'] },
         { model: db.Voucher, attributes: ['id', 'voucher_number', 'voucher_type', 'narration'] },
       ],
-      order: [['entry_date', 'DESC'], ['id', 'DESC']],
+      order: [['entry_date', 'DESC'], ['voucher_id', 'DESC'], ['id', 'ASC']],
       limit: 500,
     });
 
-    const rows = entries.map(e => ({
+    let rows = entries.map(e => ({
       id: e.id,
+      voucher_id: e.voucher_id,
       date: e.entry_date,
       voucher_number: e.Voucher?.voucher_number,
       voucher_type: e.Voucher?.voucher_type,
@@ -98,6 +101,10 @@ exports.listEntries = async (req, res) => {
       credit: parseFloat(e.credit || 0),
       running_balance: parseFloat(e.running_balance || 0),
     }));
+
+    if (!req.query.account_id) {
+      rows = filterMainLedgerRows(rows);
+    }
 
     return res.json({ entries: rows });
   } catch (error) {

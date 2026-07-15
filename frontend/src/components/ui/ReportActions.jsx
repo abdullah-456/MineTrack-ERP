@@ -16,7 +16,7 @@ import {
 //   to print the currently-selected record with all its fields.
 export default function ReportActions({
   title, columns, rows = [], totals, filters, signature, filename,
-  getReport, label = true, className = '',
+  getReport, label = true, className = '', groupKey,
 }) {
   const { shopParams } = useShopApi();
   const { t } = useTheme();
@@ -24,7 +24,7 @@ export default function ReportActions({
 
   const buildModel = () => {
     if (getReport) return getReport() || {};
-    return { kind: 'list', title, columns, rows, totals, filters, signature, filename };
+    return { kind: 'list', title, columns, rows, totals, filters, signature, filename, groupKey };
   };
 
   const run = async (mode) => {

@@ -62,6 +62,14 @@ module.exports = (sequelize, DataTypes) => {
     current_payable: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0.00
+    },
+    terminated_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    termination_notes: {
+      type: DataTypes.TEXT,
+      allowNull: true
     }
   }, {
     sequelize,

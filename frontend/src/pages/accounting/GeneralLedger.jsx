@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
+import { formatVoucherNumber } from '../../utils/ledgerFormat';
 import api from '../../api/axios';
 
 export default function GeneralLedger() {
@@ -52,7 +53,7 @@ export default function GeneralLedger() {
 
   const reportColumns = [
     { header: t('date') || 'Date', render: e => new Date(e.date).toLocaleDateString('en-PK'), width: 1.1 },
-    { header: t('voucherNo') || 'Voucher #', key: 'voucher_number', width: 1.1 },
+    { header: t('voucherNo') || 'Voucher #', render: e => formatVoucherNumber(e.voucher_number), width: 1.1 },
     { header: t('account') || 'Account', key: 'account_name', width: 1.6 },
     { header: t('description') || 'Description', key: 'narration', width: 2.4 },
     { header: t('debit') || 'Debit', key: 'debit', money: true, width: 1.1 },
@@ -81,6 +82,7 @@ export default function GeneralLedger() {
             totals={reportTotals}
             filters={reportFilterList}
             filename="general-ledger.pdf"
+            groupKey="voucher_number"
           />
         }
       />
@@ -136,17 +138,21 @@ export default function GeneralLedger() {
               </tr>
             </thead>
             <tbody>
-              {entries.map(e => (
-                <tr key={e.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
-                  <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(e.date).toLocaleDateString('en-PK')}</td>
-                  <td className="p-4 text-xs font-mono text-brand-400">{e.voucher_number}</td>
-                  <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{e.account_name}</td>
-                  <td className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>{e.narration}</td>
-                  <td className="p-4 text-end text-emerald-400">{e.debit > 0 ? formatPKR(e.debit, lang) : '—'}</td>
-                  <td className="p-4 text-end text-red-400">{e.credit > 0 ? formatPKR(e.credit, lang) : '—'}</td>
-                  <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(e.running_balance, lang)}</td>
-                </tr>
-              ))}
+              {entries.map((e, idx) => {
+                const nextEntry = entries[idx + 1];
+                const showBorder = !nextEntry || nextEntry.voucher_number !== e.voucher_number;
+                return (
+                  <tr key={e.id} style={{ borderBottom: showBorder ? '1px solid var(--border-subtle)' : 'none' }} className="hover:bg-white/5">
+                    <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(e.date).toLocaleDateString('en-PK')}</td>
+                    <td className="p-4 text-xs font-mono text-brand-400">{formatVoucherNumber(e.voucher_number)}</td>
+                    <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{e.account_name}</td>
+                    <td className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>{e.narration}</td>
+                    <td className="p-4 text-end text-emerald-400">{e.debit > 0 ? formatPKR(e.debit, lang) : '—'}</td>
+                    <td className="p-4 text-end text-red-400">{e.credit > 0 ? formatPKR(e.credit, lang) : '—'}</td>
+                    <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(e.running_balance, lang)}</td>
+                  </tr>
+                );
+              })}
               {entries.length === 0 && (
                 <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEntries') || 'No entries found'}</td></tr>
               )}

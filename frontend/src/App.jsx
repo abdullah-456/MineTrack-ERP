@@ -34,9 +34,13 @@ import EmployeeLedger from './pages/employees/EmployeeLedger';
 import CustomerLedger from './pages/customers/CustomerLedger';
 import EmployeeStatementPrint from './pages/employees/EmployeeStatementPrint';
 import EmployeeSlipPrint from './pages/employees/EmployeeSlipPrint';
+import EmployeeClearancePrint from './pages/employees/EmployeeClearancePrint';
 import Payroll from './pages/employees/Payroll';
 import ChartOfAccounts from './pages/accounting/ChartOfAccounts';
 import GeneralLedger from './pages/accounting/GeneralLedger';
+import TrialBalance from './pages/reports/TrialBalance';
+import ProfitAndLoss from './pages/reports/ProfitAndLoss';
+import BalanceSheet from './pages/reports/BalanceSheet';
 import Products   from './pages/products/Products';
 import Categories from './pages/products/Categories';
 import Inventory  from './pages/inventory/Inventory';
@@ -88,6 +92,7 @@ function App() {
             <Route path="/ledger-voucher" element={<LedgerVoucherPrint />} />
             <Route path="/suppliers/:id/statement" element={<SupplierStatementPrint />} />
             <Route path="/employees/:id/statement" element={<EmployeeStatementPrint />} />
+            <Route path="/employees/:id/clearance" element={<EmployeeClearancePrint />} />
             <Route path="/employees/:employeeId/slip/:txnId" element={<EmployeeSlipPrint />} />
 
             {/* ── SuperAdmin Portal (Platform Management) ── */}
@@ -177,11 +182,11 @@ function App() {
 
               {/* Reports */}
               <Route path="/reports/trial-balance"
-                element={<ProtectedRoute module="reports" action="read"><ComingSoon title="Trial Balance" /></ProtectedRoute>} />
+                element={<ProtectedRoute module="reports" action="read"><TrialBalance /></ProtectedRoute>} />
               <Route path="/reports/profit-and-loss"
-                element={<ProtectedRoute module="reports" action="read"><ComingSoon title="Profit & Loss" /></ProtectedRoute>} />
+                element={<ProtectedRoute module="reports" action="read"><ProfitAndLoss /></ProtectedRoute>} />
               <Route path="/reports/balance-sheet"
-                element={<ProtectedRoute module="reports" action="read"><ComingSoon title="Balance Sheet" /></ProtectedRoute>} />
+                element={<ProtectedRoute module="reports" action="read"><BalanceSheet /></ProtectedRoute>} />
               <Route path="/reports/payables"
                 element={<ProtectedRoute module="reports" action="read"><ComingSoon title="AP Aging" /></ProtectedRoute>} />
               <Route path="/reports/receivables"
