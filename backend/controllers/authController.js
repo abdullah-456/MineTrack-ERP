@@ -2,20 +2,19 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const db = require('../models');
 const { checkShopAccess } = require('../utils/accessHelpers');
-const { ensureTodaySession } = require('../utils/cashHelpers');
 
 // Helper to generate access token — includes shop context
 const generateAccessToken = (user) => {
   return jwt.sign(
     {
-      id:       user.id,
-      email:    user.email,
-      role:     user.Role.name,
-      shop_id:  user.shop_id || null,
-      branch_id:user.branch_id || null,
+      id: user.id,
+      email: user.email,
+      role: user.Role.name,
+      shop_id: user.shop_id || null,
+      branch_id: user.branch_id || null,
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '15m' }
+    { expiresIn: '15m' }
   );
 };
 
@@ -24,7 +23,7 @@ const generateRefreshToken = (user) => {
   return jwt.sign(
     { id: user.id },
     process.env.JWT_REFRESH_SECRET,
-    { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
+    { expiresIn: '7d' }
   );
 };
 
@@ -61,24 +60,24 @@ exports.login = async (req, res) => {
     user.last_login_at = new Date();
     await user.save();
 
-    const accessToken  = generateAccessToken(user);
+    const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken(user);
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure:   process.env.NODE_ENV === 'production',
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge:   7 * 24 * 60 * 60 * 1000
+      maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
     return res.json({
       accessToken,
       user: {
-        id:        user.id,
-        name:      user.name,
-        email:     user.email,
-        role:      user.Role.name,
-        shop_id:   user.shop_id,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.Role.name,
+        shop_id: user.shop_id,
         shop_name: user.Shop?.name || null,
         branch_id: user.branch_id,
       }
@@ -131,7 +130,7 @@ exports.refresh = async (req, res) => {
 exports.logout = async (req, res) => {
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure:   process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict'
   });
   return res.json({ message: 'Logged out successfully' });
@@ -163,27 +162,24 @@ exports.me = async (req, res) => {
       setup_completed = user.Shop?.setup_completed ?? false;
 
       if (setup_completed) {
-        // Opening cash now carries forward automatically from yesterday's closing
-        // balance (like a bank account), so there's no daily check-in prompt.
-        // Ensure today's session row exists with the carried-forward opening.
-        try {
-          await ensureTodaySession(user.shop_id, user.id);
-        } catch (e) {
-          console.error('ensureTodaySession error:', e);
-        }
-        cash_session_today = true;
+        // Check if today's cash session exists
+        const today = new Date().toISOString().slice(0, 10);
+        const todaySession = await db.CashSession.findOne({
+          where: { shop_id: user.shop_id, session_date: today }
+        });
+        cash_session_today = !!todaySession;
       }
     }
 
     return res.json({
       user: {
-        id:          user.id,
-        name:        user.name,
-        email:       user.email,
-        role:        user.Role.name,
-        shop_id:     user.shop_id,
-        shop_name:   user.Shop?.name || null,
-        branch_id:   user.branch_id,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.Role.name,
+        shop_id: user.shop_id,
+        shop_name: user.Shop?.name || null,
+        branch_id: user.branch_id,
         employee_id: user.employee_id,
       },
       permissions,
