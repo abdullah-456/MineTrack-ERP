@@ -247,7 +247,8 @@ export default function SalesReturns() {
 
   const returnedValue = (returnable?.items || []).reduce((sum, it) => {
     const q = picked[it.sale_item_id] || 0;
-    return sum + q * it.unit_price;
+    const unit = it.refund_unit_price ?? it.unit_price;
+    return sum + q * unit;
   }, 0);
 
   // ── Exchange helpers ────────────────────────────────────────────────────────
@@ -703,7 +704,11 @@ export default function SalesReturns() {
                     <div className="flex-1">
                       <p className="text-sm font-medium">{it.product_name}</p>
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                        {formatPKR(it.unit_price, lang)} · sold {formatQty(it.sold_qty)} kg · returnable{' '}
+                        {formatPKR(it.refund_unit_price ?? it.unit_price, lang)}
+                        {(it.refund_unit_price ?? it.unit_price) < it.unit_price && (
+                          <span className="ms-1 line-through opacity-60">{formatPKR(it.unit_price, lang)}</span>
+                        )}
+                        {' · '}sold {formatQty(it.sold_qty)} kg · returnable{' '}
                         {formatQty(it.returnable_qty)} kg
                       </p>
                     </div>

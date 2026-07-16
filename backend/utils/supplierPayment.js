@@ -107,4 +107,69 @@ async function applySupplierStockPayment({
   return { purchaseInvoice, supplierTransaction, voucher };
 }
 
-module.exports = { applySupplierStockPayment };
+// Stock received without a supplier (product opening stock, etc.):
+// unpaid → Dr Stock / Cr Capital; paid or partial → Dr Stock / Cr Cash|Bank (+ Capital for remainder).
+async function applyDirectStockPayment({
+  shopId, totalAmount, paymentStatus, paidAmountInput, paymentMethod, notes, createdBy,
+}, transaction) {
+  const round = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+  totalAmount = round(totalAmount);
+  if (!(totalAmount > 0)) {
+    const err = new Error('Stock value must be greater than zero');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const status = paymentStatus || 'unpaid';
+  let paidAmount = 0;
+  if (status === 'paid') paidAmount = totalAmount;
+  else if (status === 'partial') paidAmount = parseFloat(paidAmountInput) || 0;
+  if (paidAmount < 0) paidAmount = 0;
+  if (paidAmount > totalAmount) paidAmount = totalAmount;
+
+  const remainingAmount = round(totalAmount - paidAmount);
+  const method = ['cash', 'bank'].includes(paymentMethod) ? paymentMethod : null;
+
+  if (paidAmount > 0) {
+    if (!method) {
+      const err = new Error('payment_method (cash or bank) is required when a payment is made');
+      err.statusCode = 400;
+      throw err;
+    }
+    if (method === 'bank') await debitBankAccount(shopId, paidAmount, transaction);
+    else await assertCashAvailable(shopId, paidAmount, transaction);
+  }
+
+  await db.SupplierTransaction.create({
+    shop_id: shopId,
+    supplier_id: null,
+    date: new Date(),
+    type: 'stock_received',
+    total_amount: totalAmount,
+    paid_amount: paidAmount,
+    remaining_amount: remainingAmount,
+    method: paidAmount > 0 ? method : null,
+    notes: notes?.trim() || null,
+    created_by: createdBy,
+  }, { transaction });
+
+  const lines = [{ accountCode: '05-STOCK', debit: totalAmount }];
+  if (paidAmount > 0) {
+    lines.push({ accountCode: method === 'bank' ? '05-BANK' : '05-CASH', credit: paidAmount });
+  }
+  if (remainingAmount > 0) {
+    lines.push({ accountCode: '01-CAPITAL', credit: remainingAmount });
+  }
+
+  const voucher = await postVoucher(shopId, {
+    type: 'journal',
+    date: new Date(),
+    narration: notes?.trim() || 'Direct stock received',
+    createdBy,
+    lines,
+  }, transaction);
+
+  return { voucher };
+}
+
+module.exports = { applySupplierStockPayment, applyDirectStockPayment };

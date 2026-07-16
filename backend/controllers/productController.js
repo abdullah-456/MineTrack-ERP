@@ -1,8 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
-const { applySupplierStockPayment } = require('../utils/supplierPayment');
-const { postVoucher } = require('../utils/postVoucher');
+const { applySupplierStockPayment, applyDirectStockPayment } = require('../utils/supplierPayment');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 const productIncludes = [
@@ -184,23 +183,25 @@ exports.create = async (req, res) => {
         }
       }
     } else if (initialQty > 0) {
-      // No supplier attached — stock is still being introduced into the
-      // business, so it still needs a voucher (Dr Stock, Cr Capital & Equity)
-      // rather than a silent, unaccounted stock bump.
       const stockValue = Math.round((parseFloat(cost_price) || 0) * initialQty * 100) / 100;
       if (stockValue > 0) {
         const stockNotes = `Initial stock: ${initialQty} ${unit || 'Pcs'} of ${name} at Rs. ${cost_price}/unit`;
-        const voucher = await postVoucher(shopId, {
-          type: 'journal',
-          date: new Date(),
-          narration: `New product stock — ${stockNotes}`,
-          createdBy: req.user.id,
-          lines: [
-            { accountCode: '05-STOCK', debit: stockValue },
-            { accountCode: '01-CAPITAL', credit: stockValue },
-          ],
-        }, transaction);
-        voucherId = voucher.id;
+        const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
+        try {
+          const { voucher } = await applyDirectStockPayment({
+            shopId,
+            totalAmount: stockValue,
+            paymentStatus: payment_status,
+            paidAmountInput: paid_amount,
+            paymentMethod: payment_method,
+            notes: finalNotes,
+            createdBy: req.user.id,
+          }, transaction);
+          voucherId = voucher.id;
+        } catch (err) {
+          await transaction.rollback();
+          return res.status(err.statusCode || 500).json({ message: err.message || 'Internal server error' });
+        }
       }
     }
 

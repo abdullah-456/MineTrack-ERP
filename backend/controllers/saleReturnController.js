@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
+const { computeReturnLineTotal, computeRefundUnitPrice } = require('../utils/saleRefundAmount');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sales Returns & Exchange
@@ -81,12 +82,15 @@ exports.returnable = async (req, res) => {
     const returned = await priorReturnedBySaleItem(sale.id, null);
     const items = (sale.SaleItems || []).map(si => {
       const already = returned[si.id] || 0;
+      const refundUnitPrice = computeRefundUnitPrice(si, sale);
       return {
         sale_item_id: si.id,
         product_id: si.product_id,
         product_name: si.product_name || si.Product?.name,
         sku: si.Product?.sku,
         unit_price: parseFloat(si.unit_price),
+        refund_unit_price: refundUnitPrice,
+        line_discount: parseFloat(si.discount || 0),
         sold_qty: parseFloat(si.quantity),
         already_returned: already,
         returnable_qty: Math.max(0, parseFloat(si.quantity) - already),
@@ -99,6 +103,8 @@ exports.returnable = async (req, res) => {
         invoice_number: sale.invoice_number,
         sale_date: sale.sale_date,
         sale_type: sale.sale_type,
+        subtotal: parseFloat(sale.subtotal || 0),
+        discount: parseFloat(sale.discount || 0),
         total: parseFloat(sale.total),
         customer: sale.Customer || null,
         branch: sale.Branch || null,
@@ -222,15 +228,14 @@ exports.create = async (req, res) => {
         });
       }
 
-      const unitPrice = parseFloat(si.unit_price);
-      const lineTotal = Math.round(unitPrice * qty * 100) / 100;
+      const lineTotal = computeReturnLineTotal(si, qty, sale);
       returnedValue += lineTotal;
 
       returnLines.push({
         sale_item_id: si.id,
         product_id: si.product_id,
         quantity: qty,
-        unit_price: unitPrice,
+        unit_price: Math.round((lineTotal / qty) * 100) / 100,
         line_total: lineTotal,
         restock: line.restock !== false, // default true
         condition: line.condition === 'damaged' ? 'damaged' : 'resellable',

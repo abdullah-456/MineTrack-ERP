@@ -108,7 +108,7 @@ export default function Products() {
         branch_id: form.branch_id || undefined,
         ...shopParams(),
       };
-      if (form.supplier_id && initialQty > 0) {
+      if (initialQty > 0) {
         payload.payment_status = form.payment_status;
         payload.payment_method = form.payment_method;
         if (form.payment_status === 'partial') {
@@ -316,8 +316,8 @@ export default function Products() {
               )}
             </div>
 
-            {modal === 'create' && form.supplier_id && (parseFloat(form.initial_quantity) || 0) > 0 && (() => {
-              const sup = suppliers.find(s => String(s.id) === String(form.supplier_id));
+            {modal === 'create' && (parseFloat(form.initial_quantity) || 0) > 0 && (() => {
+              const sup = form.supplier_id ? suppliers.find(s => String(s.id) === String(form.supplier_id)) : null;
               const availableCredit = parseFloat(sup?.credit_balance || 0);
               const totalCost = (parseFloat(form.initial_quantity) || 0) * (parseFloat(form.cost_price) || 0);
               return (
@@ -354,14 +354,16 @@ export default function Products() {
                         <select className="input" value={form.payment_method} onChange={setF('payment_method')}>
                           <option value="cash">{t('cash') || 'Cash'}</option>
                           <option value="bank">{t('bank') || 'Bank'}</option>
-                          <option value="supplier_credit" disabled={availableCredit <= 0}>
-                            {(t('supplierCredit') || 'Supplier Credit')} ({formatPKR(availableCredit, lang)} {t('available') || 'available'})
-                          </option>
+                          {form.supplier_id && (
+                            <option value="supplier_credit" disabled={availableCredit <= 0}>
+                              {(t('supplierCredit') || 'Supplier Credit')} ({formatPKR(availableCredit, lang)} {t('available') || 'available'})
+                            </option>
+                          )}
                         </select>
                       </div>
                     </div>
                   )}
-                  {form.payment_status !== 'unpaid' && totalCost > 0 && (
+                  {totalCost > 0 && (
                     <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
                   )}
                 </div>
