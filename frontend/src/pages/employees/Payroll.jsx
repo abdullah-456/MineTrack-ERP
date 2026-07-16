@@ -7,6 +7,7 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import StatusBadge from '../../components/ui/StatusBadge';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
@@ -283,7 +284,7 @@ export default function Payroll() {
         <Modal title={`${t('giveSalary') || 'Give Salary'} — ${modalEmp.name}`} onClose={() => setModalEmp(null)}>
           <form onSubmit={submitSalary} className="space-y-3">
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('month') || 'Month'} *</label>
+              <FormLabel required>{t('month') || 'Month'}</FormLabel>
               <input
                 className="input" type="month" required min={minGiveMonth} value={salaryForm.month}
                 onChange={e => handleMonthChange(e.target.value)}
@@ -294,17 +295,17 @@ export default function Payroll() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('bonus') || 'Bonus'}</label>
+                <FormLabel>{t('bonus') || 'Bonus'}</FormLabel>
                 <input className="input" type="number" step="0.01" min="0" value={salaryForm.bonus} onChange={e => setSalaryForm(f => ({ ...f, bonus: e.target.value }))} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('manualDeductions') || 'Manual Deductions'}</label>
+                <FormLabel>{t('manualDeductions') || 'Manual Deductions'}</FormLabel>
                 <input className="input" type="number" step="0.01" min="0" value={salaryForm.deductions} onChange={e => setSalaryForm(f => ({ ...f, deductions: e.target.value }))} />
               </div>
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
-              <select className="input" value={salaryForm.method} onChange={e => setSalaryForm(f => ({ ...f, method: e.target.value }))}>
+              <FormLabel required>{t('method') || 'Method'}</FormLabel>
+              <select className="input" required value={salaryForm.method} onChange={e => setSalaryForm(f => ({ ...f, method: e.target.value }))}>
                 <option value="cash">{t('cash') || 'Cash'}</option>
                 <option value="bank">{t('bank') || 'Bank'}</option>
               </select>

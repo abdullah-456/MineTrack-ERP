@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import ReportActions from '../../components/ui/ReportActions';
 import { money } from '../../utils/reportExport';
 import api from '../../api/axios';
@@ -271,7 +272,7 @@ export default function CustomerLedger() {
                 : `${t('currentBalance') || 'Current Balance'}: ${formatPKR(bal, lang)}`}
             </p>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input className="input" type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))} />
               {parseFloat(paymentForm.amount || 0) > Math.max(0, bal) && (
                 <p className="text-xs mt-1 text-emerald-400">
@@ -280,7 +281,7 @@ export default function CustomerLedger() {
               )}
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
+              <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <select className="input" required value={paymentForm.method} onChange={e => setPaymentForm(f => ({ ...f, method: e.target.value }))}>
                 <option value="cash">{t('cash') || 'Cash'}</option>
                 <option value="bank">{t('bank') || 'Bank'}</option>

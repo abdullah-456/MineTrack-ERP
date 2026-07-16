@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import api from '../../api/axios';
 
 const TXN_LABELS = {
@@ -324,11 +325,11 @@ export default function SupplierLedger() {
         <Modal title={t('recordPayment') || 'Record Payment'} onClose={() => setModal(null)}>
           <form onSubmit={submitPayment} className="space-y-3">
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input className="input" type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))} />
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
+              <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <select className="input" required value={paymentForm.method} onChange={e => setPaymentForm(f => ({ ...f, method: e.target.value }))}>
                 <option value="cash">{t('cash') || 'Cash'}</option>
                 <option value="bank">{t('bank') || 'Bank'}</option>
@@ -353,7 +354,7 @@ export default function SupplierLedger() {
           <form onSubmit={submitOpening} className="space-y-3">
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{t('openingBalanceHint') || 'One-time entry for migrating an existing payable balance. This can only be recorded once per supplier.'}</p>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input className="input" type="number" step="0.01" min="0" required value={openingForm.amount} onChange={e => setOpeningForm(f => ({ ...f, amount: e.target.value }))} />
             </div>
             <div>

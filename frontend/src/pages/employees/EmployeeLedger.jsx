@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import { openClearancePrint } from '../../utils/employeeClearancePdf';
@@ -373,18 +374,18 @@ export default function EmployeeLedger() {
               {t('advanceHint') || 'An advance is deducted automatically from the salary of the month you pick below — no separate collection needed.'}
             </p>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input className="input" type="number" step="0.01" min="0.01" required value={advanceForm.amount} onChange={e => setAdvanceForm(f => ({ ...f, amount: e.target.value }))} />
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('forMonth') || 'For Salary Month'} *</label>
+              <FormLabel required>{t('forMonth') || 'For Salary Month'}</FormLabel>
               <input className="input" type="month" min={minAdvanceMonth} required value={advanceForm.for_month} onChange={e => setAdvanceForm(f => ({ ...f, for_month: e.target.value }))} />
               {currentMonthPaid && (
                 <p className="text-xs text-amber-400 mt-1">{t('currentMonthPaidHint') || "This month's salary was already given — pick a later month."}</p>
               )}
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
+              <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <select className="input" value={advanceForm.method} onChange={e => setAdvanceForm(f => ({ ...f, method: e.target.value }))}>
                 <option value="cash">{t('cash') || 'Cash'}</option>
                 <option value="bank">{t('bank') || 'Bank'}</option>
@@ -406,11 +407,11 @@ export default function EmployeeLedger() {
         <Modal title={t('giveLoan') || 'Give Loan'} onClose={() => setModal(null)}>
           <form onSubmit={submitLoan} className="space-y-3">
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input className="input" type="number" step="0.01" min="0.01" required value={loanForm.amount} onChange={e => setLoanForm(f => ({ ...f, amount: e.target.value }))} />
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
+              <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <select className="input" value={loanForm.method} onChange={e => setLoanForm(f => ({ ...f, method: e.target.value }))}>
                 <option value="cash">{t('cash') || 'Cash'}</option>
                 <option value="bank">{t('bank') || 'Bank'}</option>
@@ -438,7 +439,7 @@ export default function EmployeeLedger() {
               {t('receivable') || 'Receivable'}: {formatPKR(loanReceivable, lang)}
             </p>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount') || 'Amount'} *</label>
+              <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input
                 className="input" type="number" step="0.01" min="0.01" max={loanReceivable} required
                 value={receivableForm.amount}
@@ -446,7 +447,7 @@ export default function EmployeeLedger() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'} *</label>
+              <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <select className="input" value={receivableForm.method} onChange={e => setReceivableForm(f => ({ ...f, method: e.target.value }))}>
                 <option value="cash">{t('cash') || 'Cash'}</option>
                 <option value="bank">{t('bank') || 'Bank'}</option>

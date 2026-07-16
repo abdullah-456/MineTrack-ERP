@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import { StockBadge } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import api from '../../api/axios';
@@ -576,7 +577,7 @@ export default function Inventory() {
         <Modal title={t('receiveStock')} onClose={() => setModal(null)}>
           <form onSubmit={submitReceive} className="space-y-4">
             <div>
-              <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('product')} *</label>
+              <FormLabel variant="semibold" required>{t('product')}</FormLabel>
               <select
                 className="input"
                 required
@@ -590,7 +591,7 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')} *</label>
+                <FormLabel variant="semibold" required>{t('userBranch')}</FormLabel>
                 <select
                   className="input"
                   required
@@ -602,7 +603,7 @@ export default function Inventory() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('supplier')}</label>
+                <FormLabel variant="semibold">{t('supplier')}</FormLabel>
                 <select
                   className="input"
                   value={formReceive.supplier_id}
@@ -616,7 +617,7 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('quantity')} ({t('kg') || 'kg'}) *</label>
+                <FormLabel variant="semibold" required>{t('quantity')} ({t('kg') || 'kg'})</FormLabel>
                 <input
                   className="input"
                   type="number"
@@ -629,12 +630,11 @@ export default function Inventory() {
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Purchase Unit Cost (PKR) *</label>
+                <FormLabel variant="semibold">Purchase Unit Cost (PKR)</FormLabel>
                 <input
                   className="input"
                   type="number"
                   step="0.01"
-                  required
                   value={formReceive.purchase_price}
                   onChange={e => setFormReceive(f => ({ ...f, purchase_price: e.target.value }))}
                   placeholder="Cost per unit"
@@ -705,7 +705,7 @@ export default function Inventory() {
               const method = ['cash', 'bank'].includes(formReceive.payment_method) ? formReceive.payment_method : 'cash';
               return (
                 <div className="rounded-lg p-3 space-y-3" style={{ border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-elevated)' }}>
-                  <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>{t('paymentMethod') || 'Payment Method'} *</label>
+                  <FormLabel variant="semibold" required>{t('paymentMethod') || 'Payment Method'}</FormLabel>
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {t('directPurchaseHint') || 'No supplier selected — the full cost is paid now from the account below.'}
                   </p>
@@ -749,7 +749,7 @@ export default function Inventory() {
         <Modal title={t('stockAdjustment')} onClose={() => setModal(null)}>
           <form onSubmit={submitAdjust} className="space-y-4">
             <div>
-              <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('product')} *</label>
+              <FormLabel variant="semibold" required>{t('product')}</FormLabel>
               <select
                 className="input"
                 required
@@ -763,7 +763,7 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')} *</label>
+                <FormLabel variant="semibold" required>{t('userBranch')}</FormLabel>
                 <select
                   className="input"
                   required
@@ -775,7 +775,7 @@ export default function Inventory() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Adjustment Direction *</label>
+                <FormLabel variant="semibold" required>Adjustment Direction</FormLabel>
                 <select
                   className="input"
                   required
@@ -790,7 +790,7 @@ export default function Inventory() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('quantity')} ({t('kg') || 'kg'}) *</label>
+                <FormLabel variant="semibold" required>{t('quantity')} ({t('kg') || 'kg'})</FormLabel>
                 <input
                   className="input"
                   type="number"
@@ -803,7 +803,7 @@ export default function Inventory() {
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Formal Reason *</label>
+                <FormLabel variant="semibold" required>Formal Reason</FormLabel>
                 <select
                   className="input"
                   required

@@ -6,6 +6,7 @@ import { useShopApi } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import api from '../../api/axios';
 
 const EMPTY = { name: '', address: '', is_default: false };
@@ -170,7 +171,7 @@ export default function Branches() {
         <Modal title={modal === 'create' ? t('createBranch') : t('editBranch')} onClose={() => setModal(null)}>
           <form onSubmit={handleSave} className="space-y-3">
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('branchName')} *</label>
+              <FormLabel required>{t('branchName')}</FormLabel>
               <input className="input" required value={form.name} onChange={setF('name')} />
             </div>
             <div>

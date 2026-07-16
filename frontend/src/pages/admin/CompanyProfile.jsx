@@ -4,6 +4,7 @@ import { useToast } from '../../context/ToastContext';
 import { Building2, Mail, Phone, MapPin, User, ImageUp, Trash2, Loader2 } from 'lucide-react';
 import api from '../../api/axios';
 import { clearCompanyCache } from '../../utils/reportExport';
+import FormLabel from '../../components/ui/FormLabel';
 
 // Resize an uploaded image to fit within `max`px (longest side) and return a
 // compact PNG data URL. Keeps the logo small enough to live in the DB and to
@@ -174,7 +175,7 @@ export default function CompanyProfile() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
-              <label className="form-label">{t('companyName')} *</label>
+              <FormLabel variant="admin" required>{t('companyName')}</FormLabel>
               <input required value={form.name} onChange={set('name')} className="input-field" />
             </div>
             <div>

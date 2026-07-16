@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import api from '../../api/axios';
 
 const EMPTY = { name: '', description: '' };
@@ -197,7 +198,7 @@ export default function Roles() {
           <form onSubmit={handleSave} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('name')} *</label>
+                <FormLabel required>{t('name')}</FormLabel>
                 <input className="input" required disabled={modal === 'edit'} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
               </div>
               <div>

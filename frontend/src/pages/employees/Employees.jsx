@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
@@ -209,42 +210,42 @@ export default function Employees() {
           <form onSubmit={handleSave} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('name')} *</label>
+                <FormLabel required>{t('name')}</FormLabel>
                 <input className="input" required value={form.name} onChange={setF('name')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('designation')}</label>
+                <FormLabel>{t('designation')}</FormLabel>
                 <input className="input" placeholder="Sales Manager" value={form.designation} onChange={setF('designation')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')} *</label>
+                <FormLabel required>{t('userBranch')}</FormLabel>
                 <select className="input" required value={form.branch_id} onChange={setF('branch_id')}>
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('basicSalary')} *</label>
+                <FormLabel required>{t('basicSalary')}</FormLabel>
                 <input className="input" type="number" min="0" required value={form.basic_salary} onChange={setF('basic_salary')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('hireDate')}</label>
+                <FormLabel>{t('hireDate')}</FormLabel>
                 <input className="input" type="date" value={form.hire_date} onChange={setF('hire_date')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('cnic')}</label>
+                <FormLabel>{t('cnic')}</FormLabel>
                 <input className="input" value={form.cnic} onChange={setF('cnic')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('phone')}</label>
+                <FormLabel>{t('phone')}</FormLabel>
                 <input className="input" value={form.phone} onChange={setF('phone')} />
               </div>
               <div className="sm:col-span-2">
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('address')}</label>
+                <FormLabel>{t('address')}</FormLabel>
                 <textarea className="input min-h-[80px]" value={form.address} onChange={setF('address')} />
               </div>
               {modal === 'edit' && (
                 <div className="sm:col-span-2">
-                  <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('status')}</label>
+                  <FormLabel>{t('status')}</FormLabel>
                   <select className="input" value={form.status} onChange={setF('status')}>
                     <option value="active">{t('active') || 'Active'}</option>
                     <option value="suspended">{t('suspended') || 'Suspended'}</option>

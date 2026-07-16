@@ -7,6 +7,7 @@ import {
   Eye, EyeOff, Loader2, CheckCircle
 } from 'lucide-react';
 import api from '../../api/axios';
+import FormLabel from '../../components/ui/FormLabel';
 
 const PLANS = ['basic', 'pro', 'enterprise'];
 
@@ -87,7 +88,7 @@ export default function CreateShop() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="form-label">{t('shopName')} *</label>
+              <FormLabel variant="admin" required>{t('shopName')}</FormLabel>
               <input
                 required value={form.name} onChange={set('name')}
                 placeholder="e.g. Ahmed Electronics"
@@ -158,19 +159,19 @@ export default function CreateShop() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="form-label">{t('adminName')} *</label>
+              <FormLabel variant="admin" required>{t('adminName')}</FormLabel>
               <input required value={form.admin_name} onChange={set('admin_name')}
                 placeholder="e.g. Branch Manager" className="input-field" id="admin-name-input" />
             </div>
             <div>
-              <label className="form-label">{t('adminEmail')} *</label>
+              <FormLabel variant="admin" required>{t('adminEmail')}</FormLabel>
               <input required type="email" value={form.admin_email} onChange={set('admin_email')}
                 placeholder="admin@shop.com" className="input-field" id="admin-email-input" />
             </div>
           </div>
 
           <div>
-            <label className="form-label">{t('adminPassword')} *</label>
+            <FormLabel variant="admin" required>{t('adminPassword')}</FormLabel>
             <div className="relative">
               <input
                 required

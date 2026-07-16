@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
@@ -286,10 +287,8 @@ export default function Sales() {
           <form onSubmit={handleCreate} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>
-                  {t('customer')} {form.sale_type === 'credit' && <span className="text-red-400">*</span>}
-                </label>
-                <select className="input" value={form.customer_id} onChange={e => setForm(f => ({ ...f, customer_id: e.target.value }))}>
+                <FormLabel required={form.sale_type === 'credit'}>{t('customer')}</FormLabel>
+                <select className="input" required={form.sale_type === 'credit'} value={form.customer_id} onChange={e => setForm(f => ({ ...f, customer_id: e.target.value }))}>
                   <option value="">{t('walkIn')} ({t('walkin')})</option>
                   {customers.map(c => (
                     <option key={c.id} value={c.id}>
@@ -310,13 +309,13 @@ export default function Sales() {
                 )}
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('userBranch')} *</label>
+                <FormLabel required>{t('userBranch')}</FormLabel>
                 <select className="input" required value={form.branch_id} onChange={e => setForm(f => ({ ...f, branch_id: e.target.value }))}>
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Employee / Sales Agent (Optional)</label>
+                <FormLabel>Employee / Sales Agent (Optional)</FormLabel>
                 <select className="input" value={form.employee_id} onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))}>
                   <option value="">Select Employee (Optional)</option>
                   {employees.map(emp => (
@@ -325,7 +324,7 @@ export default function Sales() {
                 </select>
               </div>
               <div className="sm:col-span-2">
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('saleType')}</label>
+                <FormLabel>{t('saleType')}</FormLabel>
                 <div className="grid grid-cols-4 gap-2">
                   {['cash', 'bank', 'credit'].map(type => (
                     <button
@@ -351,7 +350,9 @@ export default function Sales() {
             {/* Items */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{t('saleItems')}</label>
+                <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  {t('saleItems')}<span className="text-red-400 ms-0.5" aria-hidden="true">*</span>
+                </span>
                 <button type="button" onClick={addLine} className="text-xs text-brand-400 hover:underline">{t('addLine')}</button>
               </div>
               {form.items.map((item, i) => {
@@ -370,7 +371,7 @@ export default function Sales() {
                       <div className="flex gap-1.5 items-center">
                         <div className="relative w-20">
                           <input
-                            className="input w-full pe-7" type="number" min="0.1" step="0.1"
+                            className="input w-full pe-7" type="number" min="0.1" step="0.1" required
                             max={avail || undefined} value={item.quantity}
                             onChange={e => updateLine(i, 'quantity', e.target.value)}
                           />
@@ -381,7 +382,7 @@ export default function Sales() {
                             {t('kg') || 'kg'}
                           </span>
                         </div>
-                        <input className="input flex-1" type="number" min="0" step="0.01" placeholder={t('price')} value={item.unit_price} onChange={e => updateLine(i, 'unit_price', e.target.value)} />
+                        <input className="input flex-1" type="number" min="0" step="0.01" required placeholder={t('price')} value={item.unit_price} onChange={e => updateLine(i, 'unit_price', e.target.value)} />
                         {form.items.length > 1 && (
                           <button type="button" onClick={() => removeLine(i)} className="px-2 text-red-400 hover:text-red-300 text-lg">×</button>
                         )}
@@ -403,18 +404,18 @@ export default function Sales() {
             {/* Discount + Tax */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('discount')}</label>
+                <FormLabel>{t('discount')}</FormLabel>
                 <input className="input" type="number" min="0" value={form.discount} onChange={e => setForm(f => ({ ...f, discount: e.target.value }))} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('tax')}</label>
+                <FormLabel>{t('tax')}</FormLabel>
                 <input className="input" type="number" min="0" value={form.tax} onChange={e => setForm(f => ({ ...f, tax: e.target.value }))} />
               </div>
             </div>
 
             {/* Description / note */}
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
+              <FormLabel>{t('description') || 'Description'}</FormLabel>
               <textarea
                 className="input min-h-[60px] resize-none"
                 placeholder={t('saleDescriptionPlaceholder') || 'Optional note for this sale (e.g. delivery details, remarks)...'}

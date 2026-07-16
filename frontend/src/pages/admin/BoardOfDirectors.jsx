@@ -6,6 +6,7 @@ import { useShopApi } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import api from '../../api/axios';
 
 const EMPTY = { name: '', phone: '', cnic: '', address: '', opening_balance: '' };
@@ -161,7 +162,7 @@ export default function BoardOfDirectors() {
         <Modal title={modal === 'create' ? t('addBoardMember') : t('editBoardMember')} onClose={() => setModal(null)}>
           <form onSubmit={handleSave} className="space-y-3">
             <div>
-              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('name')} *</label>
+              <FormLabel required>{t('name')}</FormLabel>
               <input className="input" required value={form.name} onChange={setF('name')} />
             </div>
             <div>

@@ -5,6 +5,7 @@ import {
   DollarSign, CreditCard, AlertCircle
 } from 'lucide-react';
 import api from '../../api/axios';
+import FormLabel from '../ui/FormLabel';
 
 /* ── Step Indicator ──────────────────────────────────────────────────────────── */
 function StepDot({ step, current, label, icon: Icon }) {
@@ -56,9 +57,7 @@ function BankRow({ acct, idx, onChange, onRemove, isOnly }) {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-            Account Label *
-          </label>
+          <FormLabel variant="semibold" required>Account Label</FormLabel>
           <input
             className="input text-sm"
             placeholder="e.g. Main Business Account"

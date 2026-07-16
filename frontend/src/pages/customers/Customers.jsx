@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
@@ -239,27 +240,27 @@ export default function Customers() {
           <form onSubmit={handleSave} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('name')} *</label>
+                <FormLabel required>{t('name')}</FormLabel>
                 <input className="input" required value={form.name} onChange={setF('name')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('cnic')}</label>
+                <FormLabel>{t('cnic')}</FormLabel>
                 <input className="input" placeholder="35202-1234567-1" value={form.cnic} onChange={setF('cnic')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('phone')}</label>
+                <FormLabel>{t('phone')}</FormLabel>
                 <input className="input" value={form.phone} onChange={setF('phone')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('creditLimit')}</label>
+                <FormLabel>{t('creditLimit')}</FormLabel>
                 <input className="input" type="number" min="0" value={form.credit_limit} onChange={setF('credit_limit')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('balance')}</label>
+                <FormLabel>{t('balance')}</FormLabel>
                 <input className="input" type="number" value={form.current_balance} onChange={setF('current_balance')} />
               </div>
               <div className="sm:col-span-2">
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('address')}</label>
+                <FormLabel>{t('address')}</FormLabel>
                 <textarea className="input min-h-[80px]" value={form.address} onChange={setF('address')} />
               </div>
             </div>

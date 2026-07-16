@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { Zap, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Globe, Check, ChevronDown } from 'lucide-react';
+import FormLabel from '../components/ui/FormLabel';
 import { useRef, useEffect } from 'react';
 
 function useClickOutside(ref, handler) {
@@ -130,9 +131,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email */}
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-                {t('emailLabel')}
-              </label>
+              <FormLabel variant="login" required>{t('emailLabel')}</FormLabel>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--text-muted)' }} />
                 <input
@@ -149,9 +148,7 @@ export default function LoginPage() {
 
             {/* Password */}
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-                {t('passwordLabel')}
-              </label>
+              <FormLabel variant="login" required>{t('passwordLabel')}</FormLabel>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--text-muted)' }} />
                 <input

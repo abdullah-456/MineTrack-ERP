@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
+import FormLabel from '../../components/ui/FormLabel';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
@@ -216,32 +217,32 @@ export default function Expenses() {
           <form onSubmit={handleSave} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('category')} *</label>
+                <FormLabel required>{t('category')}</FormLabel>
                 <input className="input" required value={form.category} onChange={setF('category')} placeholder="Rent, Utilities, Office Supplies..." />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('amount')} *</label>
+                <FormLabel required>{t('amount')}</FormLabel>
                 <input className="input" type="number" min="0.01" step="0.01" required value={form.amount} onChange={setF('amount')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('expenseDateTime')}</label>
+                <FormLabel>{t('expenseDateTime')}</FormLabel>
                 <input className="input" type="datetime-local" value={form.expense_date} onChange={setF('expense_date')} />
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method')}</label>
-                <select className="input" value={form.paid_via} onChange={setF('paid_via')}>
+                <FormLabel required>{t('method')}</FormLabel>
+                <select className="input" required value={form.paid_via} onChange={setF('paid_via')}>
                   <option value="cash">{t('cash')}</option>
                   <option value="bank">{t('bank')}</option>
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('branch')}</label>
-                <select className="input" value={form.branch_id} onChange={setF('branch_id')}>
+                <FormLabel required>{t('branch')}</FormLabel>
+                <select className="input" required value={form.branch_id} onChange={setF('branch_id')}>
                   {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                 </select>
               </div>
               <div className="sm:col-span-2">
-                <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description')}</label>
+                <FormLabel>{t('description')}</FormLabel>
                 <textarea className="input min-h-[80px]" value={form.description} onChange={setF('description')} />
               </div>
             </div>

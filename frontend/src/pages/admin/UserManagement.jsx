@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import ReportActions from '../../components/ui/ReportActions';
 import api from '../../api/axios';
+import FormLabel from '../../components/ui/FormLabel';
 
 const ROLE_COLORS = {
   super_admin: 'badge-purple',
@@ -283,7 +284,7 @@ export default function UserManagement() {
     <>
       {superAdmin && needsShop && (
         <div>
-          <label className="form-label">{t('userShop')} *</label>
+          <FormLabel variant="admin" required>{t('userShop')}</FormLabel>
           <select required value={form.shop_id} onChange={setF('shop_id')} className="input-field">
             <option value="">{t('selectShop')}</option>
             {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -292,9 +293,9 @@ export default function UserManagement() {
       )}
       {needsShop && (
         <div>
-          <label className="form-label">
-            {t('userBranch')}{needsBranch ? ' *' : ` (${t('optional')})`}
-          </label>
+          <FormLabel variant="admin" required={needsBranch}>
+            {t('userBranch')}{!needsBranch && ` (${t('optional')})`}
+          </FormLabel>
           <select
             value={form.branch_id}
             onChange={setF('branch_id')}
@@ -485,16 +486,16 @@ export default function UserManagement() {
           <form onSubmit={handleCreate} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="form-label">{t('userName')} *</label>
+                <FormLabel variant="admin" required>{t('userName')}</FormLabel>
                 <input required value={form.name} onChange={setF('name')} className="input-field" id="new-user-name" />
               </div>
               <div>
-                <label className="form-label">{t('userEmail')} *</label>
+                <FormLabel variant="admin" required>{t('userEmail')}</FormLabel>
                 <input required type="email" value={form.email} onChange={setF('email')} className="input-field" id="new-user-email" />
               </div>
             </div>
             <div>
-              <label className="form-label">{t('passwordLabel')} *</label>
+              <FormLabel variant="admin" required>{t('passwordLabel')}</FormLabel>
               <div className="relative">
                 <input required type={showPw ? 'text' : 'password'} value={form.password}
                   onChange={setF('password')} minLength={6} className="input-field pr-10" id="new-user-password" />
@@ -506,14 +507,14 @@ export default function UserManagement() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="form-label">{t('userRole')} *</label>
+                <FormLabel variant="admin" required>{t('userRole')}</FormLabel>
                 <select required value={form.role_id} onChange={setF('role_id')} className="input-field" id="new-user-role">
                   <option value="">{t('selectRole')}</option>
                   {roles.map(r => <option key={r.id} value={r.id}>{roleLabel(r.name)}</option>)}
                 </select>
               </div>
               <div>
-                <label className="form-label">{t('userStatus')}</label>
+                <FormLabel variant="admin">{t('userStatus')}</FormLabel>
                 <select value={form.status} onChange={setF('status')} className="input-field">
                   <option value="active">{t('active')}</option>
                   <option value="disabled">{t('suspended')}</option>
@@ -538,24 +539,24 @@ export default function UserManagement() {
           <form onSubmit={handleEdit} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="form-label">{t('userName')} *</label>
+                <FormLabel variant="admin" required>{t('userName')}</FormLabel>
                 <input required value={form.name} onChange={setF('name')} className="input-field" />
               </div>
               <div>
-                <label className="form-label">{t('userEmail')} *</label>
+                <FormLabel variant="admin" required>{t('userEmail')}</FormLabel>
                 <input required type="email" value={form.email} onChange={setF('email')} className="input-field" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="form-label">{t('userRole')}</label>
+                <FormLabel variant="admin">{t('userRole')}</FormLabel>
                 <select value={form.role_id} onChange={setF('role_id')} className="input-field">
                   <option value="">{t('selectRole')}</option>
                   {roles.map(r => <option key={r.id} value={r.id}>{roleLabel(r.name)}</option>)}
                 </select>
               </div>
               <div>
-                <label className="form-label">{t('userStatus')}</label>
+                <FormLabel variant="admin">{t('userStatus')}</FormLabel>
                 <select value={form.status} onChange={setF('status')} className="input-field">
                   <option value="active">{t('active')}</option>
                   <option value="disabled">{t('suspended')}</option>
@@ -579,7 +580,7 @@ export default function UserManagement() {
         <Modal title={`${t('resetPassword')}: ${selectedUser.name}`} onClose={closeModal}>
           <form onSubmit={handleReset} className="space-y-3">
             <div>
-              <label className="form-label">{t('newPassword')} *</label>
+              <FormLabel variant="admin" required>{t('newPassword')}</FormLabel>
               <div className="relative">
                 <input required type={showPw ? 'text' : 'password'}
                   value={resetPw} onChange={e => setResetPw(e.target.value)}
