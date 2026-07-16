@@ -1,18 +1,12 @@
 'use strict';
 
 /**
- * The business now deals in fractional (kg) quantities, not just whole units.
- * Converts every quantity-tracking column that was INTEGER to DECIMAL(12,3).
+ * Converts quantity-tracking columns from INTEGER to DECIMAL(12,3) so the
+ * business can deal in fractional (kg) quantities.
  *
- * SQLite has no native ALTER COLUMN TYPE — Sequelize's changeColumn rebuilds
- * the table (create new, copy, drop old, rename), which fails with
- * "FOREIGN KEY constraint failed" if foreign_keys enforcement is on and
- * another table references the one being rebuilt. Toggling the pragma off
- * for the duration of each rebuild avoids that (SQLite's own documented
- * recipe for this exact situation). Each column change is attempted
- * independently and best-effort — SQLite's dynamic typing means the app
- * works correctly even if a particular ALTER can't be applied, since values
- * are read/written according to the Sequelize model's declared type either way.
+ * Dialect-aware: SQLite needs foreign_keys toggled off during the table
+ * rebuild that changeColumn performs; Postgres/MySQL change the type directly
+ * and must NOT receive the SQLite-only PRAGMA. Each column is best-effort.
  */
 
 async function tableExists(queryInterface, table) {
@@ -26,14 +20,15 @@ async function tableExists(queryInterface, table) {
 
 async function tryChangeColumn(queryInterface, Sequelize, table, column, definition) {
   if (!(await tableExists(queryInterface, table))) return;
+  const isSqlite = queryInterface.sequelize.getDialect() === 'sqlite';
   try {
-    await queryInterface.sequelize.query('PRAGMA foreign_keys = OFF;');
+    if (isSqlite) await queryInterface.sequelize.query('PRAGMA foreign_keys = OFF;');
     await queryInterface.changeColumn(table, column, definition);
     console.log(`  ok: ${table}.${column} -> DECIMAL`);
   } catch (err) {
     console.warn(`  skipped ${table}.${column} (${err.message.split('\n')[0]}) — app still works via model-level typing`);
   } finally {
-    await queryInterface.sequelize.query('PRAGMA foreign_keys = ON;');
+    if (isSqlite) await queryInterface.sequelize.query('PRAGMA foreign_keys = ON;');
   }
 }
 

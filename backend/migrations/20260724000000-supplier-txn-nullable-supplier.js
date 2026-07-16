@@ -2,15 +2,10 @@
 
 /**
  * Allow supplier_transactions.supplier_id to be NULL so a stock receipt that is
- * NOT tied to any supplier (a direct cash/bank purchase) can still be recorded
- * here. These rows are what utils/cashHelpers.computeCashFlow reads to deduct a
- * cash purchase from live cash-in-hand; without a home in this table the cash
- * outflow would be invisible to the dashboard's cash balance.
+ * NOT tied to any supplier (a direct cash/bank purchase) can still be recorded.
  *
- * SQLite has no ALTER COLUMN — Sequelize's changeColumn rebuilds the table,
- * which trips "FOREIGN KEY constraint failed" while other tables reference it
- * unless foreign_keys enforcement is toggled off for the rebuild (SQLite's own
- * documented recipe, mirrored from 20260713000000-float-quantities.js).
+ * Dialect-aware: the SQLite table-rebuild needs foreign_keys toggled off;
+ * Postgres/MySQL alter the column directly and must not receive the PRAGMA.
  */
 
 async function tableExists(queryInterface, table) {
@@ -24,14 +19,15 @@ async function tableExists(queryInterface, table) {
 
 async function tryChangeColumn(queryInterface, table, column, definition) {
   if (!(await tableExists(queryInterface, table))) return;
+  const isSqlite = queryInterface.sequelize.getDialect() === 'sqlite';
   try {
-    await queryInterface.sequelize.query('PRAGMA foreign_keys = OFF;');
+    if (isSqlite) await queryInterface.sequelize.query('PRAGMA foreign_keys = OFF;');
     await queryInterface.changeColumn(table, column, definition);
     console.log(`  ok: ${table}.${column}`);
   } catch (err) {
     console.warn(`  skipped ${table}.${column} (${err.message.split('\n')[0]})`);
   } finally {
-    await queryInterface.sequelize.query('PRAGMA foreign_keys = ON;');
+    if (isSqlite) await queryInterface.sequelize.query('PRAGMA foreign_keys = ON;');
   }
 }
 
