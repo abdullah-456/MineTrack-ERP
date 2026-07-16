@@ -40,16 +40,10 @@ module.exports = {
     logging: false
   },
   production: {
-    username: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || null,
-    database: process.env.DB_NAME || 'esms_db',
-    host: process.env.DB_HOST || '127.0.0.1',
-    dialect: dialect,
-    storage: sqliteStorage,
-    define: {
-      underscored: true,
-      timestamps: true
-    },
-    logging: false
+    use_env_variable: 'DATABASE_URL',
+    dialect: 'postgres',
+    dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
+    define: { underscored: true, timestamps: true },
+    logging: false,
   }
 };
