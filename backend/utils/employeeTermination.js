@@ -2,7 +2,7 @@
 
 const db = require('../models');
 const { Op } = require('sequelize');
-const { assertCashAvailable, debitBankAccount, creditBankAccount } = require('./cashHelpers');
+const { assertCashAvailable, debitBankAccount, creditBankAccount, bankAccountCode } = require('./cashHelpers');
 const { postVoucher } = require('./postVoucher');
 const { computeEmployeeBalances, round2 } = require('./employeeBalances');
 
@@ -19,6 +19,7 @@ function parseSettlement(body, key) {
   return {
     amount,
     method: row.method,
+    bank_account_id: row.bank_account_id || null,
     notes: row.notes?.trim() || null,
   };
 }
@@ -56,8 +57,9 @@ async function applyPayPayable(employee, shopId, settlement, userId, transaction
   const methodErr = methodGuard(settlement.method);
   if (methodErr) throw methodErr;
 
+  let bankAcc = null;
   if (settlement.method === 'cash') await assertCashAvailable(shopId, pay, transaction);
-  else await debitBankAccount(shopId, pay, transaction);
+  else bankAcc = await debitBankAccount(shopId, pay, transaction, settlement.bank_account_id);
 
   await employee.update({
     current_payable: round2(parseFloat(employee.current_payable || 0) - pay),
@@ -81,7 +83,7 @@ async function applyPayPayable(employee, shopId, settlement, userId, transaction
     createdBy: userId,
     lines: [
       { accountCode: '03-SALPAY', debit: pay },
-      { accountCode: settlement.method === 'bank' ? '05-BANK' : '05-CASH', credit: pay },
+      { accountCode: settlement.method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: pay },
     ],
   }, transaction);
 }
@@ -92,7 +94,8 @@ async function applyCollectOverpayment(employee, shopId, settlement, userId, tra
   if (!(receivable > 0)) return;
 
   const collect = Math.min(settlement.amount, receivable);
-  if (settlement.method === 'bank') await creditBankAccount(shopId, collect, transaction);
+  let bankAcc = null;
+  if (settlement.method === 'bank') bankAcc = await creditBankAccount(shopId, collect, transaction, settlement.bank_account_id);
 
   await employee.update({
     current_payable: round2(parseFloat(employee.current_payable || 0) + collect),
@@ -115,7 +118,7 @@ async function applyCollectOverpayment(employee, shopId, settlement, userId, tra
     narration: `Final balance recovered from ${employee.name} on termination`,
     createdBy: userId,
     lines: [
-      { accountCode: settlement.method === 'bank' ? '05-BANK' : '05-CASH', debit: collect },
+      { accountCode: settlement.method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: collect },
       { accountCode: '03-SALPAY', credit: collect },
     ],
   }, transaction);
@@ -126,7 +129,8 @@ async function applyCollectLoan(employee, shopId, settlement, userId, transactio
   if (!(loanReceivable > 0)) return;
 
   const collect = Math.min(settlement.amount, loanReceivable);
-  if (settlement.method === 'bank') await creditBankAccount(shopId, collect, transaction);
+  let bankAcc = null;
+  if (settlement.method === 'bank') bankAcc = await creditBankAccount(shopId, collect, transaction, settlement.bank_account_id);
 
   await employee.update({
     current_payable: round2(parseFloat(employee.current_payable || 0) + collect),
@@ -149,7 +153,7 @@ async function applyCollectLoan(employee, shopId, settlement, userId, transactio
     narration: `Loan payment received from ${employee.name} on termination`,
     createdBy: userId,
     lines: [
-      { accountCode: settlement.method === 'bank' ? '05-BANK' : '05-CASH', debit: collect },
+      { accountCode: settlement.method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: collect },
       { accountCode: '05-EMPADVLOAN', credit: collect },
     ],
   }, transaction);
@@ -160,7 +164,8 @@ async function applyCollectAdvance(employee, shopId, settlement, userId, transac
   if (!(total > 0)) return;
 
   const collect = Math.min(settlement.amount, total);
-  if (settlement.method === 'bank') await creditBankAccount(shopId, collect, transaction);
+  let bankAcc = null;
+  if (settlement.method === 'bank') bankAcc = await creditBankAccount(shopId, collect, transaction, settlement.bank_account_id);
 
   let remaining = collect;
   for (const adv of rows) {
@@ -190,7 +195,7 @@ async function applyCollectAdvance(employee, shopId, settlement, userId, transac
     narration: `Advance recovered from ${employee.name} on termination`,
     createdBy: userId,
     lines: [
-      { accountCode: settlement.method === 'bank' ? '05-BANK' : '05-CASH', debit: collect },
+      { accountCode: settlement.method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: collect },
       { accountCode: '05-EMPADVLOAN', credit: collect },
     ],
   }, transaction);

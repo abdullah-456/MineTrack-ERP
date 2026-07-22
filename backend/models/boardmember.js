@@ -4,6 +4,8 @@ module.exports = (sequelize, DataTypes) => {
   class BoardMember extends Model {
     static associate(models) {
       BoardMember.belongsTo(models.Shop, { foreignKey: 'shop_id' });
+      BoardMember.belongsTo(models.Branch, { foreignKey: 'branch_id' });
+      BoardMember.belongsTo(models.ChartOfAccount, { foreignKey: 'chart_of_account_id' });
     }
   }
   BoardMember.init({
@@ -13,6 +15,10 @@ module.exports = (sequelize, DataTypes) => {
       autoIncrement: true
     },
     shop_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
+    branch_id: {
       type: DataTypes.INTEGER,
       allowNull: false
     },
@@ -27,7 +33,10 @@ module.exports = (sequelize, DataTypes) => {
     cnic: {
       type: DataTypes.STRING,
       allowNull: true,
-      unique: true
+    },
+    cnic_normalized: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
     },
     address: {
       type: DataTypes.TEXT,
@@ -37,6 +46,15 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DECIMAL(15, 2),
       allowNull: false,
       defaultValue: 0.00
+    },
+    current_balance: {
+      type: DataTypes.DECIMAL(15, 2),
+      allowNull: false,
+      defaultValue: 0.00
+    },
+    chart_of_account_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     },
   }, {
     sequelize,

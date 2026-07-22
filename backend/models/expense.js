@@ -7,6 +7,8 @@ module.exports = (sequelize, DataTypes) => {
       Expense.belongsTo(models.Branch, { foreignKey: 'branch_id' });
       Expense.belongsTo(models.Shop, { foreignKey: 'shop_id' });
       Expense.belongsTo(models.User, { as: 'Creator', foreignKey: 'created_by' });
+      Expense.belongsTo(models.BankAccount, { foreignKey: 'bank_account_id' });
+      Expense.belongsTo(models.ChartOfAccount, { as: 'ExpenseAccount', foreignKey: 'expense_account_id' });
     }
   }
   Expense.init({
@@ -38,6 +40,14 @@ module.exports = (sequelize, DataTypes) => {
     paid_via: {
       type: DataTypes.ENUM('cash', 'bank'),
       allowNull: false
+    },
+    bank_account_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    expense_account_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     },
     voucher_id: {
       type: DataTypes.INTEGER,

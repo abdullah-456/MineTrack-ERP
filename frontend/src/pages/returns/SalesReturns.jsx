@@ -12,6 +12,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
+import { BankAccountPicker } from '../../components/ui/PaymentAccountSelect';
 import { money } from '../../utils/reportExport';
 import api from '../../api/axios';
 
@@ -177,6 +178,7 @@ export default function SalesReturns() {
   // Exchange state
   const [exchangeItems, setExchangeItems] = useState([]);
   const [settleMethod, setSettleMethod] = useState('cash');
+  const [returnBankAccountId, setReturnBankAccountId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [detail, setDetail] = useState(null);
 
@@ -284,6 +286,7 @@ export default function SalesReturns() {
     setReason('');
     setExchangeItems([]);
     setSettleMethod('cash');
+    setReturnBankAccountId(null);
   };
 
   // ── Submit ──────────────────────────────────────────────────────────────────
@@ -305,6 +308,7 @@ export default function SalesReturns() {
         return_type: mode,
         reason,
         items,
+        bank_account_id: returnBankAccountId,
         ...(mode === 'refund'
           ? { refund_method: refundMethod }
           : {
@@ -781,6 +785,15 @@ export default function SalesReturns() {
                     <option value="mobile_wallet">Refund method — Mobile Wallet</option>
                   </select>
                 ))}
+              {mode === 'refund' && ['card', 'bank', 'mobile_wallet'].includes(refundMethod) && (
+                <BankAccountPicker
+                  required
+                  className={inputCls}
+                  style={inputStyle}
+                  value={returnBankAccountId}
+                  onChange={setReturnBankAccountId}
+                />
+              )}
 
               {/* Exchange product picker */}
               {mode === 'exchange' && (
@@ -879,6 +892,15 @@ export default function SalesReturns() {
                       <option value="bank">Difference paid by — Bank</option>
                       <option value="mobile_wallet">Difference paid by — Mobile Wallet</option>
                     </select>
+                  )}
+                  {settlement > 0 && ['card', 'bank', 'mobile_wallet'].includes(settleMethod) && (
+                    <BankAccountPicker
+                      required
+                      className={inputCls}
+                      style={inputStyle}
+                      value={returnBankAccountId}
+                      onChange={setReturnBankAccountId}
+                    />
                   )}
                 </div>
               )}

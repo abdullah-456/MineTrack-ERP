@@ -90,7 +90,7 @@ exports.create = async (req, res) => {
       sku, barcode, name, category_id, brand, unit, tax_rate,
       reorder_level, cost_price, sale_price, status, image_url,
       supplier_id, initial_quantity, branch_id, purchase_price,
-      payment_status, paid_amount, payment_method, notes,
+      payment_status, paid_amount, payment_method, bank_account_id, notes,
     } = req.body;
 
     if (!name || !category_id || sale_price === undefined) {
@@ -173,8 +173,10 @@ exports.create = async (req, res) => {
             paymentStatus: payment_status,
             paidAmountInput: paid_amount,
             paymentMethod: payment_method,
+            bankAccountId: bank_account_id,
             notes: finalNotes,
             createdBy: req.user.id,
+            branchId: targetBranchId,
           }, transaction);
           voucherId = voucher.id;
         } catch (err) {
@@ -194,6 +196,7 @@ exports.create = async (req, res) => {
             paymentStatus: payment_status,
             paidAmountInput: paid_amount,
             paymentMethod: payment_method,
+            bankAccountId: bank_account_id,
             notes: finalNotes,
             createdBy: req.user.id,
           }, transaction);

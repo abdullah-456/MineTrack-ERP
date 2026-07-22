@@ -262,7 +262,7 @@ export default function Dashboard() {
                   border: '1px solid rgba(16,185,129,0.25)',
                   color: 'rgb(16,185,129)',
                 }}
-                title="Live cash in hand (today's opening + cash collected - cash refunds)"
+                title="Live cash in hand — shared drawer plus all named cash funds"
               >
                 <Wallet className="w-3.5 h-3.5" />
                 Cash: Rs. {(balances.cash_in_hand || 0).toLocaleString()}

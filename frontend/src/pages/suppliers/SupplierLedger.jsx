@@ -7,6 +7,7 @@ import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
+import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 
 const TXN_LABELS = {
@@ -29,7 +30,7 @@ export default function SupplierLedger() {
   const [tab, setTab] = useState('history');
   const [modal, setModal] = useState(null); // 'payment' | 'opening'
   const [saving, setSaving] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', notes: '' });
+  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
   const [openingForm, setOpeningForm] = useState({ amount: '', date: new Date().toISOString().slice(0, 10) });
 
   // Open a printable voucher in a new tab for a single transaction
@@ -69,12 +70,13 @@ export default function SupplierLedger() {
       await api.post(`/suppliers/${id}/payments`, {
         amount: parseFloat(paymentForm.amount),
         method: paymentForm.method,
+        bank_account_id: paymentForm.bank_account_id,
         notes: paymentForm.notes || undefined,
         ...shopParams(),
       });
       success(t('paymentRecorded') || 'Payment recorded');
       setModal(null);
-      setPaymentForm({ amount: '', method: 'cash', notes: '' });
+      setPaymentForm({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
       fetchData();
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
@@ -324,16 +326,29 @@ export default function SupplierLedger() {
       {modal === 'payment' && (
         <Modal title={t('recordPayment') || 'Record Payment'} onClose={() => setModal(null)}>
           <form onSubmit={submitPayment} className="space-y-3">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {t('currentPayable') || 'Payable'}: {formatPKR(summary.current_payable, lang)}
+              {parseFloat(summary.credit_balance) > 0 && (
+                <> · {t('creditBalance') || 'Prepaid credit'}: {formatPKR(summary.credit_balance, lang)}</>
+              )}
+            </p>
             <div>
               <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input className="input" type="number" step="0.01" min="0.01" required value={paymentForm.amount} onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))} />
+              {parseFloat(paymentForm.amount || 0) > parseFloat(summary.current_payable || 0) && (
+                <p className="text-xs mt-1 text-emerald-400">
+                  {t('supplierAdvanceHint') || 'Amount exceeds payable — the extra will be recorded as prepaid supplier credit for future purchases.'}
+                </p>
+              )}
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
-              <select className="input" required value={paymentForm.method} onChange={e => setPaymentForm(f => ({ ...f, method: e.target.value }))}>
-                <option value="cash">{t('cash') || 'Cash'}</option>
-                <option value="bank">{t('bank') || 'Bank'}</option>
-              </select>
+              <PaymentAccountSelect
+                required
+                method={paymentForm.method}
+                bankAccountId={paymentForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setPaymentForm(f => ({ ...f, method, bank_account_id }))}
+              />
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>

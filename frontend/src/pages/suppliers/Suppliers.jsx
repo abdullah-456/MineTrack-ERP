@@ -14,7 +14,7 @@ import api from '../../api/axios';
 
 const EMPTY = {
   company_name: '', contact_person: '', phone: '', email: '', address: '',
-  tax_number: '', payment_terms: '', credit_limit: '', status: 'active', cnic: '',
+  tax_number: '', payment_terms: '', status: 'active', cnic: '',
 };
 
 export default function Suppliers() {
@@ -54,7 +54,7 @@ export default function Suppliers() {
       company_name: s.company_name || '', contact_person: s.contact_person || '',
       phone: s.phone || '', email: s.email || '', address: s.address || '',
       tax_number: s.tax_number || '', payment_terms: s.payment_terms || '',
-      credit_limit: s.credit_limit || '', status: s.status || 'active',
+      status: s.status || 'active',
       cnic: s.cnic || '',
     });
     setModal('edit');
@@ -76,7 +76,7 @@ export default function Suppliers() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = { ...form, credit_limit: parseFloat(form.credit_limit) || 0, ...shopParams() };
+      const payload = { ...form, ...shopParams() };
       if (modal === 'create') {
         await api.post('/suppliers', payload);
         success(t('supplierCreated'));
@@ -181,7 +181,6 @@ export default function Suppliers() {
                 {s.email && <p className="flex items-center gap-2"><Mail className="w-3.5 h-3.5" />{s.email}</p>}
                 {s.cnic && <p><span className="font-semibold">{t('cnic')}:</span> {s.cnic}</p>}
                 {s.payment_terms && <p>{t('paymentTerms')}: {s.payment_terms}</p>}
-                <p>{t('creditLimit')}: {formatPKR(s.credit_limit, lang)}</p>
               </div>
 
               <div className="flex flex-wrap gap-1.5 mb-3">
@@ -264,10 +263,6 @@ export default function Suppliers() {
               <div>
                 <FormLabel>{t('paymentTerms')}</FormLabel>
                 <input className="input" placeholder="Net 30 / COD" value={form.payment_terms} onChange={setF('payment_terms')} />
-              </div>
-              <div>
-                <FormLabel>{t('creditLimit')}</FormLabel>
-                <input className="input" type="number" min="0" value={form.credit_limit} onChange={setF('credit_limit')} />
               </div>
               <div className="sm:col-span-2">
                 <FormLabel>{t('address')}</FormLabel>

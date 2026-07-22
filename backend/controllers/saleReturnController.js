@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
+const { debitBankAccount, creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { computeReturnLineTotal, computeRefundUnitPrice } = require('../utils/saleRefundAmount');
 
@@ -178,7 +179,7 @@ exports.create = async (req, res) => {
 
     const {
       sale_id, return_type, reason, notes, refund_method,
-      items, exchange_items, settlement_payment_method,
+      items, exchange_items, settlement_payment_method, bank_account_id,
     } = req.body;
 
     if (!sale_id || !['refund', 'exchange'].includes(return_type)) {
@@ -499,36 +500,16 @@ exports.create = async (req, res) => {
 
     // ── Bank balance adjustments ─────────────────────────────────────────────
     // Refund paid out via bank/card → bank balance DECREASES
+    let refundBankAcc = null;
     if (return_type === 'refund' && ['card', 'bank', 'mobile_wallet'].includes(effectiveRefundMethod) && refundAmount > 0) {
-      const bankAcc = await db.BankAccount.findOne({
-        where: { shop_id: shopId, is_active: true },
-        order: [['id', 'ASC']],
-        transaction,
-        lock: transaction.LOCK.UPDATE
-      });
-      if (bankAcc) {
-        await bankAcc.update({
-          current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) - refundAmount) * 100) / 100
-        }, { transaction });
-      }
+      refundBankAcc = await debitBankAccount(shopId, refundAmount, transaction, bank_account_id);
     }
     // Exchange settlement received via bank/card → bank balance INCREASES
-    if (return_type === 'exchange' && settlementAmount > 0) {
-      const settleMethod = ['cash', 'card', 'bank', 'mobile_wallet'].includes(settlement_payment_method)
-        ? settlement_payment_method : 'cash';
-      if (['card', 'bank', 'mobile_wallet'].includes(settleMethod)) {
-        const bankAcc = await db.BankAccount.findOne({
-          where: { shop_id: shopId, is_active: true },
-          order: [['id', 'ASC']],
-          transaction,
-          lock: transaction.LOCK.UPDATE
-        });
-        if (bankAcc) {
-          await bankAcc.update({
-            current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) + settlementAmount) * 100) / 100
-          }, { transaction });
-        }
-      }
+    let settlementBankAcc = null;
+    const settleMethod = ['cash', 'card', 'bank', 'mobile_wallet'].includes(settlement_payment_method)
+      ? settlement_payment_method : 'cash';
+    if (return_type === 'exchange' && settlementAmount > 0 && ['card', 'bank', 'mobile_wallet'].includes(settleMethod)) {
+      settlementBankAcc = await creditBankAccount(shopId, settlementAmount, transaction, bank_account_id);
     }
 
     // ── GL voucher ────────────────────────────────────────────────────────────
@@ -542,7 +523,7 @@ exports.create = async (req, res) => {
       if (creditApplied > 0) glLines.push({ accountCode: '05-AR', credit: creditApplied });
       if (refundAmount > 0) {
         glLines.push({
-          accountCode: ['card', 'bank', 'mobile_wallet'].includes(effectiveRefundMethod) ? '05-BANK' : '05-CASH',
+          accountCode: ['card', 'bank', 'mobile_wallet'].includes(effectiveRefundMethod) ? bankAccountCode(refundBankAcc) : '05-CASH',
           credit: refundAmount,
         });
       }
@@ -551,10 +532,8 @@ exports.create = async (req, res) => {
       const exSubtotalRebuilt = Math.round((returnedValue + settlementAmount) * 100) / 100;
       glLines.push({ accountCode: '06-RETURNS', debit: returnedValue });
       if (settlementAmount > 0) {
-        const settleMethod = ['cash', 'card', 'bank', 'mobile_wallet'].includes(settlement_payment_method)
-          ? settlement_payment_method : 'cash';
         glLines.push({
-          accountCode: ['card', 'bank', 'mobile_wallet'].includes(settleMethod) ? '05-BANK' : '05-CASH',
+          accountCode: ['card', 'bank', 'mobile_wallet'].includes(settleMethod) ? bankAccountCode(settlementBankAcc) : '05-CASH',
           debit: settlementAmount,
         });
       }
@@ -572,6 +551,7 @@ exports.create = async (req, res) => {
           ? `Returned: ${returnedItemsSummary} and exchanged for: ${exchangeItemsSummary}`
           : `Returned: ${returnedItemsSummary}`,
         createdBy: req.user.id,
+        branchId: ret.branch_id,
         lines: glLines,
       }, transaction);
     }
@@ -657,6 +637,7 @@ async function performVoidReturn(ret, shopId, req, transaction) {
       date: new Date(),
       narration: `Voided return and reversed entries`,
       createdBy: req.user.id,
+      branchId: ret.branch_id,
       lines: voidGlLines,
     }, transaction);
   }

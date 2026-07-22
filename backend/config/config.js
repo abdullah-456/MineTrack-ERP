@@ -12,12 +12,23 @@ const sqliteStorage = dialect === 'sqlite'
   ? (process.env.DB_STORAGE_PATH || path.join(__dirname, '..', 'database.sqlite'))
   : undefined;
 
+// Local dev against a Postgres URL (e.g. a Neon branch) works the same way
+// production does; falls back to individual DB_* vars for sqlite/local Postgres.
+const devUsesUrl = dialect === 'postgres' && !!process.env.DATABASE_URL;
+
 module.exports = {
   development: {
-    username: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || null,
-    database: process.env.DB_NAME || 'esms_db',
-    host: process.env.DB_HOST || '127.0.0.1',
+    ...(devUsesUrl
+      ? {
+        use_env_variable: 'DATABASE_URL',
+        dialectOptions: { ssl: { require: true, rejectUnauthorized: false } },
+      }
+      : {
+        username: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || null,
+        database: process.env.DB_NAME || 'esms_db',
+        host: process.env.DB_HOST || '127.0.0.1',
+      }),
     dialect: dialect,
     storage: sqliteStorage,
     define: {

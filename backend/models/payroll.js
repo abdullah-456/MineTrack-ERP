@@ -31,8 +31,16 @@ module.exports = (sequelize, DataTypes) => {
     },
     // Portion of `deductions` that came from clearing an uncleared salary
     // advance (see giveSalary) — kept separate so payslips can itemize
-    // Advance vs manual Deductions instead of a single combined figure.
+    // Advance vs tax Deductions instead of a single combined figure.
     advance_deduction: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0.00
+    },
+    tax_deduction_percent: {
+      type: DataTypes.DECIMAL(5, 2),
+      defaultValue: 0.00
+    },
+    tax_deduction: {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0.00
     },

@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { applyTerminationSettlements, loadTerminationPreview } = require('../utils/employeeTermination');
+const { assertCnicAvailable } = require('../utils/cnic');
 
 const employeeIncludes = [
   { model: db.Branch, attributes: ['id', 'name'] },
@@ -68,11 +69,14 @@ exports.create = async (req, res) => {
     const branch = await db.Branch.findOne({ where: { id: branch_id, shop_id: shopId } });
     if (!branch) return res.status(400).json({ message: 'Invalid branch' });
 
+    const preparedCnic = await assertCnicAvailable(shopId, cnic);
+
     const employee = await db.Employee.create({
       shop_id: shopId,
       name,
       designation,
-      cnic,
+      cnic: preparedCnic.cnic,
+      cnic_normalized: preparedCnic.cnic_normalized,
       phone,
       address,
       basic_salary,
@@ -85,8 +89,9 @@ exports.create = async (req, res) => {
     return res.status(201).json({ employee: full });
   } catch (error) {
     console.error('createEmployee error:', error);
+    if (error.statusCode === 409) return res.status(409).json({ message: error.message });
     if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(409).json({ message: 'CNIC already registered' });
+      return res.status(409).json({ message: 'CNIC already registered for another person' });
     }
     return res.status(500).json({ message: 'Internal server error' });
   }
@@ -101,8 +106,15 @@ exports.update = async (req, res) => {
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
 
     const wasTerminated = employee.status === 'terminated';
-    const fields = ['name', 'designation', 'cnic', 'phone', 'address', 'basic_salary', 'hire_date', 'branch_id', 'status', 'termination_notes'];
+    const fields = ['name', 'designation', 'phone', 'address', 'basic_salary', 'hire_date', 'branch_id', 'status', 'termination_notes'];
     fields.forEach(f => { if (req.body[f] !== undefined) employee[f] = req.body[f]; });
+
+    if (req.body.cnic !== undefined) {
+      const preparedCnic = await assertCnicAvailable(shopId, req.body.cnic, { employeeId: employee.id });
+      employee.cnic = preparedCnic.cnic;
+      employee.cnic_normalized = preparedCnic.cnic_normalized;
+    }
+
     if (req.body.status === 'terminated' && !wasTerminated) {
       employee.terminated_at = new Date();
     }
@@ -112,6 +124,10 @@ exports.update = async (req, res) => {
     return res.json({ employee: full });
   } catch (error) {
     console.error('updateEmployee error:', error);
+    if (error.statusCode === 409) return res.status(409).json({ message: error.message });
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ message: 'CNIC already registered for another person' });
+    }
     return res.status(500).json({ message: 'Internal server error' });
   }
 };

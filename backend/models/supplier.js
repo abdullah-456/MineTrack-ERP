@@ -60,6 +60,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true
     },
+    cnic_normalized: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
     status: {
       type: DataTypes.ENUM('active', 'disabled'),
       defaultValue: 'active'

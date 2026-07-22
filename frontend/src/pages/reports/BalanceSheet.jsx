@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { BookOpen, Loader2, RefreshCw } from 'lucide-react';
+import { BookOpen, Loader2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
+import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
 
 function SectionTable({ title, rows, totalLabel, totalAmount, lang, t }) {
@@ -43,7 +44,7 @@ function SectionTable({ title, rows, totalLabel, totalAmount, lang, t }) {
 export default function BalanceSheet() {
   const { t, lang } = useTheme();
   const { error } = useToast();
-  const { shopParams } = useShopApi();
+  const { shopParams, branches } = useShopApi();
 
   const [assets, setAssets] = useState([]);
   const [liabilities, setLiabilities] = useState([]);
@@ -55,10 +56,14 @@ export default function BalanceSheet() {
   const [loading, setLoading] = useState(true);
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
 
+  const [branchId, setBranchId] = useState('');
+
   const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/reports/balance-sheet', { params: { ...shopParams(), as_of: asOf } });
+      const params = { ...shopParams(), as_of: asOf };
+      if (branchId) params.branch_id = branchId;
+      const { data } = await api.get('/reports/balance-sheet', { params });
       setAssets(data.assets || []);
       setLiabilities(data.liabilities || []);
       setEquity(data.equity || []);
@@ -74,7 +79,7 @@ export default function BalanceSheet() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, asOf, error, t]);
+  }, [shopParams, asOf, branchId, error, t]);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
@@ -91,7 +96,7 @@ export default function BalanceSheet() {
     { header: t('account') || 'Account', key: 'account_name', width: 2.8 },
     { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.2 },
   ];
-  const reportFilters = [{ label: t('asOf') || 'As of', value: asOf }];
+  const reportFilters = buildReportFilterList({ t, asOf, branchId, branches, mode: 'point' });
 
   return (
     <div className="space-y-6">
@@ -112,15 +117,15 @@ export default function BalanceSheet() {
         }
       />
 
-      <div className="glass-card p-4 flex flex-wrap gap-4 items-end">
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('asOf') || 'As of'}</span>
-          <input className="input" type="date" value={asOf} onChange={e => setAsOf(e.target.value)} />
-        </div>
-        <button onClick={fetchReport} className="btn-secondary flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" />{t('refresh') || 'Refresh'}
-        </button>
-      </div>
+      <FinancialReportFilters
+        mode="point"
+        asOf={asOf}
+        branchId={branchId}
+        branches={branches}
+        onAsOfChange={setAsOf}
+        onBranchChange={setBranchId}
+        onRefresh={fetchReport}
+      />
 
       <div className="grid grid-cols-2 gap-4">
         <div className="glass-card p-5">

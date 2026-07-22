@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
+const { creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
 
 const saleIncludes = [
   { model: db.Customer, attributes: ['id', 'name', 'phone'] },
@@ -151,7 +152,7 @@ exports.create = async (req, res) => {
 
     const {
       customer_id, branch_id, employee_id, sale_type, items, discount, tax, payment_method, payment_amount,
-      installment_plan, description,
+      installment_plan, description, bank_account_id,
     } = req.body;
 
     // Credit sales require a registered customer
@@ -337,31 +338,27 @@ exports.create = async (req, res) => {
     if (payAmount > total) payAmount = total;
 
     const finalPaymentMethod = mapPaymentMethod(payment_method || sale_type || 'cash');
+    const isBankMethod = ['card', 'bank', 'mobile_wallet'].includes(finalPaymentMethod);
+
+    let bankAcc = null;
+    if (payAmount > 0) {
+      if (isBankMethod) {
+        bankAcc = await creditBankAccount(shopId, payAmount, transaction, bank_account_id);
+      } else if (bank_account_id) {
+        bankAcc = await creditCashPayment(shopId, payAmount, transaction, bank_account_id);
+      }
+    }
+
     await db.Payment.create({
       sale_id: sale.id,
       amount: payAmount,
       payment_method: finalPaymentMethod,
       payment_date: new Date(),
+      bank_account_id: bankAcc?.id || null,
     }, { transaction });
 
-    if (['card', 'bank', 'mobile_wallet'].includes(finalPaymentMethod) && payAmount > 0) {
-      const bankAcc = await db.BankAccount.findOne({
-        where: { shop_id: shopId, is_active: true },
-        order: [['id', 'ASC']],
-        transaction,
-        lock: transaction.LOCK.UPDATE
-      });
-      if (bankAcc) {
-        await bankAcc.update({
-          current_balance: parseFloat(bankAcc.current_balance || 0) + payAmount
-        }, { transaction });
-      }
-    }
-
-    // GL receivable leg: any shortfall between total and payAmount is owed to
-    // the business regardless of sale_type — keeps the voucher balanced even
-    // for an explicit partial payment_amount on a non-credit sale_type.
-    const arDebitAmount = Math.round((total - payAmount) * 100) / 100;
+    // GL receivable leg: shortfall after cash payment and any customer advance applied.
+    let advanceApplied = 0;
     const revenueCreditAmount = total;
 
     // customerName is resolved inside the customer block below and used in the
@@ -380,20 +377,27 @@ exports.create = async (req, res) => {
       const customer = await db.Customer.findOne({ where: { id: customer_id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE });
       if (customer) {
         customerName = customer.name;
-        const chargeAmount = Math.round((total - payAmount) * 100) / 100;
+        const advanceAvailable = Math.max(0, -parseFloat(customer.current_balance || 0));
+        advanceApplied = Math.round(Math.min(advanceAvailable, total) * 100) / 100;
         const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
 
-        if (chargeAmount !== 0) {
-          await customer.update({
-            current_balance: Math.round((parseFloat(customer.current_balance || 0) + chargeAmount) * 100) / 100,
-          }, { transaction });
-        }
+        await customer.update({
+          current_balance: Math.round((parseFloat(customer.current_balance || 0) + total - advanceApplied - payAmount) * 100) / 100,
+        }, { transaction });
+
         if (total > 0) {
           await db.CustomerTransaction.create({
             shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
             type: 'sale_charge',
             amount: total, method: null,
             related_sale_id: sale.id, notes: `Customer ${customer.name} purchased ${itemsSummary}`, created_by: req.user.id,
+          }, { transaction });
+        }
+        if (advanceApplied > 0) {
+          await db.CustomerTransaction.create({
+            shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
+            type: 'payment_received', amount: advanceApplied, method: 'advance',
+            related_sale_id: sale.id, notes: `Advance credit of Rs. ${advanceApplied} applied from ${customer.name}`, created_by: req.user.id,
           }, { transaction });
         }
         if (payAmount > 0) {
@@ -406,18 +410,23 @@ exports.create = async (req, res) => {
       }
     }
 
+    const arDebitAmount = Math.round((total - payAmount - advanceApplied) * 100) / 100;
     const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
     const paymentLine = payAmount > 0
-      ? { accountCode: ['card', 'bank', 'mobile_wallet'].includes(finalPaymentMethod) ? '05-BANK' : '05-CASH', debit: payAmount }
+      ? { accountCode: isBankMethod ? bankAccountCode(bankAcc) : paymentAccountCode('cash', bankAcc), debit: payAmount }
       : null;
+
+    const advanceLine = advanceApplied > 0 ? { accountCode: '03-CUSTADV', debit: advanceApplied } : null;
 
     await postVoucher(shopId, {
       type: 'receipt',
       date: sale.sale_date,
       narration: `${customerName} purchased ${itemsSummary}`,
       createdBy: req.user.id,
+      branchId: targetBranchId,
       lines: [
         ...(paymentLine ? [paymentLine] : []),
+        ...(advanceLine ? [advanceLine] : []),
         ...(arDebitAmount > 0 ? [{ accountCode: '05-AR', debit: arDebitAmount }] : []),
         { accountCode: '06-SALES', credit: revenueCreditAmount },
         ...(cogsTotal > 0 ? [{ accountCode: '07-COGS', debit: cogsTotal }, { accountCode: '05-STOCK', credit: cogsTotal }] : []),

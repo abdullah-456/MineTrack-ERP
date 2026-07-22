@@ -8,6 +8,7 @@ import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import { StockBadge } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
+import { BankAccountPicker, CashAccountPicker } from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 
 export default function Inventory() {
@@ -48,7 +49,7 @@ export default function Inventory() {
     notes: '',
     payment_status: 'unpaid',
     paid_amount: '',
-    payment_method: 'cash',
+    payment_method: 'cash', bank_account_id: null,
   });
 
   const [formAdjust, setFormAdjust] = useState({
@@ -141,7 +142,7 @@ export default function Inventory() {
       notes: '',
       payment_status: 'unpaid',
       paid_amount: '',
-      payment_method: 'cash',
+      payment_method: 'cash', bank_account_id: null,
     });
     setModal('receive');
   };
@@ -184,6 +185,9 @@ export default function Inventory() {
         payload.payment_method = ['cash', 'bank'].includes(formReceive.payment_method)
           ? formReceive.payment_method
           : 'cash';
+      }
+      if (payload.payment_method === 'bank' || payload.payment_method === 'cash') {
+        payload.bank_account_id = formReceive.bank_account_id || null;
       }
       await api.post('/inventory/receive', payload);
       success(t('stockReceived') || 'Stock received successfully');
@@ -302,7 +306,7 @@ export default function Inventory() {
                   notes: '',
                   payment_status: 'unpaid',
                   paid_amount: '',
-                  payment_method: 'cash',
+                  payment_method: 'cash', bank_account_id: null,
                 });
                 setModal('receive');
               }}
@@ -682,7 +686,7 @@ export default function Inventory() {
                         <select
                           className="input"
                           value={formReceive.payment_method}
-                          onChange={e => setFormReceive(f => ({ ...f, payment_method: e.target.value }))}
+                          onChange={e => setFormReceive(f => ({ ...f, payment_method: e.target.value, bank_account_id: null }))}
                         >
                           <option value="cash">{t('cash') || 'Cash'}</option>
                           <option value="bank">{t('bank') || 'Bank'}</option>
@@ -690,8 +694,31 @@ export default function Inventory() {
                             {(t('supplierCredit') || 'Supplier Credit')} ({formatPKR(availableCredit, lang)} {t('available') || 'available'})
                           </option>
                         </select>
+                        {formReceive.payment_method === 'cash' && (
+                          <CashAccountPicker
+                            className="input mt-2"
+                            value={formReceive.bank_account_id}
+                            onChange={bank_account_id => setFormReceive(f => ({ ...f, bank_account_id }))}
+                          />
+                        )}
+                        {formReceive.payment_method === 'bank' && (
+                          <BankAccountPicker
+                            required
+                            className="input mt-2"
+                            value={formReceive.bank_account_id}
+                            onChange={bank_account_id => setFormReceive(f => ({ ...f, bank_account_id }))}
+                          />
+                        )}
                       </div>
                     </div>
+                  )}
+                  {availableCredit > 0 && totalCost > 0 && (
+                    <p className="text-xs text-emerald-400">
+                      {formReceive.payment_status === 'unpaid'
+                        ? (t('supplierCreditAutoApply') || 'Prepaid supplier credit will apply automatically — payable only increases if the purchase exceeds available credit.')
+                        : (t('supplierCreditAutoApplyPartial') || 'Any remaining amount after cash/bank payment will also draw from prepaid supplier credit first.')}
+                      {' '}{formatPKR(Math.min(availableCredit, totalCost), lang)} {t('available') || 'available'}.
+                    </p>
                   )}
                   {formReceive.payment_status !== 'unpaid' && totalCost > 0 && (
                     <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
@@ -712,11 +739,25 @@ export default function Inventory() {
                   <select
                     className="input"
                     value={method}
-                    onChange={e => setFormReceive(f => ({ ...f, payment_method: e.target.value }))}
+                    onChange={e => setFormReceive(f => ({ ...f, payment_method: e.target.value, bank_account_id: null }))}
                   >
                     <option value="cash">{t('cash') || 'Cash'}</option>
                     <option value="bank">{t('bank') || 'Bank'}</option>
                   </select>
+                  {method === 'cash' && (
+                    <CashAccountPicker
+                      className="input mt-2"
+                      value={formReceive.bank_account_id}
+                      onChange={bank_account_id => setFormReceive(f => ({ ...f, bank_account_id }))}
+                    />
+                  )}
+                  {method === 'bank' && (
+                    <BankAccountPicker
+                      required
+                      value={formReceive.bank_account_id}
+                      onChange={bank_account_id => setFormReceive(f => ({ ...f, bank_account_id }))}
+                    />
+                  )}
                   {totalCost > 0 && (
                     <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
                   )}

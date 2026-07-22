@@ -1,7 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
-const { assertCashAvailable, debitBankAccount } = require('../utils/cashHelpers');
+const { assertCashAvailable, debitBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
 
 // ── POST /suppliers/:id/payments ─────────────────────────────────────────────
@@ -20,7 +20,7 @@ exports.recordPayment = async (req, res) => {
     });
     if (!supplier) { await transaction.rollback(); return res.status(404).json({ message: 'Supplier not found' }); }
 
-    const { amount, method, date, notes } = req.body;
+    const { amount, method, bank_account_id, date, notes } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
     if (!['cash', 'bank'].includes(method)) {
@@ -28,10 +28,11 @@ exports.recordPayment = async (req, res) => {
       return res.status(400).json({ message: 'method must be cash or bank' });
     }
 
+    let bankAcc = null;
     if (method === 'cash') {
       await assertCashAvailable(shopId, amt, transaction);
     } else {
-      await debitBankAccount(shopId, amt, transaction);
+      bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
     }
 
     const currentPayable = parseFloat(supplier.current_payable || 0);
@@ -107,7 +108,7 @@ exports.recordPayment = async (req, res) => {
       lines: [
         ...(allocatable > 0 ? [{ accountCode: '03-AP', debit: allocatable }] : []),
         ...(excessAmt > 0 ? [{ accountCode: '05-SUPCREDIT', debit: excessAmt }] : []),
-        { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', credit: amt },
+        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: amt },
       ],
     }, transaction);
 

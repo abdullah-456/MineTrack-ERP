@@ -1,7 +1,8 @@
 const db = require('../models');
 const { Op } = require('sequelize');
-const { computeLiveCash } = require('../utils/cashHelpers');
+const { computeLiveCash, computeTotalCashOnHand } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
+const { createAccount } = require('../utils/chartOfAccounts');
 
 // ── POST /api/financial-setup ─────────────────────────────────────────────────
 // Called once when admin first sets up the shop's finances.
@@ -14,11 +15,17 @@ exports.completeSetup = async (req, res) => {
 
   const t = await db.sequelize.transaction();
   try {
-    // Save bank accounts
+    // Save bank accounts — each gets its own dedicated ledger sub-account
+    // nested under '05-BANK', same as any bank account added later.
+    const bankParent = await db.ChartOfAccount.findOne({ where: { account_code: '05-BANK' }, transaction: t });
     let bankOpeningTotal = 0;
+    const bankOpeningLines = [];
     for (const acct of bank_accounts) {
       if (!acct.account_name || acct.account_name.trim() === '') continue;
       const openingBal = parseFloat(acct.opening_balance) || 0;
+      const ledgerAccount = await createAccount({
+        shopId, accountName: acct.account_name.trim(), accountType: 'asset', parent: bankParent, createdBy: req.user.id,
+      }, t);
       await db.BankAccount.create({
         shop_id:         shopId,
         account_name:    acct.account_name.trim(),
@@ -27,8 +34,10 @@ exports.completeSetup = async (req, res) => {
         opening_balance: openingBal,
         current_balance: openingBal,
         is_active:       true,
+        chart_of_account_id: ledgerAccount.id,
       }, { transaction: t });
       bankOpeningTotal += openingBal;
+      if (openingBal > 0) bankOpeningLines.push({ accountCode: ledgerAccount.account_code, debit: openingBal });
     }
     bankOpeningTotal = Math.round(bankOpeningTotal * 100) / 100;
 
@@ -56,7 +65,7 @@ exports.completeSetup = async (req, res) => {
         narration: 'Financial setup — opening balances',
         createdBy: req.user.id,
         lines: [
-          ...(bankOpeningTotal > 0 ? [{ accountCode: '05-BANK', debit: bankOpeningTotal }] : []),
+          ...bankOpeningLines,
           ...(openingCashAmt > 0 ? [{ accountCode: '05-CASH', debit: openingCashAmt }] : []),
           { accountCode: '01-CAPITAL', credit: openingTotal },
         ],
@@ -94,11 +103,26 @@ exports.getMoneyFlow = async (req, res) => {
     const { from, to } = req.query;
 
     // chart_of_accounts is global/shared across shops, keyed by stable codes.
-    const liquid = await db.ChartOfAccount.findAll({
+    // '05-BANK' also has per-account sub-accounts nested under it (this shop's
+    // own named bank accounts) that must count as liquid too, or money moved
+    // through a specific bank account would silently drop out of this total.
+    const cashAndBankParents = await db.ChartOfAccount.findAll({
       where: { account_code: { [Op.in]: ['05-CASH', '05-BANK'] } },
+      attributes: ['id', 'account_code'],
+    });
+    const bankParent = cashAndBankParents.find(a => a.account_code === '05-BANK');
+    const cashParent = cashAndBankParents.find(a => a.account_code === '05-CASH');
+    const fundChildWhere = (parentId) => ({
+      where: { parent_account_id: parentId, [Op.or]: [{ shop_id: null }, { shop_id: shopId }] },
       attributes: ['id'],
     });
-    const liquidIds = liquid.map(a => a.id);
+    const bankChildren = bankParent
+      ? await db.ChartOfAccount.findAll(fundChildWhere(bankParent.id))
+      : [];
+    const cashChildren = cashParent
+      ? await db.ChartOfAccount.findAll(fundChildWhere(cashParent.id))
+      : [];
+    const liquidIds = [...cashAndBankParents, ...bankChildren, ...cashChildren].map(a => a.id);
     if (!liquidIds.length) {
       return res.json({ total_received: 0, total_spent: 0, net: 0 });
     }
@@ -231,13 +255,16 @@ exports.updateCompany = async (req, res) => {
 };
 
 // ── GET /api/bank-accounts ────────────────────────────────────────────────────
-// Returns all active bank accounts for the shop.
+// Returns every bank account for the shop (active and deactivated) — callers
+// that only want ones a user can pick as a payment source (e.g. the payment
+// method dropdown) filter is_active client-side, same as the Chart of
+// Accounts list.
 exports.listBankAccounts = async (req, res) => {
   const shopId = req.user.shop_id;
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
   try {
     const accounts = await db.BankAccount.findAll({
-      where: { shop_id: shopId, is_active: true },
+      where: { shop_id: shopId },
       order: [['created_at', 'ASC']]
     });
     return res.json({ accounts });
@@ -331,34 +358,26 @@ exports.listSessions = async (req, res) => {
 };
 
 // ── GET /api/balances ─────────────────────────────────────────────────────────
-// Returns live cash-in-hand and total bank balance for the shop's dashboard.
-//
-// Cash-in-hand = today's opening_cash (cash session)
-//              + cash received from sales & installment payments today
-//              - cash refunds paid out today
-//
-// Bank balance = sum of bank_accounts.current_balance
-// (current_balance is updated when bank transactions are recorded later)
+// Returns merged cash-in-hand (shared drawer + all named cash funds, from the
+// GL) and total bank balance for the dashboard.
 exports.getLiveBalances = async (req, res) => {
   const shopId = req.user.shop_id;
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
 
   try {
-    // Cash-in-hand (opening cash + today's sales/installments/loan repayments
-    // in, minus today's refunds/supplier payments/employee payments out) is
-    // computed once in utils/cashHelpers so every cash-moving controller
-    // (this dashboard, supplier ledger, employee ledger) agrees on the number.
-    const { liveCash, openingCash, hasBaseline } = await computeLiveCash(shopId);
+    const [{ openingCash, hasBaseline }, totalCash] = await Promise.all([
+      computeLiveCash(shopId),
+      computeTotalCashOnHand(shopId),
+    ]);
 
-    // ── Bank balance = sum of all active bank_accounts for the shop ───────
     const bankAccounts = await db.BankAccount.findAll({
-      where: { shop_id: shopId, is_active: true },
+      where: { shop_id: shopId, is_active: true, kind: 'bank' },
       attributes: ['account_name', 'current_balance', 'bank_name'],
     });
     const totalBank = bankAccounts.reduce((s, a) => s + parseFloat(a.current_balance || 0), 0);
 
     return res.json({
-      cash_in_hand:       liveCash,
+      cash_in_hand:       totalCash,
       bank_balance:       Math.round(totalBank * 100) / 100,
       bank_accounts:      bankAccounts.map(a => ({
         name:    a.account_name,

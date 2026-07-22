@@ -2,13 +2,33 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
-const { assertCashAvailable, debitBankAccount, creditBankAccount, computeLiveCash } = require('../utils/cashHelpers');
+const { assertCashAvailable, debitBankAccount, debitCashPayment, creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 const EXPENSE_ACCOUNT_CODE = '07-OPEX';
 
 function narrationFor(category, description) {
   return `Expense — ${category}${description ? `: ${description}` : ''}`;
+}
+
+// Resolves which Chart-of-Accounts expense category an expense posts against.
+// No id given -> the default '07-OPEX' bucket (backward compatible). An id
+// must be an active, expense-type account or the request is rejected outright
+// — silently falling back would hide a real client bug.
+async function resolveExpenseAccount(expenseAccountId, transaction) {
+  if (!expenseAccountId) {
+    return db.ChartOfAccount.findOne({ where: { account_code: EXPENSE_ACCOUNT_CODE }, transaction });
+  }
+  const account = await db.ChartOfAccount.findOne({
+    where: { id: expenseAccountId, account_type: 'expense', is_active: true },
+    transaction,
+  });
+  if (!account) {
+    const err = new Error('Invalid expense category account');
+    err.statusCode = 400;
+    throw err;
+  }
+  return account;
 }
 
 // ── GET /api/expenses ───────────────────────────────────────────────────────
@@ -78,7 +98,7 @@ exports.create = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
-    const { category, description, amount, expense_date, paid_via } = req.body;
+    const { category, description, amount, expense_date, paid_via, bank_account_id, expense_account_id } = req.body;
     const branchId = req.body.branch_id ? parseInt(req.body.branch_id, 10) : resolveBranchId(req);
 
     if (!category) { await transaction.rollback(); return res.status(400).json({ message: 'Category is required' }); }
@@ -90,12 +110,15 @@ exports.create = async (req, res) => {
     const branch = await db.Branch.findOne({ where: { id: branchId, shop_id: shopId }, transaction });
     if (!branch) { await transaction.rollback(); return res.status(404).json({ message: 'Branch not found' }); }
 
+    const expenseAccount = await resolveExpenseAccount(expense_account_id, transaction);
+
     const date = expense_date ? new Date(expense_date) : new Date();
 
+    let bankAcc = null;
     if (paid_via === 'cash') {
-      await assertCashAvailable(shopId, amt, transaction);
+      bankAcc = await debitCashPayment(shopId, amt, transaction, bank_account_id);
     } else {
-      await debitBankAccount(shopId, amt, transaction);
+      bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
     }
 
     const expense = await db.Expense.create({
@@ -106,6 +129,8 @@ exports.create = async (req, res) => {
       amount: amt,
       expense_date: date,
       paid_via,
+      bank_account_id: bankAcc?.id || null,
+      expense_account_id: expenseAccount.id,
       created_by: req.user.id,
       status: 'posted',
     }, { transaction });
@@ -115,9 +140,10 @@ exports.create = async (req, res) => {
       date,
       narration: narrationFor(category, description),
       createdBy: req.user.id,
+      branchId,
       lines: [
-        { accountCode: EXPENSE_ACCOUNT_CODE, debit: amt },
-        { accountCode: paid_via === 'bank' ? '05-BANK' : '05-CASH', credit: amt },
+        { accountCode: expenseAccount.account_code, debit: amt },
+        { accountCode: paymentAccountCode(paid_via, bankAcc), credit: amt },
       ],
     }, transaction);
 
@@ -147,12 +173,16 @@ exports.update = async (req, res) => {
     if (!expense) { await transaction.rollback(); return res.status(404).json({ message: 'Expense not found' }); }
     if (expense.status === 'void') { await transaction.rollback(); return res.status(400).json({ message: 'Cannot edit a voided expense' }); }
 
-    const { category, description, amount, expense_date, paid_via, branch_id } = req.body;
+    const { category, description, amount, expense_date, paid_via, bank_account_id, expense_account_id, branch_id } = req.body;
 
     const oldAmount = parseFloat(expense.amount);
     const oldMethod = expense.paid_via;
+    const oldBankAccountId = expense.bank_account_id;
+    const oldExpenseAccountId = expense.expense_account_id;
     const newAmount = amount !== undefined ? parseFloat(amount) : oldAmount;
     const newMethod = paid_via !== undefined ? paid_via : oldMethod;
+    const newBankAccountId = bank_account_id !== undefined ? bank_account_id : oldBankAccountId;
+    const newExpenseAccountId = expense_account_id !== undefined ? expense_account_id : oldExpenseAccountId;
     const newDate = expense_date !== undefined ? new Date(expense_date) : expense.expense_date;
 
     if (!newAmount || newAmount <= 0) { await transaction.rollback(); return res.status(400).json({ message: 'Amount must be greater than zero' }); }
@@ -161,42 +191,50 @@ exports.update = async (req, res) => {
     const financialChanged = (
       newAmount !== oldAmount ||
       newMethod !== oldMethod ||
+      newBankAccountId !== oldBankAccountId ||
+      newExpenseAccountId !== oldExpenseAccountId ||
       new Date(newDate).getTime() !== new Date(expense.expense_date).getTime()
     );
 
+    let newBankAcc = null;
+    let newExpenseAccount = { id: oldExpenseAccountId };
     if (financialChanged) {
-      // Undo the old entry's cash/bank effect, then apply the new one.
-      // (computeLiveCash only reflects today's cash movements, so only add
-      // the old amount back if the old entry was itself dated today.)
-      const todayStart = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
-      const oldWasToday = new Date(expense.expense_date) >= todayStart;
-
+      // Undo the old entry's cash/bank + expense-category effect (against
+      // the SAME accounts it originally used), then apply the new ones.
+      let oldBankAcc = null;
       if (oldMethod === 'cash') {
-        const { liveCash } = await computeLiveCash(shopId, { transaction });
-        const adjustedLiveCash = liveCash + (oldWasToday ? oldAmount : 0);
-        if (newMethod === 'cash' && (adjustedLiveCash - newAmount) < 0) {
-          const err = new Error(`Insufficient cash in hand. Available: ${adjustedLiveCash.toFixed(2)}`);
-          err.statusCode = 400;
-          throw err;
+        if (oldBankAccountId) {
+          oldBankAcc = await creditCashPayment(shopId, oldAmount, transaction, oldBankAccountId);
+        }
+        if (newMethod === 'cash' && !newBankAccountId) {
+          await assertCashAvailable(shopId, newAmount, transaction);
         }
       } else {
-        await creditBankAccount(shopId, oldAmount, transaction);
-        if (newMethod === 'cash') {
+        oldBankAcc = await creditBankAccount(shopId, oldAmount, transaction, oldBankAccountId);
+        if (newMethod === 'cash' && !newBankAccountId) {
           await assertCashAvailable(shopId, newAmount, transaction);
         }
       }
       if (newMethod === 'bank') {
-        await debitBankAccount(shopId, newAmount, transaction);
+        newBankAcc = await debitBankAccount(shopId, newAmount, transaction, newBankAccountId);
+      } else if (newMethod === 'cash' && newBankAccountId) {
+        newBankAcc = await debitCashPayment(shopId, newAmount, transaction, newBankAccountId);
       }
+
+      const oldExpenseAccount = oldExpenseAccountId
+        ? await db.ChartOfAccount.findByPk(oldExpenseAccountId, { transaction })
+        : await db.ChartOfAccount.findOne({ where: { account_code: EXPENSE_ACCOUNT_CODE }, transaction });
+      newExpenseAccount = await resolveExpenseAccount(newExpenseAccountId, transaction);
 
       await postVoucher(shopId, {
         type: 'journal',
         date: new Date(),
         narration: `Reversal: Expense #${expense.id} edited`,
         createdBy: req.user.id,
+        branchId: expense.branch_id,
         lines: [
-          { accountCode: EXPENSE_ACCOUNT_CODE, credit: oldAmount },
-          { accountCode: oldMethod === 'bank' ? '05-BANK' : '05-CASH', debit: oldAmount },
+          { accountCode: oldExpenseAccount.account_code, credit: oldAmount },
+          { accountCode: paymentAccountCode(oldMethod, oldBankAcc), debit: oldAmount },
         ],
       }, transaction);
 
@@ -205,9 +243,10 @@ exports.update = async (req, res) => {
         date: newDate,
         narration: narrationFor(category ?? expense.category, description ?? expense.description),
         createdBy: req.user.id,
+        branchId: branch_id !== undefined ? parseInt(branch_id, 10) : expense.branch_id,
         lines: [
-          { accountCode: EXPENSE_ACCOUNT_CODE, debit: newAmount },
-          { accountCode: newMethod === 'bank' ? '05-BANK' : '05-CASH', credit: newAmount },
+          { accountCode: newExpenseAccount.account_code, debit: newAmount },
+          { accountCode: paymentAccountCode(newMethod, newBankAcc), credit: newAmount },
         ],
       }, transaction);
 
@@ -219,6 +258,10 @@ exports.update = async (req, res) => {
     if (branch_id !== undefined) expense.branch_id = parseInt(branch_id, 10);
     expense.amount = newAmount;
     expense.paid_via = newMethod;
+    expense.bank_account_id = newMethod === 'bank' || newBankAcc
+      ? (newBankAcc?.id || newBankAccountId || null)
+      : null;
+    expense.expense_account_id = newExpenseAccount.id;
     expense.expense_date = newDate;
     await expense.save({ transaction });
 
@@ -236,18 +279,26 @@ exports.update = async (req, res) => {
 // (everyone else's requests, once an admin approves them).
 async function performVoidExpense(expense, shopId, userId, transaction) {
   const amt = parseFloat(expense.amount);
+  let bankAcc = null;
   if (expense.paid_via === 'bank') {
-    await creditBankAccount(shopId, amt, transaction);
+    bankAcc = await creditBankAccount(shopId, amt, transaction, expense.bank_account_id);
+  } else if (expense.bank_account_id) {
+    bankAcc = await creditCashPayment(shopId, amt, transaction, expense.bank_account_id);
   }
+
+  const expenseAccount = expense.expense_account_id
+    ? await db.ChartOfAccount.findByPk(expense.expense_account_id, { transaction })
+    : await db.ChartOfAccount.findOne({ where: { account_code: EXPENSE_ACCOUNT_CODE }, transaction });
 
   await postVoucher(shopId, {
     type: 'journal',
     date: new Date(),
     narration: `Reversal: Expense #${expense.id} deleted`,
     createdBy: userId,
+    branchId: expense.branch_id,
     lines: [
-      { accountCode: EXPENSE_ACCOUNT_CODE, credit: amt },
-      { accountCode: expense.paid_via === 'bank' ? '05-BANK' : '05-CASH', debit: amt },
+      { accountCode: expenseAccount.account_code, credit: amt },
+      { accountCode: paymentAccountCode(expense.paid_via, bankAcc), debit: amt },
     ],
   }, transaction);
 

@@ -5,10 +5,11 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import Modal from '../ui/Modal';
+import PaymentAccountSelect from '../ui/PaymentAccountSelect';
 import api from '../../api/axios';
 import { openClearancePrint } from '../../utils/employeeClearancePdf';
 
-const EMPTY_SETTLE = { amount: '', method: 'cash', notes: '' };
+const EMPTY_SETTLE = { amount: '', method: 'cash', bank_account_id: null, notes: '' };
 
 function SettlementSection({ title, balance, balanceLabel, form, onChange, t, lang, receive }) {
   return (
@@ -38,10 +39,11 @@ function SettlementSection({ title, balance, balanceLabel, form, onChange, t, la
         </div>
         <div>
           <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'}</label>
-          <select className="input" value={form.method} onChange={e => onChange({ ...form, method: e.target.value })}>
-            <option value="cash">{t('cash') || 'Cash'}</option>
-            <option value="bank">{t('bank') || 'Bank'}</option>
-          </select>
+          <PaymentAccountSelect
+            method={form.method}
+            bankAccountId={form.bank_account_id}
+            onChange={({ method, bank_account_id }) => onChange({ ...form, method, bank_account_id })}
+          />
         </div>
       </div>
       <div>
@@ -60,6 +62,7 @@ function buildSettlementsPayload(balances, forms) {
     payload[key] = {
       amount: Math.min(amt, balance),
       method: forms[key].method,
+      bank_account_id: forms[key].bank_account_id,
       notes: forms[key].notes.trim() || null,
     };
   };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Landmark, Loader2, RefreshCw } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
@@ -8,15 +8,28 @@ import ReportActions from '../../components/ui/ReportActions';
 import { formatVoucherNumber } from '../../utils/ledgerFormat';
 import api from '../../api/axios';
 
+const FILTER_TYPES = [
+  { value: '', labelKey: 'allEntries' },
+  { value: 'account', labelKey: 'account' },
+  { value: 'customer', labelKey: 'customer' },
+  { value: 'supplier', labelKey: 'supplier' },
+  { value: 'employee', labelKey: 'employee' },
+  { value: 'board_member', labelKey: 'boardMember' },
+];
+
 export default function GeneralLedger() {
   const { t, lang } = useTheme();
   const { error } = useToast();
-  const { shopParams } = useShopApi();
+  const { shopParams, branches } = useShopApi();
 
   const [accounts, setAccounts] = useState([]);
+  const [entityOptions, setEntityOptions] = useState({ customers: [], suppliers: [], employees: [], board_members: [], branches: [] });
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filterType, setFilterType] = useState('');
   const [accountId, setAccountId] = useState('');
+  const [branchId, setBranchId] = useState('');
+  const [entityId, setEntityId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -29,13 +42,27 @@ export default function GeneralLedger() {
     }
   }, [shopParams, error, t]);
 
+  const fetchEntityOptions = useCallback(async () => {
+    try {
+      const { data } = await api.get('/accounting/general-ledger/filter-options', { params: shopParams() });
+      setEntityOptions(data);
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+    }
+  }, [shopParams, error, t]);
+
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     try {
       const params = { ...shopParams() };
-      if (accountId) params.account_id = accountId;
+      if (filterType === 'account' && accountId) params.account_id = accountId;
+      if (['customer', 'supplier', 'employee', 'board_member'].includes(filterType)) {
+        params.entity_type = filterType;
+        if (entityId) params.entity_id = entityId;
+      }
       if (from) params.from = from;
       if (to) params.to = to;
+      if (branchId) params.branch_id = branchId;
       const { data } = await api.get('/accounting/general-ledger', { params });
       setEntries(data.entries || []);
     } catch (e) {
@@ -43,13 +70,34 @@ export default function GeneralLedger() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, accountId, from, to, error, t]);
+  }, [shopParams, filterType, accountId, entityId, branchId, from, to, error, t]);
 
-  useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
+  useEffect(() => { fetchAccounts(); fetchEntityOptions(); }, [fetchAccounts, fetchEntityOptions]);
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
+
+  const personOptions = useMemo(() => {
+    if (filterType === 'customer') return entityOptions.customers || [];
+    if (filterType === 'supplier') return entityOptions.suppliers || [];
+    if (filterType === 'employee') return entityOptions.employees || [];
+    if (filterType === 'board_member') return entityOptions.board_members || [];
+    return [];
+  }, [filterType, entityOptions]);
+
+  const selectedPersonLabel = useMemo(() => {
+    if (!entityId) return null;
+    return personOptions.find(p => String(p.id) === String(entityId))?.name;
+  }, [entityId, personOptions]);
+
+  const handleFilterTypeChange = (value) => {
+    setFilterType(value);
+    setAccountId('');
+    setEntityId('');
+  };
 
   const totalDebit = entries.reduce((s, e) => s + e.debit, 0);
   const totalCredit = entries.reduce((s, e) => s + e.credit, 0);
+
+  const filterTypeLabel = FILTER_TYPES.find(f => f.value === filterType)?.labelKey;
 
   const reportColumns = [
     { header: t('date') || 'Date', render: e => new Date(e.date).toLocaleDateString('en-PK'), width: 1.1 },
@@ -62,9 +110,16 @@ export default function GeneralLedger() {
   ];
   const reportTotals = { __label: t('total') || 'Total', debit: totalDebit, credit: totalCredit };
   const reportFilterList = [
-    accountId ? { label: t('account') || 'Account', value: accounts.find(a => String(a.id) === String(accountId))?.account_name || accountId } : null,
+    filterType ? { label: t('filterBy') || 'Filter by', value: t(filterTypeLabel) || filterTypeLabel } : null,
+    filterType === 'account' && accountId
+      ? { label: t('account') || 'Account', value: accounts.find(a => String(a.id) === String(accountId))?.account_name || accountId }
+      : null,
+    ['customer', 'supplier', 'employee', 'board_member'].includes(filterType)
+      ? { label: t(filterTypeLabel) || filterType, value: selectedPersonLabel || (t('all') || 'All') }
+      : null,
     from ? { label: t('from') || 'From', value: from } : null,
     to ? { label: t('to') || 'To', value: to } : null,
+    branchId ? { label: t('branch') || 'Branch', value: (entityOptions.branches?.length ? entityOptions.branches : branches).find(b => String(b.id) === String(branchId))?.name || branchId } : null,
   ].filter(Boolean);
 
   return (
@@ -89,14 +144,52 @@ export default function GeneralLedger() {
 
       <div className="glass-card p-4 flex flex-wrap gap-4 items-end">
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('account') || 'Account'}</span>
-          <select className="input max-w-xs" value={accountId} onChange={e => setAccountId(e.target.value)}>
-            <option value="">{t('allAccounts') || 'All Accounts'}</option>
-            {accounts.filter(a => a.parent_account_id).map(a => (
-              <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('filterBy') || 'Filter by'}</span>
+          <select className="input max-w-xs" value={filterType} onChange={e => handleFilterTypeChange(e.target.value)}>
+            {FILTER_TYPES.map(f => (
+              <option key={f.value || 'all'} value={f.value}>{t(f.labelKey) || f.labelKey}</option>
             ))}
           </select>
         </div>
+
+        {filterType === 'account' && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('account') || 'Account'}</span>
+            <select className="input max-w-xs" value={accountId} onChange={e => setAccountId(e.target.value)}>
+              <option value="">{t('allAccounts') || 'All Accounts'}</option>
+              {accounts.filter(a => a.parent_account_id).map(a => (
+                <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {['customer', 'supplier', 'employee', 'board_member'].includes(filterType) && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
+              {t(filterTypeLabel) || filterType}
+            </span>
+            <select className="input max-w-xs" value={entityId} onChange={e => setEntityId(e.target.value)}>
+              <option value="">{t('all') || 'All'} {t(filterTypeLabel) || filterType}</option>
+              {personOptions.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {(branches.length > 1 || (entityOptions.branches || []).length > 1) && (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('branch') || 'Branch'}</span>
+            <select className="input max-w-xs" value={branchId} onChange={e => setBranchId(e.target.value)}>
+              <option value="">{t('allBranches') || 'All branches'}</option>
+              {(entityOptions.branches?.length ? entityOptions.branches : branches).map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('from') || 'From'}</span>
           <input className="input" type="date" value={from} onChange={e => setFrom(e.target.value)} />

@@ -1,6 +1,6 @@
 const db = require('../models');
 const { requireShopId } = require('../utils/shopScope');
-const { creditBankAccount } = require('../utils/cashHelpers');
+const { creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
 
 // Sign convention mirrors employeeLedgerController's signFor map: +1 increases
@@ -32,7 +32,7 @@ exports.recordPayment = async (req, res) => {
     });
     if (!customer) { await transaction.rollback(); return res.status(404).json({ message: 'Customer not found' }); }
 
-    const { amount, method, date, notes } = req.body;
+    const { amount, method, bank_account_id, date, notes } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
     if (!['cash', 'bank'].includes(method)) {
@@ -40,13 +40,13 @@ exports.recordPayment = async (req, res) => {
       return res.status(400).json({ message: 'method must be cash or bank' });
     }
 
-    const outstanding = parseFloat(customer.current_balance || 0);
-    const newBalance = Math.round((outstanding - amt) * 100) / 100;
-    const advancePortion = newBalance < 0 ? Math.round(Math.min(amt, -newBalance) * 100) / 100 : 0;
+    const outstanding = Math.max(0, parseFloat(customer.current_balance || 0));
+    const appliedToAR = Math.min(amt, outstanding);
+    const advancePortion = Math.round((amt - appliedToAR) * 100) / 100;
+    const newBalance = Math.round((parseFloat(customer.current_balance || 0) - amt) * 100) / 100;
 
-    // Money is coming IN, so credit (increase) the bank balance for bank payments.
-    if (method === 'bank') await creditBankAccount(shopId, amt, transaction);
-    // Cash coming in needs no floor guard.
+    let bankAcc = null;
+    if (method === 'bank') bankAcc = await creditBankAccount(shopId, amt, transaction, bank_account_id);
 
     await customer.update({ current_balance: newBalance }, { transaction });
 
@@ -70,8 +70,9 @@ exports.recordPayment = async (req, res) => {
         : `Payment received from ${customer.name}`,
       createdBy: req.user.id,
       lines: [
-        { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', debit: amt },
-        { accountCode: '05-AR', credit: amt },
+        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: amt },
+        ...(appliedToAR > 0 ? [{ accountCode: '05-AR', credit: appliedToAR }] : []),
+        ...(advancePortion > 0 ? [{ accountCode: '03-CUSTADV', credit: advancePortion }] : []),
       ],
     }, transaction);
 
@@ -145,7 +146,6 @@ exports.getLedger = async (req, res) => {
         total_charged: Math.round(totalCharged * 100) / 100,
         total_paid: Math.round(totalPaid * 100) / 100,
         current_balance: parseFloat(customer.current_balance || 0),
-        credit_limit: parseFloat(customer.credit_limit || 0),
       },
       sales_history: sales,
       transaction_history: history,

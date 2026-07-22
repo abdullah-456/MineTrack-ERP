@@ -8,6 +8,7 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
+import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import { openClearancePrint } from '../../utils/employeeClearancePdf';
@@ -57,9 +58,9 @@ export default function EmployeeLedger() {
   const [saving, setSaving] = useState(false);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const [advanceForm, setAdvanceForm] = useState({ amount: '', method: 'cash', for_month: currentMonth, notes: '' });
-  const [loanForm, setLoanForm] = useState({ amount: '', method: 'cash', notes: '' });
-  const [receivableForm, setReceivableForm] = useState({ amount: '', method: 'cash', notes: '' });
+  const [advanceForm, setAdvanceForm] = useState({ amount: '', method: 'cash', bank_account_id: null, for_month: currentMonth, notes: '' });
+  const [loanForm, setLoanForm] = useState({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
+  const [receivableForm, setReceivableForm] = useState({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
 
   // Open a printable voucher in a new tab for a single transaction
   const openVoucher = (txn, employeeName) => {
@@ -386,10 +387,11 @@ export default function EmployeeLedger() {
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
-              <select className="input" value={advanceForm.method} onChange={e => setAdvanceForm(f => ({ ...f, method: e.target.value }))}>
-                <option value="cash">{t('cash') || 'Cash'}</option>
-                <option value="bank">{t('bank') || 'Bank'}</option>
-              </select>
+              <PaymentAccountSelect
+                method={advanceForm.method}
+                bankAccountId={advanceForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setAdvanceForm(f => ({ ...f, method, bank_account_id }))}
+              />
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
@@ -412,10 +414,11 @@ export default function EmployeeLedger() {
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
-              <select className="input" value={loanForm.method} onChange={e => setLoanForm(f => ({ ...f, method: e.target.value }))}>
-                <option value="cash">{t('cash') || 'Cash'}</option>
-                <option value="bank">{t('bank') || 'Bank'}</option>
-              </select>
+              <PaymentAccountSelect
+                method={loanForm.method}
+                bankAccountId={loanForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setLoanForm(f => ({ ...f, method, bank_account_id }))}
+              />
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
@@ -448,10 +451,11 @@ export default function EmployeeLedger() {
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
-              <select className="input" value={receivableForm.method} onChange={e => setReceivableForm(f => ({ ...f, method: e.target.value }))}>
-                <option value="cash">{t('cash') || 'Cash'}</option>
-                <option value="bank">{t('bank') || 'Bank'}</option>
-              </select>
+              <PaymentAccountSelect
+                method={receivableForm.method}
+                bankAccountId={receivableForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setReceivableForm(f => ({ ...f, method, bank_account_id }))}
+              />
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>

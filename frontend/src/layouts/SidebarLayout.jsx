@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import {
   LayoutDashboard, ShoppingCart, Package, Users, Building2,
-  TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2,
+  TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2, Landmark,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
   Zap, Bell, Search, ChevronLeft, Sun, Moon, Globe, Check,
   Store, GitBranch, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert } from 'lucide-react';
@@ -55,6 +55,8 @@ const shopNavGroups = [
       { to: '/reports/trial-balance',   icon: FileBarChart2, labelKey: 'trialBalance',  module: 'reports', action: 'read' },
       { to: '/reports/profit-and-loss', icon: TrendingUp,    labelKey: 'plStatement',   module: 'reports', action: 'read' },
       { to: '/reports/balance-sheet',   icon: BookOpen,      labelKey: 'balanceSheet',  module: 'reports', action: 'read' },
+      { to: '/reports/equity-statement', icon: Landmark,     labelKey: 'equityStatement', module: 'reports', action: 'read' },
+      { to: '/reports/cash-flow',       icon: CreditCard,    labelKey: 'cashFlowStatement', module: 'reports', action: 'read' },
     ]
   },
   {

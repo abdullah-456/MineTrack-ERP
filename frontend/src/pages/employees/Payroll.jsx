@@ -9,6 +9,7 @@ import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import StatusBadge from '../../components/ui/StatusBadge';
+import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 
@@ -30,7 +31,7 @@ export default function Payroll() {
   const [modalEmp, setModalEmp] = useState(null); // employee row the modal is for
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [advanceForSelectedMonth, setAdvanceForSelectedMonth] = useState(0);
-  const [salaryForm, setSalaryForm] = useState({ month: currentMonth, bonus: '', deductions: '', method: 'cash' });
+  const [salaryForm, setSalaryForm] = useState({ month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null });
   const [paidMonths, setPaidMonths] = useState(new Set()); // months already given for modalEmp
   const [minGiveMonth, setMinGiveMonth] = useState(currentMonth); // earliest selectable month (native calendar bound)
   const [monthError, setMonthError] = useState(''); // only set right after an invalid pick attempt
@@ -68,7 +69,7 @@ export default function Payroll() {
 
   const openGiveSalary = async (emp) => {
     setModalEmp(emp);
-    setSalaryForm({ month: currentMonth, bonus: '', deductions: '', method: 'cash' });
+    setSalaryForm({ month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null });
     setPaidMonths(new Set());
     setMinGiveMonth(currentMonth);
     setMonthError('');
@@ -137,8 +138,10 @@ export default function Payroll() {
 
   const basicSalary = parseFloat(modalEmp?.basic_salary || 0);
   const bonusVal = parseFloat(salaryForm.bonus) || 0;
-  const manualDeductionsVal = parseFloat(salaryForm.deductions) || 0;
-  const netPayPreview = Math.round((basicSalary + bonusVal - manualDeductionsVal - advanceForSelectedMonth) * 100) / 100;
+  const grossSalary = basicSalary + bonusVal;
+  const taxPercentVal = Math.min(100, Math.max(0, parseFloat(salaryForm.tax_deduction_percent) || 0));
+  const taxDeductionVal = Math.round((grossSalary * taxPercentVal / 100) * 100) / 100;
+  const netPayPreview = Math.round((grossSalary - taxDeductionVal - advanceForSelectedMonth) * 100) / 100;
 
   const submitSalary = async (e) => {
     e.preventDefault();
@@ -157,8 +160,9 @@ export default function Payroll() {
       const { data } = await api.post(`/employees/${modalEmp.id}/give-salary`, {
         month: salaryForm.month,
         bonus: bonusVal,
-        deductions: manualDeductionsVal,
+        tax_deduction_percent: taxPercentVal,
         method: salaryForm.method,
+        bank_account_id: salaryForm.bank_account_id,
         ...shopParams(),
       });
       success(t('salaryGiven') || 'Salary given successfully');
@@ -299,16 +303,25 @@ export default function Payroll() {
                 <input className="input" type="number" step="0.01" min="0" value={salaryForm.bonus} onChange={e => setSalaryForm(f => ({ ...f, bonus: e.target.value }))} />
               </div>
               <div>
-                <FormLabel>{t('manualDeductions') || 'Manual Deductions'}</FormLabel>
-                <input className="input" type="number" step="0.01" min="0" value={salaryForm.deductions} onChange={e => setSalaryForm(f => ({ ...f, deductions: e.target.value }))} />
+                <FormLabel>{t('taxDeductionPercent') || 'Tax Deduction %'}</FormLabel>
+                <div className="relative">
+                  <input
+                    className="input pr-8" type="number" step="0.01" min="0" max="100"
+                    value={salaryForm.tax_deduction_percent}
+                    onChange={e => setSalaryForm(f => ({ ...f, tax_deduction_percent: e.target.value }))}
+                  />
+                  <span className="absolute top-1/2 -translate-y-1/2 text-sm" style={{ [isRTL ? 'left' : 'right']: '12px', color: 'var(--text-muted)' }}>%</span>
+                </div>
               </div>
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
-              <select className="input" required value={salaryForm.method} onChange={e => setSalaryForm(f => ({ ...f, method: e.target.value }))}>
-                <option value="cash">{t('cash') || 'Cash'}</option>
-                <option value="bank">{t('bank') || 'Bank'}</option>
-              </select>
+              <PaymentAccountSelect
+                required
+                method={salaryForm.method}
+                bankAccountId={salaryForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setSalaryForm(f => ({ ...f, method, bank_account_id }))}
+              />
             </div>
 
             <div className="rounded-lg p-3 space-y-1 text-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
@@ -324,9 +337,9 @@ export default function Payroll() {
                       <span>+ {t('bonus') || 'Bonus'}</span><span>+{formatPKR(bonusVal, lang)}</span>
                     </div>
                   )}
-                  {manualDeductionsVal > 0 && (
+                  {taxDeductionVal > 0 && (
                     <div className="flex justify-between text-red-400">
-                      <span>- {t('manualDeductions') || 'Manual Deductions'}</span><span>-{formatPKR(manualDeductionsVal, lang)}</span>
+                      <span>- {t('taxDeductions') || 'Tax Deductions'} ({taxPercentVal}%)</span><span>-{formatPKR(taxDeductionVal, lang)}</span>
                     </div>
                   )}
                   {advanceForSelectedMonth > 0 && (

@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
+const { assertCnicAvailable } = require('../utils/cnic');
 
 const supplierIncludes = [
   { model: db.ProductSupplier, as: 'ProductSuppliers', include: [{ model: db.Product, attributes: ['id', 'name', 'sku'] }] },
@@ -60,7 +61,7 @@ exports.create = async (req, res) => {
 
     const {
       company_name, contact_person, phone, email, address,
-      tax_number, payment_terms, credit_limit, status, cnic,
+      tax_number, payment_terms, status, cnic,
     } = req.body;
 
     if (!company_name) {
@@ -69,6 +70,8 @@ exports.create = async (req, res) => {
 
     const count = await db.Supplier.count({ where: { shop_id: shopId } });
     const supplier_code = req.body.supplier_code || `SUP-${String(count + 1).padStart(4, '0')}`;
+
+    const preparedCnic = await assertCnicAvailable(shopId, cnic);
 
     const supplier = await db.Supplier.create({
       shop_id: shopId,
@@ -80,14 +83,15 @@ exports.create = async (req, res) => {
       address,
       tax_number,
       payment_terms,
-      credit_limit: credit_limit || 0,
-      cnic: cnic || null,
+      cnic: preparedCnic.cnic,
+      cnic_normalized: preparedCnic.cnic_normalized,
       status: status || 'active',
     });
 
     return res.status(201).json({ supplier });
   } catch (error) {
     console.error('createSupplier error:', error);
+    if (error.statusCode === 409) return res.status(409).json({ message: error.message });
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'Supplier code already exists' });
     }
@@ -105,14 +109,25 @@ exports.update = async (req, res) => {
 
     const fields = [
       'company_name', 'contact_person', 'phone', 'email', 'address',
-      'tax_number', 'payment_terms', 'credit_limit', 'cnic', 'status',
+      'tax_number', 'payment_terms', 'status',
     ];
     fields.forEach(f => { if (req.body[f] !== undefined) supplier[f] = req.body[f]; });
+
+    if (req.body.cnic !== undefined) {
+      const preparedCnic = await assertCnicAvailable(shopId, req.body.cnic, { supplierId: supplier.id });
+      supplier.cnic = preparedCnic.cnic;
+      supplier.cnic_normalized = preparedCnic.cnic_normalized;
+    }
+
     await supplier.save();
 
     return res.json({ supplier });
   } catch (error) {
     console.error('updateSupplier error:', error);
+    if (error.statusCode === 409) return res.status(409).json({ message: error.message });
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ message: 'CNIC already registered for another person' });
+    }
     return res.status(500).json({ message: 'Internal server error' });
   }
 };

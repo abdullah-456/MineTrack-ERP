@@ -9,13 +9,14 @@ import FormLabel from '../../components/ui/FormLabel';
 import StatusBadge, { StockBadge } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
+import { BankAccountPicker, CashAccountPicker } from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 
 const EMPTY = {
   name: '', sku: '', barcode: '', category_id: '', brand: '',
   cost_price: '0', sale_price: '', tax_rate: '0', reorder_level: '5',
   supplier_id: '', initial_quantity: '0', branch_id: '', status: 'active',
-  payment_status: 'unpaid', paid_amount: '', payment_method: 'cash',
+  payment_status: 'unpaid', paid_amount: '', payment_method: 'cash', bank_account_id: null,
 };
 
 export default function Products() {
@@ -75,7 +76,7 @@ export default function Products() {
       brand: p.brand || '', cost_price: p.cost_price,
       sale_price: p.sale_price, tax_rate: p.tax_rate, reorder_level: p.reorder_level,
       status: p.status, supplier_id: '', initial_quantity: '0', branch_id: '',
-      payment_status: 'unpaid', paid_amount: '', payment_method: 'cash',
+      payment_status: 'unpaid', paid_amount: '', payment_method: 'cash', bank_account_id: null,
     });
     setModal('edit');
   };
@@ -351,7 +352,7 @@ export default function Products() {
                       )}
                       <div className={form.payment_status === 'partial' ? '' : 'col-span-2'}>
                         <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'}</label>
-                        <select className="input" value={form.payment_method} onChange={setF('payment_method')}>
+                        <select className="input" value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value, bank_account_id: null }))}>
                           <option value="cash">{t('cash') || 'Cash'}</option>
                           <option value="bank">{t('bank') || 'Bank'}</option>
                           {form.supplier_id && (
@@ -360,8 +361,31 @@ export default function Products() {
                             </option>
                           )}
                         </select>
+                        {form.payment_method === 'cash' && (
+                          <CashAccountPicker
+                            className="input mt-2"
+                            value={form.bank_account_id}
+                            onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                          />
+                        )}
+                        {form.payment_method === 'bank' && (
+                          <BankAccountPicker
+                            required
+                            className="input mt-2"
+                            value={form.bank_account_id}
+                            onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                          />
+                        )}
                       </div>
                     </div>
+                  )}
+                  {form.supplier_id && availableCredit > 0 && totalCost > 0 && (
+                    <p className="text-xs text-emerald-400">
+                      {form.payment_status === 'unpaid'
+                        ? (t('supplierCreditAutoApply') || 'Prepaid supplier credit will apply automatically — payable only increases if the purchase exceeds available credit.')
+                        : (t('supplierCreditAutoApplyPartial') || 'Any remaining amount after cash/bank payment will also draw from prepaid supplier credit first.')}
+                      {' '}{formatPKR(Math.min(availableCredit, totalCost), lang)} {t('available') || 'available'}.
+                    </p>
                   )}
                   {totalCost > 0 && (
                     <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>

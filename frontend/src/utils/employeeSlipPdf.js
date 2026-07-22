@@ -81,12 +81,13 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
   let headline;
   if (payroll) {
     const advanceDeduction = payroll.advance_deduction || 0;
-    const manualDeductions = Math.max(0, (payroll.deductions || 0) - advanceDeduction);
+    const taxDeduction = payroll.tax_deduction ?? Math.max(0, (payroll.deductions || 0) - advanceDeduction);
+    const taxPercent = payroll.tax_deduction_percent || 0;
     row('Month', payroll.month);
     row('Basic Salary', fmt(payroll.basic_salary));
     row('Advance', advanceDeduction > 0 ? `-${fmt(advanceDeduction)}` : '-');
     row('Bonus', payroll.bonus > 0 ? `+${fmt(payroll.bonus)}` : '-');
-    row('Deductions', manualDeductions > 0 ? `-${fmt(manualDeductions)}` : '-');
+    row(taxPercent > 0 ? `Tax Deductions (${taxPercent}%)` : 'Tax Deductions', taxDeduction > 0 ? `-${fmt(taxDeduction)}` : '-');
     row('Others', '-');
     y += 1; doc.setDrawColor(17, 24, 39); doc.setLineWidth(0.5); doc.line(margin, y, right, y); y += 7;
     doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(17, 24, 39);

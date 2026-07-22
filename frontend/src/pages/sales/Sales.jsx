@@ -9,6 +9,7 @@ import FormLabel from '../../components/ui/FormLabel';
 import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
+import { BankAccountPicker, CashAccountPicker } from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 
 
@@ -30,7 +31,7 @@ export default function Sales() {
   const [form, setForm] = useState({
     customer_id: '', branch_id: '', employee_id: '', sale_type: 'cash',
     items: [{ product_id: '', quantity: 1, unit_price: '' }],
-    discount: '0', tax: '0', payment_method: 'cash', description: '',
+    discount: '0', tax: '0', payment_method: 'cash', bank_account_id: null, description: '',
   });
   const [reportFilters, setReportFilters] = useState({ from: '', to: '', sale_type: '', customer_id: '' });
 
@@ -123,6 +124,7 @@ export default function Sales() {
         discount: parseFloat(form.discount) || 0,
         tax: parseFloat(form.tax) || 0,
         payment_method: form.payment_method,
+        bank_account_id: form.sale_type === 'bank' ? form.bank_account_id : null,
         description: form.description?.trim() || null,
         ...shopParams(),
       };
@@ -200,7 +202,7 @@ export default function Sales() {
             <button
               type="button"
               onClick={() => {
-                setForm({ customer_id: '', branch_id: branches[0]?.id || '', employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_method: 'cash', description: '' });
+                setForm({ customer_id: '', branch_id: branches[0]?.id || '', employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_method: 'cash', bank_account_id: null, description: '' });
                 setModal('create');
               }}
               className="btn-primary flex items-center gap-2"
@@ -330,7 +332,7 @@ export default function Sales() {
                     <button
                       key={type}
                       type="button"
-                      onClick={() => setForm(f => ({ ...f, sale_type: type, payment_method: type }))}
+                      onClick={() => setForm(f => ({ ...f, sale_type: type, payment_method: type, bank_account_id: null }))}
                       className={`py-2 rounded-lg text-sm font-medium border transition-all ${
                         form.sale_type === type
                           ? type === 'credit' ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400'
@@ -345,6 +347,25 @@ export default function Sales() {
                   ))}
                 </div>
               </div>
+              {form.sale_type === 'cash' && (
+                <div>
+                  <FormLabel>{t('cashAccount') || 'Cash Account'}</FormLabel>
+                  <CashAccountPicker
+                    value={form.bank_account_id}
+                    onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                  />
+                </div>
+              )}
+              {form.sale_type === 'bank' && (
+                <div>
+                  <FormLabel required>{t('bankAccount') || 'Bank Account'}</FormLabel>
+                  <BankAccountPicker
+                    required
+                    value={form.bank_account_id}
+                    onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Items */}

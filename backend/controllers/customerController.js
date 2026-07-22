@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
+const { assertCnicAvailable } = require('../utils/cnic');
 
 exports.list = async (req, res) => {
   try {
@@ -58,18 +59,20 @@ exports.create = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
-    const { name, cnic, phone, address, credit_limit, status, customer_type } = req.body;
+    const { name, cnic, phone, address, status, customer_type } = req.body;
     if (!name) return res.status(400).json({ message: 'Customer name is required' });
 
     // NOTE: current_balance is NOT accepted from the client. A customer's balance
     // is a ledger value that may only change through sales / payments / returns.
+    const preparedCnic = await assertCnicAvailable(shopId, cnic);
+
     const customer = await db.Customer.create({
       shop_id: shopId,
       name,
-      cnic,
+      cnic: preparedCnic.cnic,
+      cnic_normalized: preparedCnic.cnic_normalized,
       phone,
       address,
-      credit_limit: credit_limit || 0,
       current_balance: 0,
       customer_type: customer_type || 'registered',
       status: status || 'active',
@@ -78,8 +81,9 @@ exports.create = async (req, res) => {
     return res.status(201).json({ customer });
   } catch (error) {
     console.error('createCustomer error:', error);
+    if (error.statusCode === 409) return res.status(409).json({ message: error.message });
     if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(409).json({ message: 'CNIC already registered' });
+      return res.status(409).json({ message: 'CNIC already registered for another person' });
     }
     return res.status(500).json({ message: 'Internal server error' });
   }
@@ -94,13 +98,24 @@ exports.update = async (req, res) => {
     if (!customer) return res.status(404).json({ message: 'Customer not found' });
 
     // current_balance deliberately excluded — it is ledger-controlled, not client-editable.
-    const fields = ['name', 'cnic', 'phone', 'address', 'credit_limit', 'status', 'customer_type'];
+    const fields = ['name', 'phone', 'address', 'status', 'customer_type'];
     fields.forEach(f => { if (req.body[f] !== undefined) customer[f] = req.body[f]; });
+
+    if (req.body.cnic !== undefined) {
+      const preparedCnic = await assertCnicAvailable(shopId, req.body.cnic, { customerId: customer.id });
+      customer.cnic = preparedCnic.cnic;
+      customer.cnic_normalized = preparedCnic.cnic_normalized;
+    }
+
     await customer.save();
 
     return res.json({ customer });
   } catch (error) {
     console.error('updateCustomer error:', error);
+    if (error.statusCode === 409) return res.status(409).json({ message: error.message });
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(409).json({ message: 'CNIC already registered for another person' });
+    }
     return res.status(500).json({ message: 'Internal server error' });
   }
 };

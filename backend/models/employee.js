@@ -33,7 +33,10 @@ module.exports = (sequelize, DataTypes) => {
     cnic: {
       type: DataTypes.STRING,
       allowNull: true,
-      unique: true
+    },
+    cnic_normalized: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
     },
     phone: {
       type: DataTypes.STRING,

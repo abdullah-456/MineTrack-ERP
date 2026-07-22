@@ -9,6 +9,7 @@ module.exports = (sequelize, DataTypes) => {
       Branch.hasMany(models.Sale,           { foreignKey: 'branch_id' });
       Branch.hasMany(models.Employee,       { foreignKey: 'branch_id' });
       Branch.hasMany(models.Expense,        { foreignKey: 'branch_id' });
+      Branch.hasMany(models.BoardMember,    { foreignKey: 'branch_id' });
     }
   }
   Branch.init({

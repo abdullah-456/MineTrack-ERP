@@ -3,7 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { applySupplierStockPayment } = require('../utils/supplierPayment');
 const { postVoucher } = require('../utils/postVoucher');
-const { assertCashAvailable, debitBankAccount } = require('../utils/cashHelpers');
+const { debitBankAccount, debitCashPayment, paymentAccountCode } = require('../utils/cashHelpers');
 
 const stockIncludes = [
   {
@@ -207,7 +207,7 @@ exports.receiveStock = async (req, res) => {
 
     const {
       product_id, branch_id, quantity, supplier_id, purchase_price, notes,
-      payment_status, paid_amount, payment_method,
+      payment_status, paid_amount, payment_method, bank_account_id,
     } = req.body;
     if (!product_id || !branch_id || !quantity) {
       await transaction.rollback();
@@ -297,8 +297,10 @@ exports.receiveStock = async (req, res) => {
           paymentStatus: payment_status,
           paidAmountInput: paid_amount,
           paymentMethod: payment_method,
+          bankAccountId: bank_account_id,
           notes: finalNotes,
           createdBy: req.user.id,
+          branchId: branch_id,
         }, transaction);
       } catch (err) {
         await transaction.rollback();
@@ -306,10 +308,9 @@ exports.receiveStock = async (req, res) => {
       }
     } else {
       // No supplier attached — treat this as a direct cash/bank purchase of
-      // stock: the buyer pays for it out of the shop's own cash or bank, so the
-      // full cost is deducted from the chosen account and booked as
-      // Dr Stock / Cr Cash|Bank. The SupplierTransaction (supplier_id = null)
-      // is what utils/cashHelpers.computeCashFlow reads to drop live cash-in-hand.
+      // stock: the buyer pays for it out of the shop's own cash or bank. Named
+      // cash funds post to their own ledger sub-account; shared Cash in Hand
+      // posts to 05-CASH and is tracked via the daily cash session.
       const stockValue = Math.round(unitCost * qty * 100) / 100;
       const stockNotes = `Received ${qty} ${product.unit || 'Pcs'} of ${product.name} at Rs. ${unitCost}/unit`;
       const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
@@ -321,10 +322,11 @@ exports.receiveStock = async (req, res) => {
           return res.status(400).json({ message: 'payment_method (cash or bank) is required when receiving stock without a supplier' });
         }
 
+        let bankAcc = null;
         if (method === 'bank') {
-          await debitBankAccount(shopId, stockValue, transaction);
+          bankAcc = await debitBankAccount(shopId, stockValue, transaction, bank_account_id);
         } else {
-          await assertCashAvailable(shopId, stockValue, transaction);
+          bankAcc = await debitCashPayment(shopId, stockValue, transaction, bank_account_id);
         }
 
         await db.SupplierTransaction.create({
@@ -345,9 +347,10 @@ exports.receiveStock = async (req, res) => {
           date: new Date(),
           narration: `Stock purchased (${method}) — ${finalNotes}`,
           createdBy: req.user.id,
+          branchId: branch_id,
           lines: [
             { accountCode: '05-STOCK', debit: stockValue },
-            { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', credit: stockValue },
+            { accountCode: paymentAccountCode(method, bankAcc), credit: stockValue },
           ],
         }, transaction);
       }

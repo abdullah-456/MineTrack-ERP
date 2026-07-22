@@ -4,121 +4,89 @@ const { Op } = require('sequelize');
 const round2 = (n) => Math.round(n * 100) / 100;
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
+// Vouchers touching equity (opening balances, capital injections/drawings) must
+// not inflate today's operational cash flow on the shared 05-CASH bucket.
+async function equityVoucherIds(shopId, transaction) {
+  const equity = await db.ChartOfAccount.findAll({
+    where: { account_type: 'equity' },
+    attributes: ['id'],
+    transaction,
+  });
+  const ids = new Set();
+  if (equity.length) {
+    const rows = await db.GeneralLedger.findAll({
+      where: { shop_id: shopId, account_id: { [Op.in]: equity.map(a => a.id) } },
+      attributes: ['voucher_id'],
+      group: ['voucher_id'],
+      raw: true,
+      transaction,
+    });
+    rows.forEach(r => ids.add(r.voucher_id));
+  }
+  return ids;
+}
+
+async function cashParentAccount(transaction) {
+  return db.ChartOfAccount.findOne({ where: { account_code: '05-CASH' }, transaction });
+}
+
+// All liquid cash for this shop: shared Cash in Hand (05-CASH) plus every named
+// cash fund nested under it. Ledger lines stay on each sub-account; the
+// dashboard shows one merged total from the GL.
+async function computeTotalCashOnHand(shopId, { transaction } = {}) {
+  const parent = await cashParentAccount(transaction);
+  if (!parent) return 0;
+
+  const children = await db.ChartOfAccount.findAll({
+    where: { parent_account_id: parent.id, shop_id: shopId },
+    attributes: ['id'],
+    transaction,
+  });
+  const accountIds = [parent.id, ...children.map(a => a.id)];
+
+  const agg = await db.GeneralLedger.findOne({
+    where: { shop_id: shopId, account_id: { [Op.in]: accountIds } },
+    attributes: [
+      [db.sequelize.fn('SUM', db.sequelize.col('debit')), 'total_debit'],
+      [db.sequelize.fn('SUM', db.sequelize.col('credit')), 'total_credit'],
+    ],
+    raw: true,
+    transaction,
+  });
+  return round2(parseFloat(agg?.total_debit || 0) - parseFloat(agg?.total_credit || 0));
+}
+
 // ── computeCashFlow ─────────────────────────────────────────────────────────────
-// Net cash movement (in − out) for a shop over the half-open date window
-// [fromDate 00:00, toDate 00:00). Pass `toDate = null` for an open-ended window
-// (everything from `fromDate` onward), which is what "today's live activity" uses.
+// Net movement on the shared Cash in Hand account (05-CASH) over [fromDate,
+// toDate). Named cash funds (Petty Cash, etc.) post to their own sub-accounts
+// and are tracked separately — they are included in computeTotalCashOnHand but
+// not here, so the daily session bucket is not double-counted.
 //
-//   + cash/mobile_wallet sale payments received
-//   + cash/mobile_wallet installment payments received
-//   + cash employee loan-installment repayments / receivable collections
-//   + cash standalone customer payments received (incl. advances)
-//   − cash/mobile_wallet sale refunds paid out
-//   − cash paid to suppliers (stock receipts + standalone payments)
-//   − cash paid to employees (advances, loans given, standalone payments)
-//   − cash expenses
-//
-// Accepts an optional `transaction` so callers can read within an in-flight
-// DB transaction before committing a new cash-out entry (see assertCashAvailable).
+// Opening-balance / capital vouchers are excluded so setup journals do not
+// inflate live cash on top of the session's opening_cash baseline.
 async function computeCashFlow(shopId, fromDate, toDate, { transaction } = {}) {
+  const parent = await cashParentAccount(transaction);
+  if (!parent) return 0;
+
+  const excluded = await equityVoucherIds(shopId, transaction);
   const gte = new Date(fromDate + 'T00:00:00.000Z');
-  const range = toDate
+  const dateRange = toDate
     ? { [Op.gte]: gte, [Op.lt]: new Date(toDate + 'T00:00:00.000Z') }
     : { [Op.gte]: gte };
 
-  const cashSalesPayments = await db.Payment.findAll({
-    where: {
-      payment_method: { [Op.in]: ['cash', 'mobile_wallet'] },
-      payment_date: range,
-    },
-    include: [{ model: db.Sale, where: { shop_id: shopId }, attributes: [], required: true }],
-    attributes: ['amount'],
+  const where = { shop_id: shopId, account_id: parent.id, entry_date: dateRange };
+  if (excluded.size) where.voucher_id = { [Op.notIn]: [...excluded] };
+
+  const agg = await db.GeneralLedger.findOne({
+    where,
+    attributes: [
+      [db.sequelize.fn('SUM', db.sequelize.col('debit')), 'total_debit'],
+      [db.sequelize.fn('SUM', db.sequelize.col('credit')), 'total_credit'],
+    ],
+    raw: true,
     transaction,
   });
-  const cashIn = cashSalesPayments.reduce((s, p) => s + parseFloat(p.amount || 0), 0);
-
-  // Standalone customer payments (paying down credit, or paying in advance).
-  // Sale-time customer payments are already captured via db.Payment above and
-  // ALSO mirrored into a CustomerTransaction with related_sale_id set — so we
-  // count only the standalone ledger payments (related_sale_id IS NULL) here to
-  // avoid double-counting.
-  const customerCashInRows = await db.CustomerTransaction.findAll({
-    where: {
-      shop_id: shopId,
-      method: 'cash',
-      type: 'payment_received',
-      related_sale_id: null,
-      date: range,
-    },
-    attributes: ['amount'],
-    transaction,
-  });
-  const customerCashIn = customerCashInRows.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
-
-  const cashRefunds = await db.SaleReturn.findAll({
-    where: {
-      shop_id: shopId,
-      status: 'completed',
-      refund_method: { [Op.in]: ['cash', 'mobile_wallet'] },
-      return_date: range,
-    },
-    attributes: ['refund_amount'],
-    transaction,
-  });
-  const cashOut = cashRefunds.reduce((s, r) => s + parseFloat(r.refund_amount || 0), 0);
-
-  const supplierCashOutRows = await db.SupplierTransaction.findAll({
-    where: {
-      shop_id: shopId,
-      method: 'cash',
-      type: { [Op.in]: ['stock_received', 'payment_made'] },
-      date: range,
-    },
-    attributes: ['paid_amount'],
-    transaction,
-  });
-  const supplierCashOut = supplierCashOutRows.reduce((s, r) => s + parseFloat(r.paid_amount || 0), 0);
-
-  const employeeCashOutRows = await db.EmployeeTransaction.findAll({
-    where: {
-      shop_id: shopId,
-      method: 'cash',
-      type: { [Op.in]: ['advance_given', 'loan_given', 'payment_made'] },
-      date: range,
-    },
-    attributes: ['amount'],
-    transaction,
-  });
-  const employeeCashOut = employeeCashOutRows.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
-
-  const employeeCashInRows = await db.EmployeeTransaction.findAll({
-    where: {
-      shop_id: shopId,
-      method: 'cash',
-      type: { [Op.in]: ['loan_repayment', 'receivable_collected'] },
-      date: range,
-    },
-    attributes: ['amount'],
-    transaction,
-  });
-  const employeeCashIn = employeeCashInRows.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
-
-  const expenseCashOutRows = await db.Expense.findAll({
-    where: {
-      shop_id: shopId,
-      paid_via: 'cash',
-      status: { [Op.ne]: 'void' },
-      expense_date: range,
-    },
-    attributes: ['amount'],
-    transaction,
-  });
-  const expenseCashOut = expenseCashOutRows.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
-
-  return round2(
-    cashIn + employeeCashIn + customerCashIn
-    - cashOut - supplierCashOut - employeeCashOut - expenseCashOut
-  );
+  return round2(parseFloat(agg?.total_debit || 0) - parseFloat(agg?.total_credit || 0));
 }
 
 // ── resolveOpeningCash ──────────────────────────────────────────────────────────
@@ -241,17 +209,39 @@ function assertBankAvailable(bankAccount, amount) {
 }
 
 // ── debitBankAccount / creditBankAccount ──────────────────────────────────────
-// Mirrors the inline pattern already used in saleController/saleReturnController/
-// installmentController: first active bank account for the shop, row-locked.
-async function debitBankAccount(shopId, amount, transaction) {
+// Targets a specific bank account (so each named account — "Office Account",
+// "Office 2 Account" — has its own real balance and ledger line) when
+// `bankAccountId` is given; otherwise falls back to the first active account
+// for the shop, matching every existing caller that hasn't been updated yet.
+// Always returns the row with its linked ChartOfAccount included, so callers
+// can post the GL line against that specific account's own code.
+async function findTargetBankAccount(shopId, transaction, bankAccountId) {
+  const where = bankAccountId
+    ? { id: bankAccountId, shop_id: shopId, is_active: true }
+    : { shop_id: shopId, is_active: true };
+  // Postgres won't allow FOR UPDATE across an outer join to a nullable side,
+  // so the row lock and the ChartOfAccount lookup have to be separate queries.
   const bankAcc = await db.BankAccount.findOne({
-    where: { shop_id: shopId, is_active: true },
-    order: [['id', 'ASC']],
+    where,
+    order: bankAccountId ? undefined : [['id', 'ASC']],
     transaction,
     lock: transaction.LOCK.UPDATE,
   });
+  if (bankAcc?.chart_of_account_id) {
+    bankAcc.ChartOfAccount = await db.ChartOfAccount.findByPk(bankAcc.chart_of_account_id, { transaction });
+  }
+  return bankAcc;
+}
+
+async function debitBankAccount(shopId, amount, transaction, bankAccountId = null) {
+  const bankAcc = await findTargetBankAccount(shopId, transaction, bankAccountId);
   if (!bankAcc) {
     const err = new Error('No active bank account found for this shop');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (bankAcc.kind !== 'bank') {
+    const err = new Error('Selected account is not a bank account');
     err.statusCode = 400;
     throw err;
   }
@@ -262,14 +252,44 @@ async function debitBankAccount(shopId, amount, transaction) {
   return bankAcc;
 }
 
-async function creditBankAccount(shopId, amount, transaction) {
-  const bankAcc = await db.BankAccount.findOne({
-    where: { shop_id: shopId, is_active: true },
-    order: [['id', 'ASC']],
-    transaction,
-    lock: transaction.LOCK.UPDATE,
-  });
+// Debits either a named cash fund (when bankAccountId is given) or the shared
+// Cash in Hand session balance (when it is not).
+async function debitCashPayment(shopId, amount, transaction, bankAccountId = null) {
+  if (bankAccountId) {
+    const cashAcc = await findTargetBankAccount(shopId, transaction, bankAccountId);
+    if (!cashAcc) {
+      const err = new Error('Cash account not found');
+      err.statusCode = 400;
+      throw err;
+    }
+    if (cashAcc.kind !== 'cash') {
+      const err = new Error('Selected account is not a cash account');
+      err.statusCode = 400;
+      throw err;
+    }
+    assertBankAvailable(cashAcc, amount);
+    await cashAcc.update({
+      current_balance: Math.round((parseFloat(cashAcc.current_balance || 0) - parseFloat(amount)) * 100) / 100,
+    }, { transaction });
+    return cashAcc;
+  }
+  await assertCashAvailable(shopId, amount, transaction);
+  return null;
+}
+
+function paymentAccountCode(method, bankAcc) {
+  if (method === 'bank') return bankAccountCode(bankAcc);
+  return bankAcc ? bankAccountCode(bankAcc) : '05-CASH';
+}
+
+async function creditBankAccount(shopId, amount, transaction, bankAccountId = null) {
+  const bankAcc = await findTargetBankAccount(shopId, transaction, bankAccountId);
   if (bankAcc) {
+    if (bankAcc.kind !== 'bank') {
+      const err = new Error('Selected account is not a bank account');
+      err.statusCode = 400;
+      throw err;
+    }
     await bankAcc.update({
       current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) + parseFloat(amount)) * 100) / 100,
     }, { transaction });
@@ -277,8 +297,33 @@ async function creditBankAccount(shopId, amount, transaction) {
   return bankAcc;
 }
 
+async function creditCashPayment(shopId, amount, transaction, bankAccountId) {
+  const cashAcc = await findTargetBankAccount(shopId, transaction, bankAccountId);
+  if (!cashAcc) {
+    const err = new Error('Cash account not found');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (cashAcc.kind !== 'cash') {
+    const err = new Error('Selected account is not a cash account');
+    err.statusCode = 400;
+    throw err;
+  }
+  await cashAcc.update({
+    current_balance: Math.round((parseFloat(cashAcc.current_balance || 0) + parseFloat(amount)) * 100) / 100,
+  }, { transaction });
+  return cashAcc;
+}
+
+// Resolves the GL account code a bank account should post against — its own
+// linked sub-account when one exists, falling back to the shared aggregate
+// code for any row that predates the per-account linking migration.
+function bankAccountCode(bankAcc) {
+  return bankAcc?.ChartOfAccount?.account_code || '05-BANK';
+}
+
 module.exports = {
-  computeLiveCash, computeCashFlow, resolveOpeningCash, ensureTodaySession,
+  computeLiveCash, computeTotalCashOnHand, computeCashFlow, resolveOpeningCash, ensureTodaySession,
   assertCashAvailable, assertBankAvailable,
-  debitBankAccount, creditBankAccount,
+  debitBankAccount, debitCashPayment, creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode,
 };

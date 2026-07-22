@@ -1,7 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
-const { assertCashAvailable, debitBankAccount, creditBankAccount } = require('../utils/cashHelpers');
+const { assertCashAvailable, debitBankAccount, creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
 
 function currentMonthStr() {
@@ -24,7 +24,7 @@ exports.recordAdvance = async (req, res) => {
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
 
-    const { amount, method, notes, for_month } = req.body;
+    const { amount, method, bank_account_id, notes, for_month } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
     if (!['cash', 'bank'].includes(method)) {
@@ -45,8 +45,9 @@ exports.recordAdvance = async (req, res) => {
       return res.status(400).json({ message: `Salary for ${for_month} has already been given — pick a later month` });
     }
 
+    let bankAcc = null;
     if (method === 'cash') await assertCashAvailable(shopId, amt, transaction);
-    else await debitBankAccount(shopId, amt, transaction);
+    else bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
 
     await employee.update({
       current_payable: Math.round((parseFloat(employee.current_payable || 0) - amt) * 100) / 100,
@@ -64,7 +65,7 @@ exports.recordAdvance = async (req, res) => {
       createdBy: req.user.id,
       lines: [
         { accountCode: '05-EMPADVLOAN', debit: amt },
-        { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', credit: amt },
+        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: amt },
       ],
     }, transaction);
 
@@ -93,7 +94,7 @@ exports.recordLoan = async (req, res) => {
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
 
-    const { amount, method, notes } = req.body;
+    const { amount, method, bank_account_id, notes } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
     if (!['cash', 'bank'].includes(method)) {
@@ -101,8 +102,9 @@ exports.recordLoan = async (req, res) => {
       return res.status(400).json({ message: 'method must be cash or bank' });
     }
 
+    let bankAcc = null;
     if (method === 'cash') await assertCashAvailable(shopId, amt, transaction);
-    else await debitBankAccount(shopId, amt, transaction);
+    else bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
 
     await employee.update({
       current_payable: Math.round((parseFloat(employee.current_payable || 0) - amt) * 100) / 100,
@@ -120,7 +122,7 @@ exports.recordLoan = async (req, res) => {
       createdBy: req.user.id,
       lines: [
         { accountCode: '05-EMPADVLOAN', debit: amt },
-        { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', credit: amt },
+        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: amt },
       ],
     }, transaction);
 
@@ -150,7 +152,7 @@ exports.receiveLoanPayment = async (req, res) => {
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
 
-    const { amount, method, notes } = req.body;
+    const { amount, method, bank_account_id, notes } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
     if (!['cash', 'bank'].includes(method)) {
@@ -178,7 +180,8 @@ exports.receiveLoanPayment = async (req, res) => {
       return res.status(400).json({ message: `Amount cannot exceed the outstanding loan balance (${loanReceivable.toFixed(2)})` });
     }
 
-    if (method === 'bank') await creditBankAccount(shopId, amt, transaction);
+    let bankAcc = null;
+    if (method === 'bank') bankAcc = await creditBankAccount(shopId, amt, transaction, bank_account_id);
     // Cash coming in needs no floor guard.
 
     await employee.update({
@@ -196,7 +199,7 @@ exports.receiveLoanPayment = async (req, res) => {
       narration: `Loan payment received from employee ${employee.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
       createdBy: req.user.id,
       lines: [
-        { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', debit: amt },
+        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: amt },
         { accountCode: '05-EMPADVLOAN', credit: amt },
       ],
     }, transaction);
@@ -283,7 +286,7 @@ exports.giveSalary = async (req, res) => {
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
 
-    const { month, bonus, deductions, method } = req.body;
+    const { month, bonus, tax_deduction_percent, method, bank_account_id } = req.body;
     if (!month || !/^\d{4}-\d{2}$/.test(month)) {
       await transaction.rollback();
       return res.status(400).json({ message: 'month is required in YYYY-MM format' });
@@ -300,8 +303,10 @@ exports.giveSalary = async (req, res) => {
     }
 
     const bonusAmt = parseFloat(bonus) || 0;
-    const manualDeductions = parseFloat(deductions) || 0;
+    const taxPercent = Math.min(100, Math.max(0, parseFloat(tax_deduction_percent) || 0));
     const basicSalary = parseFloat(employee.basic_salary || 0);
+    const grossSalary = Math.round((basicSalary + bonusAmt) * 100) / 100;
+    const taxDeduction = Math.round((grossSalary * taxPercent / 100) * 100) / 100;
 
     const uncleared = await db.EmployeeTransaction.findAll({
       where: { employee_id: employee.id, type: 'advance_given', for_month: month, cleared: false },
@@ -309,15 +314,16 @@ exports.giveSalary = async (req, res) => {
     });
     const advanceDeduction = Math.round(uncleared.reduce((s, a) => s + parseFloat(a.amount || 0), 0) * 100) / 100;
 
-    const totalDeductions = Math.round((manualDeductions + advanceDeduction) * 100) / 100;
-    const netPay = Math.round((basicSalary + bonusAmt - totalDeductions) * 100) / 100;
+    const totalDeductions = Math.round((taxDeduction + advanceDeduction) * 100) / 100;
+    const netPay = Math.round((grossSalary - totalDeductions) * 100) / 100;
     if (netPay < 0) {
       await transaction.rollback();
       return res.status(400).json({ message: 'Deductions and advances exceed this month’s salary' });
     }
 
+    let bankAcc = null;
     if (method === 'cash') await assertCashAvailable(shopId, netPay, transaction);
-    else await debitBankAccount(shopId, netPay, transaction);
+    else bankAcc = await debitBankAccount(shopId, netPay, transaction, bank_account_id);
 
     const payroll = await db.Payroll.create({
       employee_id: employee.id,
@@ -325,6 +331,8 @@ exports.giveSalary = async (req, res) => {
       basic_salary: basicSalary,
       deductions: totalDeductions,
       advance_deduction: advanceDeduction,
+      tax_deduction_percent: taxPercent,
+      tax_deduction: taxDeduction,
       bonus: bonusAmt,
       net_pay: netPay,
       status: 'paid',
@@ -344,7 +352,7 @@ exports.giveSalary = async (req, res) => {
       await db.EmployeeTransaction.create({
         shop_id: shopId, employee_id: employee.id, date: new Date(), type: 'deduction',
         amount: totalDeductions, method: null, created_by: req.user.id,
-        notes: `Salary ${month} deductions${advanceDeduction > 0 ? ` (incl. advance ${advanceDeduction.toFixed(2)})` : ''}`,
+        notes: `Salary ${month} deductions${taxDeduction > 0 ? ` (tax ${taxPercent}%)` : ''}${advanceDeduction > 0 ? ` (incl. advance ${advanceDeduction.toFixed(2)})` : ''}`,
       }, { transaction });
     }
 
@@ -357,21 +365,22 @@ exports.giveSalary = async (req, res) => {
     // accrues, deductions/advance and the payout net it back down by the same
     // total) — so current_payable is intentionally left untouched here.
 
-    // Dr Salaries Expense (net of manual deductions only — advance clearing is
+    // Dr Salaries Expense (net of tax deductions only — advance clearing is
     // recovering an existing asset, not reducing the expense) = Cr advance
     // recovery + Cr Cash/Bank paid out. Balances exactly since
     // netPay = netExpense - advanceDeduction (validated by the netPay>=0 check above).
-    const netExpense = Math.max(0, Math.round((basicSalary + bonusAmt - manualDeductions) * 100) / 100);
+    const netExpense = Math.max(0, Math.round((grossSalary - taxDeduction) * 100) / 100);
     if (netExpense > 0) {
       await postVoucher(shopId, {
         type: 'journal',
         date: new Date(),
         narration: `Salary paid to employee ${employee.name} for month ${month} (Basic: ${basicSalary}, Bonus: ${bonusAmt}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
         createdBy: req.user.id,
+        branchId: employee.branch_id,
         lines: [
           { accountCode: '07-SALARIES', debit: netExpense },
           ...(advanceDeduction > 0 ? [{ accountCode: '05-EMPADVLOAN', credit: advanceDeduction }] : []),
-          { accountCode: method === 'bank' ? '05-BANK' : '05-CASH', credit: netPay },
+          { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: netPay },
         ],
       }, transaction);
     }
@@ -507,6 +516,8 @@ exports.getTransactionSlip = async (req, res) => {
         bonus: parseFloat(txn.Payroll.bonus || 0),
         deductions: parseFloat(txn.Payroll.deductions || 0),
         advance_deduction: parseFloat(txn.Payroll.advance_deduction || 0),
+        tax_deduction_percent: parseFloat(txn.Payroll.tax_deduction_percent || 0),
+        tax_deduction: parseFloat(txn.Payroll.tax_deduction || 0),
         net_pay: parseFloat(txn.Payroll.net_pay || 0),
       } : null,
     });
@@ -630,6 +641,8 @@ exports.getClearanceCertificate = async (req, res) => {
         bonus: parseFloat(p.bonus || 0),
         deductions: parseFloat(p.deductions || 0),
         advance_deduction: parseFloat(p.advance_deduction || 0),
+        tax_deduction_percent: parseFloat(p.tax_deduction_percent || 0),
+        tax_deduction: parseFloat(p.tax_deduction || 0),
         net_pay: parseFloat(p.net_pay || 0),
         status: p.status,
       })),

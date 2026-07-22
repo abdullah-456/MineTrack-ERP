@@ -6,6 +6,7 @@ module.exports = (sequelize, DataTypes) => {
       Voucher.belongsTo(models.Shop, { foreignKey: 'shop_id' });
       Voucher.belongsTo(models.User, { as: 'Creator', foreignKey: 'created_by' });
       Voucher.belongsTo(models.User, { as: 'Approver', foreignKey: 'approved_by' });
+      Voucher.belongsTo(models.Branch, { foreignKey: 'branch_id' });
       Voucher.hasMany(models.VoucherEntry, { foreignKey: 'voucher_id' });
       Voucher.hasMany(models.GeneralLedger, { foreignKey: 'voucher_id' });
     }
@@ -19,6 +20,10 @@ module.exports = (sequelize, DataTypes) => {
     shop_id: {
       type: DataTypes.INTEGER,
       allowNull: false
+    },
+    branch_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
     },
     voucher_number: {
       type: DataTypes.STRING,

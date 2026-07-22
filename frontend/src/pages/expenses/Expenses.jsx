@@ -8,6 +8,8 @@ import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
+import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
+import ExpenseCategorySelect from '../../components/ui/ExpenseCategorySelect';
 import api from '../../api/axios';
 
 function toDatetimeLocal(d) {
@@ -17,9 +19,9 @@ function toDatetimeLocal(d) {
 }
 
 const emptyForm = (branches) => ({
-  category: '', description: '', amount: '',
+  category: '', expense_account_id: null, description: '', amount: '',
   expense_date: toDatetimeLocal(new Date()),
-  paid_via: 'cash',
+  paid_via: 'cash', bank_account_id: null,
   branch_id: branches?.[0]?.id || '',
 });
 
@@ -59,11 +61,11 @@ export default function Expenses() {
   const openEdit = (exp) => {
     setSelected(exp);
     setForm({
-      category: exp.category,
+      category: exp.category, expense_account_id: exp.expense_account_id || null,
       description: exp.description || '',
       amount: exp.amount,
       expense_date: toDatetimeLocal(exp.expense_date),
-      paid_via: exp.paid_via,
+      paid_via: exp.paid_via, bank_account_id: exp.bank_account_id || null,
       branch_id: exp.branch_id,
     });
     setModal('edit');
@@ -218,7 +220,11 @@ export default function Expenses() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <FormLabel required>{t('category')}</FormLabel>
-                <input className="input" required value={form.category} onChange={setF('category')} placeholder="Rent, Utilities, Office Supplies..." />
+                <ExpenseCategorySelect
+                  required
+                  value={form.expense_account_id}
+                  onChange={({ expense_account_id, category }) => setForm(f => ({ ...f, expense_account_id, category }))}
+                />
               </div>
               <div>
                 <FormLabel required>{t('amount')}</FormLabel>
@@ -230,10 +236,12 @@ export default function Expenses() {
               </div>
               <div>
                 <FormLabel required>{t('method')}</FormLabel>
-                <select className="input" required value={form.paid_via} onChange={setF('paid_via')}>
-                  <option value="cash">{t('cash')}</option>
-                  <option value="bank">{t('bank')}</option>
-                </select>
+                <PaymentAccountSelect
+                  required
+                  method={form.paid_via}
+                  bankAccountId={form.bank_account_id}
+                  onChange={({ method, bank_account_id }) => setForm(f => ({ ...f, paid_via: method, bank_account_id }))}
+                />
               </div>
               <div>
                 <FormLabel required>{t('branch')}</FormLabel>

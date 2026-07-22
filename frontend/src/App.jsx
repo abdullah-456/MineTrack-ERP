@@ -20,6 +20,7 @@ import ShopDetail          from './pages/superadmin/ShopDetail';
 import UserManagement from './pages/admin/UserManagement';
 import AuditLog from './pages/admin/AuditLog';
 import BoardOfDirectors from './pages/admin/BoardOfDirectors';
+import BoardMemberLedger from './pages/admin/BoardMemberLedger';
 import Branches from './pages/admin/Branches';
 import Expenses from './pages/expenses/Expenses';
 import Roles from './pages/admin/Roles';
@@ -37,10 +38,13 @@ import EmployeeSlipPrint from './pages/employees/EmployeeSlipPrint';
 import EmployeeClearancePrint from './pages/employees/EmployeeClearancePrint';
 import Payroll from './pages/employees/Payroll';
 import ChartOfAccounts from './pages/accounting/ChartOfAccounts';
+import JournalEntry from './pages/accounting/JournalEntry';
 import GeneralLedger from './pages/accounting/GeneralLedger';
 import TrialBalance from './pages/reports/TrialBalance';
 import ProfitAndLoss from './pages/reports/ProfitAndLoss';
 import BalanceSheet from './pages/reports/BalanceSheet';
+import EquityStatement from './pages/reports/EquityStatement';
+import CashFlowStatement from './pages/reports/CashFlowStatement';
 import Products   from './pages/products/Products';
 import Categories from './pages/products/Categories';
 import Inventory  from './pages/inventory/Inventory';
@@ -117,6 +121,8 @@ function App() {
                 element={<ProtectedRoute module="users" action="read"><AuditLog /></ProtectedRoute>} />
               <Route path="/admin/board-of-directors"
                 element={<ProtectedRoute module="board_directors" action="read"><BoardOfDirectors /></ProtectedRoute>} />
+              <Route path="/admin/board-of-directors/:id/ledger"
+                element={<ProtectedRoute module="board_directors" action="read"><BoardMemberLedger /></ProtectedRoute>} />
               <Route path="/admin/branches"
                 element={<ProtectedRoute module="branches" action="read"><Branches /></ProtectedRoute>} />
               <Route path="/admin/roles"
@@ -174,7 +180,7 @@ function App() {
               <Route path="/accounting/chart-of-accounts"
                 element={<ProtectedRoute module="accounting" action="read"><ChartOfAccounts /></ProtectedRoute>} />
               <Route path="/accounting/vouchers/new"
-                element={<ProtectedRoute module="accounting" action="create"><ComingSoon title="New Voucher" /></ProtectedRoute>} />
+                element={<ProtectedRoute module="accounting" action="create"><JournalEntry /></ProtectedRoute>} />
               <Route path="/accounting/general-ledger"
                 element={<ProtectedRoute module="accounting" action="read"><GeneralLedger /></ProtectedRoute>} />
               <Route path="/expenses"
@@ -187,6 +193,10 @@ function App() {
                 element={<ProtectedRoute module="reports" action="read"><ProfitAndLoss /></ProtectedRoute>} />
               <Route path="/reports/balance-sheet"
                 element={<ProtectedRoute module="reports" action="read"><BalanceSheet /></ProtectedRoute>} />
+              <Route path="/reports/equity-statement"
+                element={<ProtectedRoute module="reports" action="read"><EquityStatement /></ProtectedRoute>} />
+              <Route path="/reports/cash-flow"
+                element={<ProtectedRoute module="reports" action="read"><CashFlowStatement /></ProtectedRoute>} />
               <Route path="/reports/payables"
                 element={<ProtectedRoute module="reports" action="read"><ComingSoon title="AP Aging" /></ProtectedRoute>} />
               <Route path="/reports/receivables"

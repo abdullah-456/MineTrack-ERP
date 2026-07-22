@@ -71,7 +71,13 @@ export default function EmployeeSlipPrint() {
   const title = TITLES[txn.type] || (t('transactionSlip') || 'Transaction Slip');
   const isIncoming = txn.type === 'loan_repayment';
   const headlineAmount = payroll ? payroll.net_pay : txn.amount;
-  const manualDeductions = payroll ? Math.max(0, (payroll.deductions || 0) - (payroll.advance_deduction || 0)) : 0;
+  const taxDeduction = payroll
+    ? (payroll.tax_deduction ?? Math.max(0, (payroll.deductions || 0) - (payroll.advance_deduction || 0)))
+    : 0;
+  const taxPercent = payroll?.tax_deduction_percent || 0;
+  const taxLabel = taxPercent > 0
+    ? `${t('taxDeductions') || 'Tax Deductions'} (${taxPercent}%)`
+    : (t('taxDeductions') || 'Tax Deductions');
 
   return (
     <>
@@ -131,9 +137,9 @@ export default function EmployeeSlipPrint() {
                 </td>
               </tr>
               <tr>
-                <td style={{ color: INK_SOFT }}>{t('deductions') || 'Deductions'}</td>
-                <td className="num" style={{ color: manualDeductions > 0 ? '#b91c1c' : INK }}>
-                  {manualDeductions > 0 ? `−${fmt(manualDeductions)}` : '-'}
+                <td style={{ color: INK_SOFT }}>{taxLabel}</td>
+                <td className="num" style={{ color: taxDeduction > 0 ? '#b91c1c' : INK }}>
+                  {taxDeduction > 0 ? `−${fmt(taxDeduction)}` : '-'}
                 </td>
               </tr>
               <tr>

@@ -15,8 +15,10 @@ const supplierLedgerController = require('../controllers/supplierLedgerControlle
 const employeeLedgerController = require('../controllers/employeeLedgerController');
 const customerLedgerController = require('../controllers/customerLedgerController');
 const generalLedgerController = require('../controllers/generalLedgerController');
+const chartOfAccountController = require('../controllers/chartOfAccountController');
 const auditLogController = require('../controllers/auditLogController');
 const boardMemberController = require('../controllers/boardMemberController');
+const boardMemberLedgerController = require('../controllers/boardMemberLedgerController');
 const expenseController = require('../controllers/expenseController');
 const financialReportsController = require('../controllers/financialReportsController');
 const roleController = require('../controllers/roleController');
@@ -104,14 +106,21 @@ router.get(   '/invoices',               authorize('sales', 'read'),   invoiceCo
 router.get(   '/invoices/:id',           authorize('sales', 'read'),   invoiceController.get);
 
 // Accounting (Chart of Accounts + General Ledger)
-router.get(   '/accounting/chart-of-accounts', authorize('accounting', 'read'), generalLedgerController.listChartOfAccounts);
-router.get(   '/accounting/general-ledger',    authorize('accounting', 'read'), generalLedgerController.listEntries);
-router.get(   '/accounting/vouchers/:id',       authorize('accounting', 'read'), generalLedgerController.getVoucher);
+router.get(   '/accounting/chart-of-accounts',     authorize('accounting', 'read'),   generalLedgerController.listChartOfAccounts);
+router.post(  '/accounting/chart-of-accounts',     authorize('accounting', 'create'), chartOfAccountController.create);
+router.put(   '/accounting/chart-of-accounts/:id', authorize('accounting', 'update'), chartOfAccountController.update);
+router.delete('/accounting/chart-of-accounts/:id', authorize('accounting', 'delete'), chartOfAccountController.remove);
+router.get(   '/accounting/general-ledger/filter-options', authorize('accounting', 'read'), generalLedgerController.getFilterOptions);
+router.get(   '/accounting/general-ledger',        authorize('accounting', 'read'),   generalLedgerController.listEntries);
+router.get(   '/accounting/vouchers/:id',          authorize('accounting', 'read'),   generalLedgerController.getVoucher);
+router.post(  '/accounting/journal-entries',       authorize('accounting', 'create'), generalLedgerController.createJournalEntry);
 
 // Financial Reports (derived from General Ledger)
 router.get(   '/reports/trial-balance',    authorize('reports', 'read'), financialReportsController.trialBalance);
 router.get(   '/reports/profit-and-loss', authorize('reports', 'read'), financialReportsController.profitAndLoss);
 router.get(   '/reports/balance-sheet',   authorize('reports', 'read'), financialReportsController.balanceSheet);
+router.get(   '/reports/equity-statement', authorize('reports', 'read'), financialReportsController.equityStatement);
+router.get(   '/reports/cash-flow',       authorize('reports', 'read'), financialReportsController.cashFlow);
 
 // Financial Setup (first-time wizard) & Cash Sessions
 router.post(  '/financial-setup',        financialSetupController.completeSetup);
@@ -134,6 +143,9 @@ router.get(   '/board-members/:id', authorize('board_directors', 'read'),   boar
 router.post(  '/board-members',     authorize('board_directors', 'create'), boardMemberController.create);
 router.put(   '/board-members/:id', authorize('board_directors', 'update'), boardMemberController.update);
 router.delete('/board-members/:id', authorize('board_directors', 'delete'), boardMemberController.remove);
+router.get(   '/board-members/:id/ledger',  authorize('board_directors', 'read'),   boardMemberLedgerController.getLedger);
+router.post(  '/board-members/:id/receive', authorize('board_directors', 'update'), boardMemberLedgerController.recordReceive);
+router.post(  '/board-members/:id/send',    authorize('board_directors', 'update'), boardMemberLedgerController.recordSend);
 
 // Expenses
 router.get(   '/expenses',     authorize('expenses', 'read'),   expenseController.list);

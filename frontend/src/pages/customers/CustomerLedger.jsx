@@ -8,6 +8,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import ReportActions from '../../components/ui/ReportActions';
+import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import { money } from '../../utils/reportExport';
 import api from '../../api/axios';
 
@@ -33,7 +34,7 @@ export default function CustomerLedger() {
   const [tab, setTab] = useState('history');
   const [modal, setModal] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', notes: '' });
+  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
 
   // Open a printable voucher in a new tab for a single transaction
   const openVoucher = (txn) => {
@@ -72,12 +73,13 @@ export default function CustomerLedger() {
       await api.post(`/customers/${id}/payments`, {
         amount: parseFloat(paymentForm.amount),
         method: paymentForm.method,
+        bank_account_id: paymentForm.bank_account_id,
         notes: paymentForm.notes || undefined,
         ...shopParams(),
       });
       success(t('paymentRecorded') || 'Payment recorded');
       setModal(null);
-      setPaymentForm({ amount: '', method: 'cash', notes: '' });
+      setPaymentForm({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
       fetchData();
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
@@ -159,9 +161,6 @@ export default function CustomerLedger() {
             </div>
           );
         })}
-        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          {t('creditLimit') || 'Credit Limit'}: {formatPKR(summary.credit_limit, lang)}
-        </span>
       </div>
 
       {/* Tabs */}
@@ -282,10 +281,12 @@ export default function CustomerLedger() {
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
-              <select className="input" required value={paymentForm.method} onChange={e => setPaymentForm(f => ({ ...f, method: e.target.value }))}>
-                <option value="cash">{t('cash') || 'Cash'}</option>
-                <option value="bank">{t('bank') || 'Bank'}</option>
-              </select>
+              <PaymentAccountSelect
+                required
+                method={paymentForm.method}
+                bankAccountId={paymentForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setPaymentForm(f => ({ ...f, method, bank_account_id }))}
+              />
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>

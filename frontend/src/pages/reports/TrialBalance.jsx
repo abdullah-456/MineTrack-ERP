@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FileBarChart2, Loader2, RefreshCw } from 'lucide-react';
+import { FileBarChart2, Loader2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
+import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
 
 const TYPE_COLORS = {
@@ -15,17 +16,21 @@ const TYPE_COLORS = {
 export default function TrialBalance() {
   const { t, lang } = useTheme();
   const { error } = useToast();
-  const { shopParams } = useShopApi();
+  const { shopParams, branches } = useShopApi();
 
   const [rows, setRows] = useState([]);
   const [totals, setTotals] = useState({ total_debit: 0, total_credit: 0, is_balanced: true });
   const [loading, setLoading] = useState(true);
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
 
+  const [branchId, setBranchId] = useState('');
+
   const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/reports/trial-balance', { params: { ...shopParams(), as_of: asOf } });
+      const params = { ...shopParams(), as_of: asOf };
+      if (branchId) params.branch_id = branchId;
+      const { data } = await api.get('/reports/trial-balance', { params });
       setRows(data.rows || []);
       setTotals({
         total_debit: data.total_debit || 0,
@@ -37,7 +42,7 @@ export default function TrialBalance() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, asOf, error, t]);
+  }, [shopParams, asOf, branchId, error, t]);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
@@ -53,7 +58,7 @@ export default function TrialBalance() {
     debit: totals.total_debit,
     credit: totals.total_credit,
   };
-  const reportFilters = [{ label: t('asOf') || 'As of', value: asOf }];
+  const reportFilters = buildReportFilterList({ t, asOf, branchId, branches, mode: 'point' });
 
   return (
     <div className="space-y-6">
@@ -74,15 +79,15 @@ export default function TrialBalance() {
         }
       />
 
-      <div className="glass-card p-4 flex flex-wrap gap-4 items-end">
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('asOf') || 'As of'}</span>
-          <input className="input" type="date" value={asOf} onChange={e => setAsOf(e.target.value)} />
-        </div>
-        <button onClick={fetchReport} className="btn-secondary flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" />{t('refresh') || 'Refresh'}
-        </button>
-      </div>
+      <FinancialReportFilters
+        mode="point"
+        asOf={asOf}
+        branchId={branchId}
+        branches={branches}
+        onAsOfChange={setAsOf}
+        onBranchChange={setBranchId}
+        onRefresh={fetchReport}
+      />
 
       <div className="grid grid-cols-2 gap-4">
         <div className="glass-card p-5">

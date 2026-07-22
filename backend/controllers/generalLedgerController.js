@@ -1,6 +1,8 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
+const { postVoucher } = require('../utils/postVoucher');
+const { ENTITY_TYPES, resolveEntityVoucherIds, listFilterOptions } = require('../utils/ledgerEntityFilter');
 
 // In "All Accounts" view, sales post four GL lines (e.g. Cash, Sales, COGS, Stock).
 // Hide the internal COGS ↔ Stock pair so each transaction shows its two main accounts.
@@ -17,15 +19,20 @@ function filterMainLedgerRows(rows) {
 }
 
 // ── GET /accounting/chart-of-accounts ────────────────────────────────────────
-// Chart of Accounts rows are shared/global (not shop-scoped), but each
-// account's displayed balance is computed from THIS shop's GeneralLedger rows
-// only, via the same shop_id column postVoucher stamps every entry with.
+// System accounts (shop_id NULL) are shared by every shop; custom accounts a
+// shop created for itself (shop_id set) are only visible to that shop. Either
+// way, each account's displayed balance is computed from THIS shop's
+// GeneralLedger rows only, via the same shop_id column postVoucher stamps
+// every entry with.
 exports.listChartOfAccounts = async (req, res) => {
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
-    const accounts = await db.ChartOfAccount.findAll({ order: [['account_code', 'ASC']] });
+    const accounts = await db.ChartOfAccount.findAll({
+      where: { [Op.or]: [{ shop_id: null }, { shop_id: shopId }] },
+      order: [['account_code', 'ASC']],
+    });
 
     const balances = await db.GeneralLedger.findAll({
       where: { shop_id: shopId },
@@ -42,14 +49,31 @@ exports.listChartOfAccounts = async (req, res) => {
       balanceMap[b.account_id] = Math.round((parseFloat(b.total_debit || 0) - parseFloat(b.total_credit || 0)) * 100) / 100;
     });
 
-    const flat = accounts.map(a => ({
-      id: a.id,
-      account_code: a.account_code,
-      account_name: a.account_name,
-      account_type: a.account_type,
-      parent_account_id: a.parent_account_id,
-      balance: balanceMap[a.id] || 0,
-    }));
+    const fundAccounts = await db.BankAccount.findAll({
+      where: { shop_id: shopId },
+      attributes: ['chart_of_account_id', 'kind', 'bank_name', 'account_number'],
+    });
+    const fundMap = {};
+    fundAccounts.forEach(f => {
+      if (f.chart_of_account_id) fundMap[f.chart_of_account_id] = f;
+    });
+
+    const flat = accounts.map(a => {
+      const fund = fundMap[a.id];
+      return {
+        id: a.id,
+        account_code: a.account_code,
+        account_name: a.account_name,
+        account_type: a.account_type,
+        parent_account_id: a.parent_account_id,
+        is_system: a.shop_id === null,
+        is_active: a.is_active,
+        balance: balanceMap[a.id] || 0,
+        fund_kind: fund?.kind || null,
+        bank_name: fund?.bank_name || null,
+        account_number: fund?.account_number || null,
+      };
+    });
 
     return res.json({ accounts: flat });
   } catch (error) {
@@ -58,7 +82,20 @@ exports.listChartOfAccounts = async (req, res) => {
   }
 };
 
-// ── GET /accounting/general-ledger?account_id=&from=&to= ────────────────────
+// ── GET /accounting/general-ledger/filter-options ───────────────────────────
+exports.getFilterOptions = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const options = await listFilterOptions(shopId);
+    return res.json(options);
+  } catch (error) {
+    console.error('getLedgerFilterOptions error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── GET /accounting/general-ledger?account_id=&from=&to=&entity_type=&entity_id=
 // The whole-business ledger: every voucher line posted for this shop, optionally
 // filtered to one account and/or a date range. running_balance on each row was
 // computed at write time scoped to this shop (see utils/postVoucher.js), so no
@@ -76,6 +113,32 @@ exports.listEntries = async (req, res) => {
       where.entry_date = {};
       if (req.query.from) where.entry_date[Op.gte] = new Date(req.query.from);
       if (req.query.to) where.entry_date[Op.lte] = new Date(`${req.query.to}T23:59:59.999Z`);
+    }
+
+    const entityType = req.query.entity_type || null;
+    const entityId = req.query.entity_id ? parseInt(req.query.entity_id, 10) : null;
+    const branchId = req.query.branch_id ? parseInt(req.query.branch_id, 10) : null;
+
+    let voucherIdFilter = null;
+    if (entityType && ENTITY_TYPES.includes(entityType)) {
+      voucherIdFilter = await resolveEntityVoucherIds(shopId, entityType, entityId);
+    }
+    if (branchId) {
+      const branchVouchers = await db.Voucher.findAll({
+        where: { shop_id: shopId, branch_id: branchId },
+        attributes: ['id'],
+        raw: true,
+      });
+      const branchVoucherIds = branchVouchers.map(v => v.id);
+      voucherIdFilter = voucherIdFilter
+        ? voucherIdFilter.filter(id => branchVoucherIds.includes(id))
+        : branchVoucherIds;
+    }
+    if (voucherIdFilter !== null) {
+      if (!voucherIdFilter.length) {
+        return res.json({ entries: [] });
+      }
+      where.voucher_id = { [Op.in]: voucherIdFilter };
     }
 
     const entries = await db.GeneralLedger.findAll({
@@ -102,7 +165,7 @@ exports.listEntries = async (req, res) => {
       running_balance: parseFloat(e.running_balance || 0),
     }));
 
-    if (!req.query.account_id) {
+    if (!req.query.account_id && !entityType) {
       rows = filterMainLedgerRows(rows);
     }
 
@@ -156,5 +219,71 @@ exports.getVoucher = async (req, res) => {
   } catch (error) {
     console.error('getVoucher error:', error);
     return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── POST /accounting/journal-entries ─────────────────────────────────────────
+// Manual double-entry posting against ANY active account, of any type — the
+// mechanism that makes a manually-created account (a fixed asset, a loan
+// payable, an equity adjustment...) usable even though nothing in the app
+// automatically posts to it. Every automatic flow (sales, expenses, payments)
+// already goes through postVoucher; this is the same engine, driven directly
+// by the user instead of by a business action.
+exports.createJournalEntry = async (req, res) => {
+  const shopId = requireShopId(req, res);
+  if (!shopId) return;
+
+  const { date, narration, lines } = req.body;
+  if (!Array.isArray(lines) || lines.length < 2) {
+    return res.status(400).json({ message: 'At least two lines are required' });
+  }
+
+  const round = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+  for (const line of lines) {
+    const debit = round(line.debit);
+    const credit = round(line.credit);
+    if (!line.account_id) return res.status(400).json({ message: 'Every line needs an account' });
+    if (debit > 0 && credit > 0) return res.status(400).json({ message: 'A line cannot have both a debit and a credit' });
+    if (debit <= 0 && credit <= 0) return res.status(400).json({ message: 'Every line needs a debit or a credit amount greater than 0' });
+  }
+  const totalDebit = round(lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0));
+  const totalCredit = round(lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0));
+  if (Math.abs(totalDebit - totalCredit) > 0.01) {
+    return res.status(400).json({ message: `Entry does not balance: debit ${totalDebit} vs credit ${totalCredit}` });
+  }
+
+  const transaction = await db.sequelize.transaction();
+  try {
+    const accountIds = lines.map(l => l.account_id);
+    const accounts = await db.ChartOfAccount.findAll({
+      where: { id: { [Op.in]: accountIds }, is_active: true, [Op.or]: [{ shop_id: null }, { shop_id: shopId }] },
+      transaction,
+    });
+    const accountMap = new Map(accounts.map(a => [a.id, a]));
+    for (const id of accountIds) {
+      if (!accountMap.has(id)) {
+        await transaction.rollback();
+        return res.status(400).json({ message: 'One or more accounts are invalid or inactive' });
+      }
+    }
+
+    const voucher = await postVoucher(shopId, {
+      type: 'journal',
+      date: date ? new Date(date) : new Date(),
+      narration: narration?.trim() || 'Manual journal entry',
+      createdBy: req.user.id,
+      lines: lines.map(l => ({
+        accountCode: accountMap.get(l.account_id).account_code,
+        debit: round(l.debit),
+        credit: round(l.credit),
+      })),
+    }, transaction);
+
+    await transaction.commit();
+    return res.status(201).json({ voucher });
+  } catch (error) {
+    if (!transaction.finished) await transaction.rollback();
+    console.error('createJournalEntry error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 };

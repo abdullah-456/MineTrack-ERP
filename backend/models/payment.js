@@ -5,6 +5,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       Payment.belongsTo(models.Sale, { foreignKey: 'sale_id' });
       Payment.belongsTo(models.Voucher, { foreignKey: 'voucher_id' });
+      Payment.belongsTo(models.BankAccount, { foreignKey: 'bank_account_id' });
     }
   }
   Payment.init({
@@ -30,6 +31,10 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     voucher_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    bank_account_id: {
       type: DataTypes.INTEGER,
       allowNull: true
     }

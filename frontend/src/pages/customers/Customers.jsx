@@ -15,7 +15,6 @@ import api from '../../api/axios';
 
 const EMPTY = {
   name: '', cnic: '', phone: '', address: '',
-  credit_limit: '', current_balance: '0',
   status: 'active', customer_type: 'registered',
 };
 
@@ -68,12 +67,7 @@ export default function Customers() {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload = {
-        ...form,
-        credit_limit: parseFloat(form.credit_limit) || 0,
-        current_balance: parseFloat(form.current_balance) || 0,
-        ...shopParams(),
-      };
+      const payload = { ...form, ...shopParams() };
       if (modal === 'create') {
         await api.post('/customers', payload);
         success(t('customerCreated'));
@@ -115,14 +109,10 @@ export default function Customers() {
     { header: t('name') || 'Name', key: 'name', width: 1.8 },
     { header: t('cnic') || 'CNIC', render: c => c.cnic || '', width: 1.4 },
     { header: t('phone') || 'Phone', render: c => c.phone || '', width: 1.2 },
-    { header: t('creditLimit') || 'Credit Limit', key: 'credit_limit', money: true, width: 1.2 },
     { header: t('balance') || 'Balance', render: c => (parseFloat(c.current_balance) < 0 ? `${money(Math.abs(c.current_balance))} (Adv)` : money(c.current_balance)), align: 'right', width: 1.3 },
     { header: t('status') || 'Status', key: 'status', width: 0.9 },
   ];
-  const reportTotals = {
-    __label: t('total') || 'Total',
-    credit_limit: reportRows.reduce((s, c) => s + parseFloat(c.credit_limit || 0), 0),
-  };
+  const reportTotals = { __label: t('total') || 'Total' };
 
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
@@ -193,9 +183,14 @@ export default function Customers() {
                   {c.address && <p className="line-clamp-2">📍 {c.address}</p>}
                   <p className="flex items-center gap-1.5">
                     <CreditCard className="w-3.5 h-3.5" />
-                    {t('creditLimit')}: {formatPKR(c.credit_limit, lang)}
+                    {parseFloat(c.current_balance) < 0 ? (
+                      <span className="text-emerald-400">{t('advanceCredit') || 'Advance'}: {formatPKR(Math.abs(c.current_balance), lang)}</span>
+                    ) : (
+                      <span className={parseFloat(c.current_balance) > 0 ? 'text-red-400 font-semibold' : ''}>
+                        {t('currentBalance') || 'Balance'}: {formatPKR(c.current_balance, lang)}
+                      </span>
+                    )}
                   </p>
-                  <p>{t('balance')}: <span className={parseFloat(c.current_balance) > 0 ? 'text-red-400 font-semibold' : 'text-emerald-400'}>{formatPKR(c.current_balance, lang)}</span></p>
                 </div>
 
                 <div className="flex gap-2">
@@ -205,9 +200,8 @@ export default function Customers() {
                       setSelected(c);
                       setForm({
                         name: c.name, cnic: c.cnic || '', phone: c.phone || '',
-                        address: c.address || '', credit_limit: c.credit_limit,
-                        current_balance: c.current_balance, status: c.status,
-                        customer_type: 'registered',
+                        address: c.address || '', status: c.status,
+                        customer_type: c.customer_type || 'registered',
                       });
                       setModal('edit');
                     }}
@@ -250,14 +244,6 @@ export default function Customers() {
               <div>
                 <FormLabel>{t('phone')}</FormLabel>
                 <input className="input" value={form.phone} onChange={setF('phone')} />
-              </div>
-              <div>
-                <FormLabel>{t('creditLimit')}</FormLabel>
-                <input className="input" type="number" min="0" value={form.credit_limit} onChange={setF('credit_limit')} />
-              </div>
-              <div>
-                <FormLabel>{t('balance')}</FormLabel>
-                <input className="input" type="number" value={form.current_balance} onChange={setF('current_balance')} />
               </div>
               <div className="sm:col-span-2">
                 <FormLabel>{t('address')}</FormLabel>

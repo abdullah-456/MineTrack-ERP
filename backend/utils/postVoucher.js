@@ -24,7 +24,7 @@ async function generateVoucherNumber(shopId, transaction) {
 //   lines: [{ accountCode, debit?, credit? }, ...] — sum(debit) must equal sum(credit).
 // Must be called inside the caller's existing DB transaction — purely additive,
 // never mutates any of the caller's own business rows.
-async function postVoucher(shopId, { type, date, narration, createdBy, lines }, transaction) {
+async function postVoucher(shopId, { type, date, narration, createdBy, lines, branchId }, transaction) {
   if (!Array.isArray(lines) || lines.length === 0) {
     throw new Error('postVoucher requires at least one line');
   }
@@ -39,6 +39,7 @@ async function postVoucher(shopId, { type, date, narration, createdBy, lines }, 
   const voucher_number = await generateVoucherNumber(shopId, transaction);
   const voucher = await db.Voucher.create({
     shop_id: shopId,
+    branch_id: branchId || null,
     voucher_number,
     voucher_type: type,
     voucher_date: date ? new Date(date) : new Date(),
