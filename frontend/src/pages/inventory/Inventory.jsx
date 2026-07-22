@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Building2, Package, AlertTriangle, TrendingUp, Plus, Loader2, ArrowDownUp, RefreshCw, Eye, ListFilter } from 'lucide-react';
+import { Building2, Package, AlertTriangle, TrendingUp, Plus, Loader2, ArrowDownUp, RefreshCw, ArrowRightLeft } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
@@ -28,6 +28,7 @@ export default function Inventory() {
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [branchFilter, setBranchFilter] = useState('');
+  const [productFilter, setProductFilter] = useState('');
 
   // Movements state
   const [movements, setMovements] = useState([]);
@@ -36,7 +37,7 @@ export default function Inventory() {
   const [movementBranchFilter, setMovementBranchFilter] = useState('');
 
   // Modals state
-  const [modal, setModal] = useState(null); // 'receive' or 'adjust'
+  const [modal, setModal] = useState(null); // 'receive' | 'adjust' | 'transfer'
   const [saving, setSaving] = useState(false);
 
   // Form states
@@ -61,6 +62,14 @@ export default function Inventory() {
     notes: '',
   });
 
+  const [formTransfer, setFormTransfer] = useState({
+    product_id: '',
+    from_branch_id: '',
+    to_branch_id: '',
+    quantity: '',
+    notes: '',
+  });
+
   // Fetch stock levels and products/suppliers
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -68,7 +77,7 @@ export default function Inventory() {
     // but not suppliers (e.g. cashier, or any custom role scoped to inventory
     // only) must still see stock levels — suppliers is only used for the
     // Receive Stock form's supplier dropdown.
-    const params = { ...shopParams(), branch_id: branchFilter || undefined };
+    const params = { ...shopParams(), branch_id: branchFilter || undefined, product_id: productFilter || undefined };
     const [sumRes, invRes, prodRes, supRes] = await Promise.allSettled([
       api.get('/inventory/summary', { params: shopParams() }),
       api.get('/inventory', { params }),
@@ -89,7 +98,7 @@ export default function Inventory() {
     setProducts(prodRes.status === 'fulfilled' ? (prodRes.value.data.products || []) : []);
     setSuppliers(supRes.status === 'fulfilled' ? (supRes.value.data.suppliers || []) : []);
     setLoading(false);
-  }, [shopParams, branchFilter, error, t]);
+  }, [shopParams, branchFilter, productFilter, error, t]);
 
   // Fetch audit log movements
   const fetchMovements = useCallback(async () => {
@@ -159,6 +168,26 @@ export default function Inventory() {
     setModal('adjust');
   };
 
+  const openTransferQuick = (prodId, branchId) => {
+    const otherBranch = branches.find(b => String(b.id) !== String(branchId));
+    setFormTransfer({
+      product_id: String(prodId),
+      from_branch_id: String(branchId),
+      to_branch_id: otherBranch ? String(otherBranch.id) : '',
+      quantity: '',
+      notes: '',
+    });
+    setModal('transfer');
+  };
+
+  const transferSourceQty = (() => {
+    const row = inventory.find(r =>
+      String(r.product_id) === String(formTransfer.product_id)
+      && String(r.branch_id) === String(formTransfer.from_branch_id),
+    );
+    return parseFloat(row?.quantity_on_hand || 0);
+  })();
+
   // Submit operations
   const submitReceive = async (e) => {
     e.preventDefault();
@@ -191,6 +220,30 @@ export default function Inventory() {
       }
       await api.post('/inventory/receive', payload);
       success(t('stockReceived') || 'Stock received successfully');
+      setModal(null);
+      fetchData();
+      if (activeTab === 'movements') fetchMovements();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitTransfer = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {
+        product_id: parseInt(formTransfer.product_id, 10),
+        from_branch_id: parseInt(formTransfer.from_branch_id, 10),
+        to_branch_id: parseInt(formTransfer.to_branch_id, 10),
+        quantity: parseFloat(formTransfer.quantity),
+        notes: formTransfer.notes.trim() || undefined,
+        ...shopParams(),
+      };
+      await api.post('/inventory/transfer', payload);
+      success(t('stockTransferred') || 'Stock transferred successfully');
       setModal(null);
       fetchData();
       if (activeTab === 'movements') fetchMovements();
@@ -245,6 +298,10 @@ export default function Inventory() {
     { label: t('lowStockItems'), value: totals.low_stock_count || 0, icon: AlertTriangle, color: 'text-red-400' },
   ];
 
+  const filteredSummary = productFilter
+    ? summary.filter(row => String(row.product_id) === String(productFilter))
+    : summary;
+
   // ── Report model — reflects the active tab ──────────────────────────────────
   const report = activeTab === 'movements'
     ? {
@@ -281,7 +338,10 @@ export default function Inventory() {
           stock: inventory.reduce((s, r) => s + (parseFloat(r.quantity_on_hand) || 0), 0),
           stock_value: inventory.reduce((s, r) => s + (parseFloat(r.quantity_on_hand) || 0) * parseFloat(r.Product?.cost_price || 0), 0),
         },
-        filters: branchFilter ? [{ label: t('branch') || 'Branch', value: branches.find(b => String(b.id) === String(branchFilter))?.name || branchFilter }] : [],
+        filters: [
+          branchFilter ? { label: t('branch') || 'Branch', value: branches.find(b => String(b.id) === String(branchFilter))?.name || branchFilter } : null,
+          productFilter ? { label: t('product') || 'Product', value: products.find(p => String(p.id) === String(productFilter))?.name || productFilter } : null,
+        ].filter(Boolean),
       };
 
   return (
@@ -313,6 +373,22 @@ export default function Inventory() {
               className="btn-primary flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />{t('receiveStock')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFormTransfer({
+                  product_id: '',
+                  from_branch_id: branches[0]?.id ? String(branches[0].id) : '',
+                  to_branch_id: branches[1]?.id ? String(branches[1].id) : '',
+                  quantity: '',
+                  notes: '',
+                });
+                setModal('transfer');
+              }}
+              className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white font-medium rounded-lg text-sm transition-colors flex items-center gap-2"
+            >
+              <ArrowRightLeft className="w-4 h-4" />{t('transferStock') || 'Transfer Stock'}
             </button>
             <button
               type="button"
@@ -372,12 +448,21 @@ export default function Inventory() {
       {activeTab === 'levels' && (
         <div className="space-y-4">
           <div className="glass-card p-4 flex flex-wrap gap-3 items-center justify-between">
-            <div className="flex items-center gap-3">
-              <label className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('filterByBranch')}</label>
-              <select className="input max-w-xs" value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
-                <option value="">{t('allBranches')}</option>
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>{t('filterByBranch')}</label>
+                <select className="input max-w-xs" value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
+                  <option value="">{t('allBranches')}</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>{t('filterByProduct') || 'Product'}</label>
+                <select className="input max-w-xs" value={productFilter} onChange={e => setProductFilter(e.target.value)}>
+                  <option value="">{t('allProducts') || 'All Products'}</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+                </select>
+              </div>
             </div>
             <button
               onClick={fetchData}
@@ -440,6 +525,14 @@ export default function Inventory() {
                             </button>
                             <button
                               type="button"
+                              onClick={() => openTransferQuick(row.product_id, row.branch_id)}
+                              className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 text-xs font-bold rounded transition-colors"
+                              title={t('transferStock') || 'Transfer Stock'}
+                            >
+                              ⇄ {t('transfer') || 'Transfer'}
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => openAdjustQuick(row.product_id, row.branch_id)}
                               className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-bold rounded transition-colors"
                               title="Adjust Stock"
@@ -475,7 +568,7 @@ export default function Inventory() {
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.map(row => (
+                    {filteredSummary.map(row => (
                       <tr key={row.product_id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s' }} className="hover:bg-[var(--bg-hover)]">
                         <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{row.name}</td>
                         <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{row.category}</td>
@@ -504,24 +597,24 @@ export default function Inventory() {
         <div className="space-y-4">
           <div className="glass-card p-4 flex flex-wrap gap-4 items-end">
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Filter Product</span>
+              <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{t('filterByProduct') || 'Product'}</span>
               <select
                 className="input max-w-xs"
                 value={movementProductFilter}
                 onChange={e => setMovementProductFilter(e.target.value)}
               >
-                <option value="">All Products</option>
+                <option value="">{t('allProducts') || 'All Products'}</option>
                 {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Filter Branch</span>
+              <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{t('filterByBranch')}</span>
               <select
                 className="input max-w-xs"
                 value={movementBranchFilter}
                 onChange={e => setMovementBranchFilter(e.target.value)}
               >
-                <option value="">All Branches</option>
+                <option value="">{t('allBranches')}</option>
                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </div>
@@ -876,6 +969,91 @@ export default function Inventory() {
               <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
               <button type="submit" disabled={saving} className="btn-primary flex-1">
                 {saving ? 'Saving...' : (t('save') || 'Save')}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ── TRANSFER STOCK MODAL ── */}
+      {modal === 'transfer' && (
+        <Modal title={t('transferStock') || 'Transfer Stock'} onClose={() => setModal(null)}>
+          <form onSubmit={submitTransfer} className="space-y-4">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {t('transferStockHint') || 'Move existing stock from one branch to another. Total shop stock stays the same — only the branch location changes.'}
+            </p>
+            <div>
+              <FormLabel variant="semibold" required>{t('product')}</FormLabel>
+              <select
+                className="input"
+                required
+                value={formTransfer.product_id}
+                onChange={e => setFormTransfer(f => ({ ...f, product_id: e.target.value }))}
+              >
+                <option value="">{t('selectProduct')}</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <FormLabel variant="semibold" required>{t('fromBranch') || 'From Branch'}</FormLabel>
+                <select
+                  className="input"
+                  required
+                  value={formTransfer.from_branch_id}
+                  onChange={e => setFormTransfer(f => ({ ...f, from_branch_id: e.target.value }))}
+                >
+                  <option value="">{t('selectBranch') || 'Select branch'}</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <FormLabel variant="semibold" required>{t('toBranch') || 'To Branch'}</FormLabel>
+                <select
+                  className="input"
+                  required
+                  value={formTransfer.to_branch_id}
+                  onChange={e => setFormTransfer(f => ({ ...f, to_branch_id: e.target.value }))}
+                >
+                  <option value="">{t('selectBranch') || 'Select branch'}</option>
+                  {branches.filter(b => String(b.id) !== String(formTransfer.from_branch_id)).map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {formTransfer.product_id && formTransfer.from_branch_id && (
+              <p className="text-xs text-purple-400">
+                {t('availableAtBranch') || 'Available at source branch'}: {formatQty(transferSourceQty, lang)}
+              </p>
+            )}
+            <div>
+              <FormLabel variant="semibold" required>{t('quantity')}</FormLabel>
+              <input
+                className="input"
+                type="number"
+                min="0.001"
+                step="0.001"
+                max={transferSourceQty > 0 ? transferSourceQty : undefined}
+                required
+                value={formTransfer.quantity}
+                onChange={e => setFormTransfer(f => ({ ...f, quantity: e.target.value }))}
+                placeholder="e.g. 10"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <textarea
+                className="input min-h-[60px]"
+                value={formTransfer.notes}
+                onChange={e => setFormTransfer(f => ({ ...f, notes: e.target.value }))}
+                placeholder={t('transferNotesPlaceholder') || 'Optional reference or reason for this transfer...'}
+              />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving || branches.length < 2} className="btn-primary flex-1">
+                {saving ? 'Processing...' : (t('transferStock') || 'Transfer')}
               </button>
             </div>
           </form>

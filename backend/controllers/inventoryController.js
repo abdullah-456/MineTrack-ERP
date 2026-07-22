@@ -34,6 +34,9 @@ exports.list = async (req, res) => {
     }
 
     const stockWhere = {};
+    if (req.query.product_id) {
+      stockWhere.product_id = parseInt(req.query.product_id, 10);
+    }
     if (branchId && role !== 'super_admin' && role !== 'admin') {
       stockWhere.branch_id = branchId;
     } else if (req.query.branch_id) {
@@ -195,6 +198,134 @@ exports.adjust = async (req, res) => {
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
     console.error('adjustInventory error:', error);
+    return res.status(500).json({ message: error.message || 'Internal server error' });
+  }
+};
+
+exports.transferStock = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) { await transaction.rollback(); return; }
+
+    const { product_id, from_branch_id, to_branch_id, quantity, notes } = req.body;
+    if (!product_id || !from_branch_id || !to_branch_id || quantity === undefined || quantity === null || quantity === '') {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'product_id, from_branch_id, to_branch_id and quantity are required' });
+    }
+
+    const fromBranchId = parseInt(from_branch_id, 10);
+    const toBranchId = parseInt(to_branch_id, 10);
+    if (fromBranchId === toBranchId) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Source and destination branch must be different' });
+    }
+
+    const qty = parseFloat(quantity);
+    if (!(qty > 0)) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'quantity must be greater than 0' });
+    }
+
+    const product = await db.Product.findOne({ where: { id: product_id, shop_id: shopId }, transaction });
+    if (!product) {
+      await transaction.rollback();
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    const fromBranch = await db.Branch.findOne({ where: { id: fromBranchId, shop_id: shopId }, transaction });
+    const toBranch = await db.Branch.findOne({ where: { id: toBranchId, shop_id: shopId }, transaction });
+    if (!fromBranch || !toBranch) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'Invalid branch for this shop' });
+    }
+
+    const sourceStock = await db.Stock.findOne({
+      where: { product_id, branch_id: fromBranchId },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    const available = parseFloat(sourceStock?.quantity_on_hand || 0);
+    if (!sourceStock || available < qty) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: `Insufficient stock at ${fromBranch.name}. Available: ${available}`,
+      });
+    }
+
+    let destStock = await db.Stock.findOne({
+      where: { product_id, branch_id: toBranchId },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!destStock) {
+      destStock = await db.Stock.create({
+        product_id,
+        branch_id: toBranchId,
+        quantity_on_hand: 0,
+        quantity_reserved: 0,
+      }, { transaction });
+    }
+
+    const roundQty = (n) => Math.round(parseFloat(n) * 1000) / 1000;
+    const newSourceQty = roundQty(available - qty);
+    const newDestQty = roundQty(parseFloat(destStock.quantity_on_hand || 0) + qty);
+
+    await sourceStock.update({ quantity_on_hand: newSourceQty }, { transaction });
+    await destStock.update({ quantity_on_hand: newDestQty }, { transaction });
+
+    const detail = notes?.trim()
+      ? `${notes.trim()} — ${qty} ${product.unit || 'units'} of ${product.name}`
+      : `${qty} ${product.unit || 'units'} of ${product.name}`;
+
+    await db.StockMovement.create({
+      product_id,
+      branch_id: fromBranchId,
+      ref_type: 'transfer',
+      ref_id: toBranchId,
+      quantity: -qty,
+      balance_after: newSourceQty,
+    }, { transaction });
+
+    await db.StockMovement.create({
+      product_id,
+      branch_id: toBranchId,
+      ref_type: 'transfer',
+      ref_id: fromBranchId,
+      quantity: qty,
+      balance_after: newDestQty,
+    }, { transaction });
+
+    await db.StockAdjustment.create({
+      product_id,
+      branch_id: fromBranchId,
+      quantity_change: -qty,
+      reason: `Transfer to ${toBranch.name}`,
+      approved_by: req.user?.id || null,
+    }, { transaction });
+
+    await db.StockAdjustment.create({
+      product_id,
+      branch_id: toBranchId,
+      quantity_change: qty,
+      reason: `Transfer from ${fromBranch.name}`,
+      approved_by: req.user?.id || null,
+    }, { transaction });
+
+    await transaction.commit();
+
+    const source = await db.Stock.findByPk(sourceStock.id, { include: stockIncludes });
+    const dest = await db.Stock.findByPk(destStock.id, { include: stockIncludes });
+    return res.json({
+      message: 'Stock transferred successfully',
+      detail,
+      source,
+      destination: dest,
+    });
+  } catch (error) {
+    if (!transaction.finished) await transaction.rollback();
+    console.error('transferStock error:', error);
     return res.status(500).json({ message: error.message || 'Internal server error' });
   }
 };

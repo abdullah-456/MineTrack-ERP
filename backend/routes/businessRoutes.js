@@ -58,6 +58,7 @@ router.get(   '/inventory',              authorize('inventory', 'read'),   inven
 router.get(   '/inventory/summary',      authorize('inventory', 'read'),   inventoryController.summary);
 router.get(   '/inventory/movements',    authorize('inventory', 'read'),   inventoryController.movements);
 router.post(  '/inventory/adjust',       authorize('inventory', 'update'), inventoryController.adjust);
+router.post(  '/inventory/transfer',     authorize('inventory', 'update'), inventoryController.transferStock);
 router.post(  '/inventory/receive',      authorize('inventory', 'create'), inventoryController.receiveStock);
 
 // Customers
