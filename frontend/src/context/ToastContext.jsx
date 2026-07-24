@@ -9,23 +9,45 @@ const TOAST_ICONS = {
   info:    Info,
 };
 
-const TOAST_STYLES = {
-  success: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
-  error:   'border-red-500/40 bg-red-500/10 text-red-300',
-  info:    'border-brand-500/40 bg-brand-500/10 text-brand-300',
+// Solid high-contrast backgrounds so toasts are readable in BOTH light & dark mode
+const TOAST_CONFIG = {
+  success: {
+    bg:        '#16a34a',   // green-600
+    iconColor: '#bbf7d0',  // green-200
+    border:    '#15803d',  // green-700
+  },
+  error: {
+    bg:        '#dc2626',   // red-600
+    iconColor: '#fecaca',  // red-200
+    border:    '#b91c1c',  // red-700
+  },
+  info: {
+    bg:        '#4f46e5',   // indigo-600
+    iconColor: '#c7d2fe',  // indigo-200
+    border:    '#4338ca',  // indigo-700
+  },
 };
 
 function ToastItem({ toast, onDismiss }) {
   const Icon = TOAST_ICONS[toast.type] || Info;
+  const cfg  = TOAST_CONFIG[toast.type] || TOAST_CONFIG.info;
   return (
     <div
-      className={`flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg backdrop-blur-sm animate-slide-in min-w-[280px] max-w-sm ${TOAST_STYLES[toast.type]}`}
-      style={{ backgroundColor: 'var(--bg-surface)' }}
       role="alert"
+      className="flex items-start gap-3 px-4 py-3 rounded-xl shadow-xl animate-slide-in min-w-[300px] max-w-sm"
+      style={{
+        backgroundColor: cfg.bg,
+        border: `1px solid ${cfg.border}`,
+        borderLeft: `4px solid ${cfg.border}`,
+      }}
     >
-      <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" />
-      <p className="text-sm flex-1 leading-snug" style={{ color: 'var(--text-primary)' }}>{toast.message}</p>
-      <button onClick={() => onDismiss(toast.id)} className="opacity-60 hover:opacity-100 transition-opacity">
+      <Icon className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: cfg.iconColor }} />
+      <p className="text-sm flex-1 leading-snug font-medium text-white">{toast.message}</p>
+      <button
+        onClick={() => onDismiss(toast.id)}
+        className="text-white/70 hover:text-white transition-colors ml-1 mt-0.5"
+        aria-label="Dismiss"
+      >
         <X className="w-4 h-4" />
       </button>
     </div>

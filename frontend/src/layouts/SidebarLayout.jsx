@@ -7,7 +7,7 @@ import {
   TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2, Landmark,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
   Zap, Bell, Search, ChevronLeft, Sun, Moon, Globe, Check,
-  Store, GitBranch, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert } from 'lucide-react';
+  Store, GitBranch, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket } from 'lucide-react';
 
 // ── Nav structure for regular shop users (uses translation keys) ─
 const shopNavGroups = [
@@ -17,6 +17,7 @@ const shopNavGroups = [
       { to: '/dashboard',         icon: LayoutDashboard, labelKey: 'dashboard' },
       { to: '/sales',             icon: TrendingUp,      labelKey: 'sales',          module: 'sales',        action: 'read' },
       { to: '/returns',           icon: RotateCcw,       labelKey: 'salesReturns',   module: 'returns',      action: 'read' },
+      { to: '/gatepasses',        icon: Ticket,          labelKey: 'gatepasses',     module: 'sales',        action: 'read' },
     ]
   },
   {

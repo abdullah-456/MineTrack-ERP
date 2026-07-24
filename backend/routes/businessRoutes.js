@@ -23,6 +23,7 @@ const expenseController = require('../controllers/expenseController');
 const financialReportsController = require('../controllers/financialReportsController');
 const roleController = require('../controllers/roleController');
 const deletionRequestController = require('../controllers/deletionRequestController');
+const gatePassController = require('../controllers/gatePassController');
 const auditLog = require('../middleware/auditLog');
 
 router.use(authenticate);
@@ -94,6 +95,12 @@ router.get(   '/sales/stats',            authorize('sales', 'read'),   saleContr
 router.get(   '/sales/:id',              authorize('sales', 'read'),   saleController.get);
 router.post(  '/sales',                  authorize('sales', 'create'), saleController.create);
 router.get(   '/sales/:id/returnable',   authorize('returns', 'read'),  saleReturnController.returnable);
+
+// GatePasses
+router.get(   '/gatepasses',             authorize('sales', 'read'),   gatePassController.list);
+router.get(   '/gatepasses/:id',         authorize('sales', 'read'),   gatePassController.get);
+router.post(  '/gatepasses',             authorize('sales', 'create'), gatePassController.create);
+router.delete('/gatepasses/:id',         authorize('sales', 'delete'), gatePassController.remove);
 
 
 // Sales Returns & Exchange

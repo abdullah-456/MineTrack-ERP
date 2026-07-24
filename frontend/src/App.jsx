@@ -56,6 +56,8 @@ import Invoices          from './pages/invoices/Invoices';
 import InvoicePrintPage  from './pages/invoices/InvoicePrintPage';
 import VoucherPrintPage      from './pages/accounting/VoucherPrintPage';
 import LedgerVoucherPrint   from './pages/accounting/LedgerVoucherPrint';
+import GatePasses        from './pages/gatepasses/GatePasses';
+import GatePassPrintPage  from './pages/gatepasses/GatePassPrintPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -92,6 +94,7 @@ function App() {
 
             {/* ── Standalone Invoice Print Page (new tab, no sidebar) ── */}
             <Route path="/invoice/:invoiceId" element={<InvoicePrintPage />} />
+            <Route path="/gatepass/:id" element={<GatePassPrintPage />} />
             <Route path="/vouchers/:voucherId" element={<VoucherPrintPage />} />
             <Route path="/ledger-voucher" element={<LedgerVoucherPrint />} />
             <Route path="/suppliers/:id/statement" element={<SupplierStatementPrint />} />
@@ -137,6 +140,8 @@ function App() {
                 element={<ProtectedRoute module="sales" action="read"><Sales /></ProtectedRoute>} />
               <Route path="/sales/:id"
                 element={<ProtectedRoute module="sales" action="read"><ComingSoon title="Sale Detail" /></ProtectedRoute>} />
+              <Route path="/gatepasses"
+                element={<ProtectedRoute module="sales" action="read"><GatePasses /></ProtectedRoute>} />
               <Route path="/returns"
                 element={<ProtectedRoute module="returns" action="read"><SalesReturns /></ProtectedRoute>} />
 

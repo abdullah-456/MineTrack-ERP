@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, Plus, Search, Eye, Loader2, Receipt, Printer } from 'lucide-react';
+import { TrendingUp, Plus, Search, Eye, Loader2, Receipt, Printer, Ticket } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
@@ -28,6 +28,12 @@ export default function Sales() {
   const [modal, setModal] = useState(null);
   const [detail, setDetail] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [createdSalePrompt, setCreatedSalePrompt] = useState(null);
+  const [gatePassForm, setGatePassForm] = useState({
+    branch_id: '', sale_id: null, customer_id: '', customer_name: '', customer_phone: '',
+    gate_pass_date: new Date().toISOString().slice(0, 16), type: 'sale_dispatch',
+    vehicle_no: '', driver_name: '', driver_phone: '', remarks: '', items: []
+  });
   const [form, setForm] = useState({
     customer_id: '', branch_id: '', employee_id: '', sale_type: 'cash',
     items: [{ product_id: '', quantity: 1, unit_price: '' }],
@@ -130,10 +136,82 @@ export default function Sales() {
       };
 
 
-      await api.post('/sales', payload);
+      const { data } = await api.post('/sales', payload);
       success(t('saleCreated'));
       setModal(null);
       fetchData();
+      if (data.sale) {
+        setCreatedSalePrompt(data.sale);
+      }
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openGatePassForSale = (saleObj) => {
+    setCreatedSalePrompt(null);
+    const saleItems = (saleObj.SaleItems || []).map(item => ({
+      product_id: item.product_id,
+      product_name: item.Product?.name || item.product_name || 'Item',
+      quantity: item.quantity,
+      unit: item.Product?.unit || 'kg',
+      notes: ''
+    }));
+
+    setGatePassForm({
+      branch_id: String(saleObj.branch_id || branches[0]?.id || ''),
+      sale_id: saleObj.id,
+      customer_id: saleObj.customer_id ? String(saleObj.customer_id) : '',
+      customer_name: saleObj.Customer?.name || '',
+      customer_phone: saleObj.Customer?.phone || '',
+      gate_pass_date: new Date().toISOString().slice(0, 16),
+      type: 'sale_dispatch',
+      vehicle_no: '',
+      driver_name: '',
+      driver_phone: '',
+      remarks: `Gatepass issued for Invoice #${saleObj.invoice_number}`,
+      items: saleItems.length > 0 ? saleItems : [{ product_id: '', product_name: '', quantity: 1, unit: 'kg', notes: '' }]
+    });
+    setModal('create_gatepass');
+  };
+
+  const handleCreateGatePass = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const validItems = gatePassForm.items.filter(i => i.product_id || i.product_name?.trim()).map(i => ({
+        product_id: i.product_id ? parseInt(i.product_id, 10) : null,
+        product_name: i.product_name?.trim() || 'Item',
+        quantity: parseFloat(i.quantity) || 1,
+        unit: i.unit || 'kg',
+        notes: i.notes?.trim() || null
+      }));
+
+      const payload = {
+        branch_id: parseInt(gatePassForm.branch_id, 10),
+        sale_id: gatePassForm.sale_id || null,
+        customer_id: gatePassForm.customer_id ? parseInt(gatePassForm.customer_id, 10) : null,
+        customer_name: gatePassForm.customer_name?.trim() || null,
+        customer_phone: gatePassForm.customer_phone?.trim() || null,
+        gate_pass_date: gatePassForm.gate_pass_date,
+        type: gatePassForm.type,
+        vehicle_no: gatePassForm.vehicle_no?.trim() || null,
+        driver_name: gatePassForm.driver_name?.trim() || null,
+        driver_phone: gatePassForm.driver_phone?.trim() || null,
+        remarks: gatePassForm.remarks?.trim() || null,
+        items: validItems,
+        ...shopParams()
+      };
+
+      const { data } = await api.post('/gatepasses', payload);
+      success(t('gatepassCreatedSuccess') || 'Gatepass created successfully');
+      setModal(null);
+
+      if (data.gate_pass?.id) {
+        window.open(`/gatepass/${data.gate_pass.id}?auto_print=1`, '_blank', 'noopener,noreferrer');
+      }
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -262,7 +340,15 @@ export default function Sales() {
                   </td>
                   <td className="p-4 font-bold text-emerald-400">{formatPKR(s.total, lang)}</td>
                   <td className="p-4"><StatusBadge status={s.status} /></td>
-                  <td className="p-4 text-end whitespace-nowrap">
+                  <td className="p-4 text-end whitespace-nowrap space-x-1">
+                    <button
+                      type="button"
+                      title={t('createGatepass') || 'Create Gatepass'}
+                      onClick={() => openGatePassForSale(s)}
+                      className="icon-btn"
+                    >
+                      <Ticket className="w-4 h-4 text-indigo-400" />
+                    </button>
                     <button
                       type="button"
                       title={t('printInvoice') || 'Print invoice'}
@@ -550,6 +636,252 @@ export default function Sales() {
               </tbody>
             </table>
           </div>
+        </Modal>
+      )}
+
+      {/* ── Post-Sale Gatepass Prompt Modal ── */}
+      {createdSalePrompt && (
+        <Modal title={t('createGatepass') || 'Create Gatepass'} onClose={() => setCreatedSalePrompt(null)}>
+          <div className="space-y-4 text-center py-2">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto">
+              <Ticket className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
+                {t('saleCreated') || 'Sale completed successfully!'}
+              </h3>
+              <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                {t('askCreateGatepass') || 'Do you want to create a Gatepass for this sale?'}
+              </p>
+              <p className="text-xs font-mono text-indigo-400 mt-2">
+                Invoice #{createdSalePrompt.invoice_number}
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCreatedSalePrompt(null)}
+                className="btn-secondary flex-1"
+              >
+                {t('no') || 'No, Skip'}
+              </button>
+              <button
+                type="button"
+                onClick={() => openGatePassForSale(createdSalePrompt)}
+                className="btn-primary flex-1 bg-indigo-600 hover:bg-indigo-700"
+              >
+                {t('yes') || 'Yes, Create Gatepass'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Create Gatepass Modal (Linked to Sale) ── */}
+      {modal === 'create_gatepass' && (
+        <Modal title={t('createGatepass') || 'Create Gatepass'} onClose={() => setModal(null)} wide>
+          <form onSubmit={handleCreateGatePass} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <FormLabel required>{t('userBranch') || 'Branch'}</FormLabel>
+                <select className="input" required value={gatePassForm.branch_id} onChange={e => setGatePassForm(f => ({ ...f, branch_id: e.target.value }))}>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <FormLabel>{t('gatepassType') || 'Dispatch Type'}</FormLabel>
+                <select className="input" value={gatePassForm.type} onChange={e => setGatePassForm(f => ({ ...f, type: e.target.value }))}>
+                  <option value="sale_dispatch">{t('saleDispatch') || 'Sale Dispatch'}</option>
+                  <option value="pre_sale">{t('preSale') || 'Pre-Sale Dispatch'}</option>
+                  <option value="transfer">{t('transfer') || 'Stock Transfer'}</option>
+                  <option value="return">{t('sampleReturn') || 'Return / Sample'}</option>
+                  <option value="other">{t('otherDispatch') || 'Other Dispatch'}</option>
+                </select>
+              </div>
+
+              <div>
+                <FormLabel required>{t('gatepassDate') || 'Gatepass Date & Time'}</FormLabel>
+                <input
+                  type="datetime-local"
+                  className="input"
+                  required
+                  value={gatePassForm.gate_pass_date}
+                  onChange={e => setGatePassForm(f => ({ ...f, gate_pass_date: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <FormLabel>{t('receiverName') || 'Receiver / Customer'}</FormLabel>
+                <input
+                  className="input"
+                  placeholder="Receiver or customer name..."
+                  value={gatePassForm.customer_name}
+                  onChange={e => setGatePassForm(f => ({ ...f, customer_name: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <FormLabel>{t('receiverPhone') || 'Receiver Phone'}</FormLabel>
+                <input
+                  className="input"
+                  placeholder="Receiver phone number..."
+                  value={gatePassForm.customer_phone}
+                  onChange={e => setGatePassForm(f => ({ ...f, customer_phone: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <FormLabel>{t('vehicleNo') || 'Vehicle Number'}</FormLabel>
+                <input
+                  className="input"
+                  placeholder="e.g. LES-1234, Suzuki Truck..."
+                  value={gatePassForm.vehicle_no}
+                  onChange={e => setGatePassForm(f => ({ ...f, vehicle_no: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <FormLabel>{t('driverName') || 'Driver Name'}</FormLabel>
+                <input
+                  className="input"
+                  placeholder="Driver full name..."
+                  value={gatePassForm.driver_name}
+                  onChange={e => setGatePassForm(f => ({ ...f, driver_name: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <FormLabel>{t('driverPhone') || 'Driver Phone'}</FormLabel>
+                <input
+                  className="input"
+                  placeholder="Driver phone number..."
+                  value={gatePassForm.driver_phone}
+                  onChange={e => setGatePassForm(f => ({ ...f, driver_phone: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* Line Items */}
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Dispatched Products / Items<span className="text-red-400 ms-0.5">*</span>
+                </span>
+                <button type="button" onClick={() => setGatePassForm(f => ({ ...f, items: [...f.items, { product_id: '', product_name: '', quantity: 1, unit: 'kg', notes: '' }] }))} className="text-xs text-indigo-400 hover:underline">
+                  {t('addLine') || '+ Add line'}
+                </button>
+              </div>
+
+              {gatePassForm.items.map((item, i) => (
+                <div key={i} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center rounded-lg p-2" style={{ background: 'var(--bg-elevated)' }}>
+                  <div className="sm:col-span-4">
+                    <select
+                      className="input text-xs"
+                      value={item.product_id || ''}
+                      onChange={e => {
+                        const pid = e.target.value;
+                        const prod = products.find(p => String(p.id) === String(pid));
+                        setGatePassForm(f => {
+                          const items = [...f.items];
+                          items[i] = {
+                            ...items[i],
+                            product_id: pid,
+                            product_name: prod ? prod.name : items[i].product_name,
+                            unit: prod ? (prod.unit || 'kg') : items[i].unit
+                          };
+                          return { ...f, items };
+                        });
+                      }}
+                    >
+                      <option value="">-- Pick Product or Custom --</option>
+                      {products.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-3">
+                    <input
+                      className="input text-xs"
+                      placeholder="Item description..."
+                      value={item.product_name}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setGatePassForm(f => {
+                          const items = [...f.items];
+                          items[i] = { ...items[i], product_name: val };
+                          return { ...f, items };
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="0.01"
+                      required
+                      className="input text-xs"
+                      placeholder="Qty"
+                      value={item.quantity}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setGatePassForm(f => {
+                          const items = [...f.items];
+                          items[i] = { ...items[i], quantity: val };
+                          return { ...f, items };
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <input
+                      className="input text-xs"
+                      placeholder="Unit (kg, pcs)"
+                      value={item.unit}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setGatePassForm(f => {
+                          const items = [...f.items];
+                          items[i] = { ...items[i], unit: val };
+                          return { ...f, items };
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="sm:col-span-1 text-end">
+                    {gatePassForm.items.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setGatePassForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }))}
+                        className="text-red-400 hover:text-red-300 text-lg px-2"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Remarks */}
+            <div>
+              <FormLabel>{t('remarks') || 'Remarks / Notes'}</FormLabel>
+              <textarea
+                className="input min-h-[60px] resize-none"
+                placeholder="Gatepass remarks, vehicle details, special instructions..."
+                value={gatePassForm.remarks}
+                onChange={e => setGatePassForm(f => ({ ...f, remarks: e.target.value }))}
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 bg-indigo-600 hover:bg-indigo-700">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : (t('createGatepass') || 'Save & Print Gatepass')}
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>
