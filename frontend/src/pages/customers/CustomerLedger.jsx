@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, Wallet, CreditCard, Loader2, Plus, Printer } from 'lucide-react';
+import { ArrowLeft, Users, Wallet, CreditCard, Loader2, Plus, Printer, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -32,9 +32,10 @@ export default function CustomerLedger() {
   const [ledger, setLedger] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('history');
+  const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
+  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
 
   // Open a printable voucher in a new tab for a single transaction
   const openVoucher = (txn) => {
@@ -70,17 +71,21 @@ export default function CustomerLedger() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post(`/customers/${id}/payments`, {
+      const { data } = await api.post(`/customers/${id}/payments`, {
         amount: parseFloat(paymentForm.amount),
         method: paymentForm.method,
         bank_account_id: paymentForm.bank_account_id,
+        date: paymentForm.date || undefined,
         notes: paymentForm.notes || undefined,
         ...shopParams(),
       });
       success(t('paymentRecorded') || 'Payment recorded');
       setModal(null);
-      setPaymentForm({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
+      setPaymentForm({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
       fetchData();
+      if (data?.transaction) {
+        openVoucher(data.transaction);
+      }
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -180,7 +185,20 @@ export default function CustomerLedger() {
       </div>
 
       {tab === 'history' && (
-        <div className="glass-card overflow-x-auto">
+        <div className="space-y-3">
+          <div className="glass-card p-3">
+            <div className="relative max-w-md">
+              <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+              <input
+                className="input"
+                style={{ paddingInlineStart: '2.25rem' }}
+                placeholder="Search type, notes, method, date…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="glass-card overflow-x-auto">
           <table className="w-full text-sm min-w-[800px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
@@ -195,8 +213,30 @@ export default function CustomerLedger() {
               </tr>
             </thead>
             <tbody>
-              {transaction_history.map(txn => (
-                <tr key={txn.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+              {transaction_history
+                .filter(txn => !search.trim() || [
+                  TXN_LABELS[txn.type] || txn.type, txn.method, txn.notes,
+                  String(txn.amount), String(txn.running_balance),
+                  new Date(txn.date).toLocaleDateString('en-PK')
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map(txn => (
+                <tr
+                  key={txn.id}
+                  id={`row-${txn.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className="hover:bg-white/10 cursor-pointer transition-colors"
+                  title={t('clickToViewDetail') || 'Click to view transaction in module'}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    if (['sale_charge', 'installment_charge', 'sale'].includes(txn.type) || txn.sale_id) {
+                      navigate(`/sales?highlight=${txn.sale_id || txn.id}`);
+                    } else if (['return_credit', 'return'].includes(txn.type)) {
+                      navigate(`/returns?highlight=${txn.return_id || txn.id}`);
+                    } else {
+                      navigate(`/accounting/general-ledger?highlight=${txn.voucher_id || txn.id}`);
+                    }
+                  }}
+                >
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(txn.date).toLocaleDateString('en-PK')}</td>
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{TXN_LABELS[txn.type] || txn.type}</td>
                   <td className="p-4 text-end font-semibold text-red-400">
@@ -211,7 +251,7 @@ export default function CustomerLedger() {
                   <td className="p-4 text-center">
                     <button
                       type="button"
-                      onClick={() => openVoucher(txn)}
+                      onClick={(e) => { e.stopPropagation(); openVoucher(txn); }}
                       title="Print Voucher"
                       className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-hover)]"
                       style={{ color: 'var(--text-muted)' }}
@@ -227,6 +267,7 @@ export default function CustomerLedger() {
             </tbody>
           </table>
         </div>
+        </div>
       )}
 
       {tab === 'sales' && (
@@ -239,11 +280,22 @@ export default function CustomerLedger() {
                 <th className="text-start p-4">{t('saleType') || 'Sale Type'}</th>
                 <th className="text-start p-4">{t('userBranch')}</th>
                 <th className="text-end p-4">{t('total') || 'Total'}</th>
+                <th className="text-end p-4">{t('actions') || 'Actions'}</th>
               </tr>
             </thead>
             <tbody>
               {(sales_history || []).map(s => (
-                <tr key={s.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                <tr
+                  key={s.id}
+                  id={`row-${s.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className="hover:bg-white/10 cursor-pointer transition-colors"
+                  title={t('clickToViewDetail') || 'Click to view sale details'}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    navigate(`/sales?highlight=${s.id}`);
+                  }}
+                >
                   <td className="p-4 font-mono text-brand-400 text-xs">{s.invoice_number}</td>
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(s.sale_date).toLocaleDateString('en-PK')}</td>
                   <td className="p-4">
@@ -252,10 +304,21 @@ export default function CustomerLedger() {
                   </td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{s.Branch?.name}</td>
                   <td className="p-4 text-end font-bold text-emerald-400">{formatPKR(s.total, lang)}</td>
+                  <td className="p-4 text-end">
+                    <button
+                      type="button"
+                      title={t('printInvoice') || 'Print Invoice'}
+                      onClick={(e) => { e.stopPropagation(); window.open(`/invoice/sale-${s.id}?auto_print=1`, '_blank', 'noopener,noreferrer'); }}
+                      className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-hover)]"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {(!sales_history || sales_history.length === 0) && (
-                <tr><td colSpan={5} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noSalesYet') || 'No sales yet'}</td></tr>
+                <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noSalesYet') || 'No sales yet'}</td></tr>
               )}
             </tbody>
           </table>
@@ -278,6 +341,10 @@ export default function CustomerLedger() {
                   {t('advanceHint') || 'Amount exceeds the balance — the extra will be recorded as advance credit.'}
                 </p>
               )}
+            </div>
+            <div>
+              <FormLabel>{t('paymentDateTime') || 'Payment Date & Time (Optional)'}</FormLabel>
+              <input className="input" type="datetime-local" value={paymentForm.date || ''} onChange={e => setPaymentForm(f => ({ ...f, date: e.target.value }))} />
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>

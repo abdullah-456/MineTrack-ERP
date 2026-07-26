@@ -22,8 +22,8 @@ exports.list = async (req, res) => {
     if (req.query.method && req.query.method !== 'all') where.method = req.query.method;
     if (req.query.search) {
       where[Op.or] = [
-        { path: { [Op.like]: `%${req.query.search}%` } },
-        { details: { [Op.like]: `%${req.query.search}%` } },
+        { path: { [Op.iLike]: `%${req.query.search}%` } },
+        { details: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
     if (req.query.from || req.query.to) {

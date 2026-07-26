@@ -1,19 +1,12 @@
 import { useState } from 'react';
-import { Printer, Download, Loader2 } from 'lucide-react';
+import { Printer, Download, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { useShopApi } from '../../hooks/useShopApi';
 import { useTheme } from '../../context/ThemeContext';
 import {
-  getCompany, printReport, downloadReportPDF, printDetail, downloadDetailPDF,
+  getCompany, printReport, downloadReportPDF, downloadReportExcel, printDetail, downloadDetailPDF, downloadDetailExcel,
 } from '../../utils/reportExport';
 
-// Drop-in Print + Download-PDF toolbar for any module.
-//
-// List mode (default): pass { title, columns, rows, totals?, filters?, signature? }.
-//   `rows` should already be the filtered set on screen — clear filters to print
-//   everything. `columns` = [{ header, key, align?, money?, render?(row), width? }].
-//
-// Detail mode: pass `getReport={() => ({ kind: 'detail', title, sections, table?, signature? })}`
-//   to print the currently-selected record with all its fields.
+// Drop-in Print + Download-PDF + Download-Excel toolbar for any module.
 export default function ReportActions({
   title, columns, rows = [], totals, filters, signature, filename,
   getReport, label = true, className = '', groupKey,
@@ -35,10 +28,12 @@ export default function ReportActions({
       const payload = { company, ...model };
       if (model.kind === 'detail') {
         if (mode === 'print') printDetail(payload);
-        else downloadDetailPDF(payload);
+        else if (mode === 'pdf') downloadDetailPDF(payload);
+        else downloadDetailExcel(payload);
       } else {
         if (mode === 'print') printReport(payload);
-        else downloadReportPDF(payload);
+        else if (mode === 'pdf') downloadReportPDF(payload);
+        else downloadReportExcel(payload);
       }
     } catch (e) {
       console.error('report export failed', e);
@@ -60,8 +55,15 @@ export default function ReportActions({
         type="button" onClick={() => run('pdf')} disabled={!!busy}
         className="btn-secondary flex items-center gap-1.5 text-sm" title={t('downloadPdf') || 'Download PDF'}
       >
-        {busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+        {busy === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 text-indigo-400" />}
         {label && <span>PDF</span>}
+      </button>
+      <button
+        type="button" onClick={() => run('excel')} disabled={!!busy}
+        className="btn-secondary flex items-center gap-1.5 text-sm hover:text-emerald-400" title={t('exportExcel') || 'Export Excel'}
+      >
+        {busy === 'excel' ? <Loader2 className="w-4 h-4 animate-spin text-emerald-400" /> : <FileSpreadsheet className="w-4 h-4 text-emerald-400" />}
+        {label && <span>Excel</span>}
       </button>
     </div>
   );

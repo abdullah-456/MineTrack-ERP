@@ -9,7 +9,7 @@ exports.list = async (req, res) => {
 
     const where = { shop_id: shopId };
     if (req.query.search) {
-      where.name = { [Op.like]: `%${req.query.search}%` };
+      where.name = { [Op.iLike]: `%${req.query.search}%` };
     }
 
     const categories = await db.Category.findAll({

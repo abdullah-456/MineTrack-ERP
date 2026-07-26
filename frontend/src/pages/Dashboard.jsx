@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -65,7 +65,7 @@ function CustomTooltip({ active, payload, label, t }) {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, openFinancialSetup, setupModal } = useAuth();
   const { t, lang, theme } = useTheme();
   const { shopParams } = useShopApi();
 
@@ -124,11 +124,18 @@ export default function Dashboard() {
     }
   }, [shopParams, t, reportRange.from, reportRange.to]);
 
+  const setupWasOpen = useRef(false);
+
   useEffect(() => {
     loadDashboard();
     const interval = setInterval(() => loadDashboard(true), POLL_MS);
     return () => clearInterval(interval);
   }, [loadDashboard]);
+
+  useEffect(() => {
+    if (setupWasOpen.current && !setupModal.open) loadDashboard(true);
+    setupWasOpen.current = setupModal.open;
+  }, [setupModal.open, loadDashboard]);
 
   const hr = new Date().getHours();
   const greeting = hr < 12 ? t('goodMorning') : hr < 17 ? t('goodAfternoon') : t('goodEvening');
@@ -252,35 +259,46 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          {/* Balance Pills — cash & bank shown inline next to Updated-at */}
+          {/* Balance Pills — always visible for admin; click to set up or update */}
           {balances && user?.role === 'admin' && (
             <>
-              <div
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+              <button
+                type="button"
+                onClick={() => openFinancialSetup('cash')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer hover:opacity-80 transition-opacity"
                 style={{
                   background: 'rgba(16,185,129,0.10)',
                   border: '1px solid rgba(16,185,129,0.25)',
                   color: 'rgb(16,185,129)',
                 }}
-                title="Live cash in hand — shared drawer plus all named cash funds"
+                title={
+                  balances.session_exists
+                    ? (t('clickToUpdateCash') || 'Click to update opening cash balance')
+                    : (t('clickToSetCash') || 'Click to set your opening cash balance')
+                }
               >
                 <Wallet className="w-3.5 h-3.5" />
-                Cash: Rs. {(balances.cash_in_hand || 0).toLocaleString()}
-              </div>
-              {(balances.bank_balance > 0 || (balances.bank_accounts?.length > 0)) && (
-                <div
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
-                  style={{
-                    background: 'rgba(99,102,241,0.10)',
-                    border: '1px solid rgba(99,102,241,0.25)',
-                    color: 'rgb(99,102,241)',
-                  }}
-                  title={balances.bank_accounts?.map(a => `${a.name}: Rs. ${a.balance?.toLocaleString()}`).join(' | ')}
-                >
-                  <Banknote className="w-3.5 h-3.5" />
-                  Bank: Rs. {(balances.bank_balance || 0).toLocaleString()}
-                </div>
-              )}
+                {t('cash') || 'Cash'}: Rs. {(balances.cash_in_hand || 0).toLocaleString()}
+              </button>
+              <button
+                type="button"
+                onClick={() => openFinancialSetup('bank')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer hover:opacity-80 transition-opacity"
+                style={{
+                  background: 'rgba(99,102,241,0.10)',
+                  border: '1px solid rgba(99,102,241,0.25)',
+                  color: 'rgb(99,102,241)',
+                }}
+                title={
+                  balances.bank_accounts?.length
+                    ? (balances.bank_accounts.map(a => `${a.name}: Rs. ${a.balance?.toLocaleString()}`).join(' | ')
+                      || (t('clickToUpdateBank') || 'Click to add or update bank accounts'))
+                    : (t('clickToAddBank') || 'Click to add bank accounts and opening balances')
+                }
+              >
+                <Banknote className="w-3.5 h-3.5" />
+                {t('bank') || 'Bank'}: Rs. {(balances.bank_balance || 0).toLocaleString()}
+              </button>
             </>
           )}
           {lastUpdated && (

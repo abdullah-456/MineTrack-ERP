@@ -2,25 +2,10 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
-const { createAccount, getOrCreateDirectorsBranchParent, hasPostings } = require('../utils/chartOfAccounts');
+const { createAccount, getOrCreateDirectorsParent } = require('../utils/chartOfAccounts');
 const { postVoucher } = require('../utils/postVoucher');
 const { creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
 const { assertCnicAvailable } = require('../utils/cnic');
-
-const branchInclude = { model: db.Branch, attributes: ['id', 'name'] };
-
-async function loadBranch(shopId, branchId, transaction) {
-  const branch = await db.Branch.findOne({
-    where: { id: branchId, shop_id: shopId, status: 'active' },
-    transaction,
-  });
-  if (!branch) {
-    const err = new Error('Branch not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  return branch;
-}
 
 exports.list = async (req, res) => {
   try {
@@ -28,18 +13,16 @@ exports.list = async (req, res) => {
     if (!shopId) return;
 
     const where = { shop_id: shopId };
-    if (req.query.branch_id) where.branch_id = req.query.branch_id;
     if (req.query.search) {
       where[Op.or] = [
-        { name: { [Op.like]: `%${req.query.search}%` } },
-        { phone: { [Op.like]: `%${req.query.search}%` } },
-        { cnic: { [Op.like]: `%${req.query.search}%` } },
+        { name: { [Op.iLike]: `%${req.query.search}%` } },
+        { phone: { [Op.iLike]: `%${req.query.search}%` } },
+        { cnic: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
 
     const members = await db.BoardMember.findAll({
       where,
-      include: [branchInclude],
       order: [['created_at', 'DESC']],
     });
     return res.json({ members });
@@ -56,7 +39,6 @@ exports.get = async (req, res) => {
 
     const member = await db.BoardMember.findOne({
       where: { id: req.params.id, shop_id: shopId },
-      include: [branchInclude],
     });
     if (!member) return res.status(404).json({ message: 'Board member not found' });
     return res.json({ member });
@@ -66,18 +48,18 @@ exports.get = async (req, res) => {
   }
 };
 
-// Every board member gets a liability sub-account under their branch's
-// "Directors — {Branch}" parent in the COA.
+// Board of Directors are business-wide (shop-level) entities.
+// Every board member gets a liability sub-account under the global
+// "03-BOD" ("Directors & Investors") parent in the COA.
 exports.create = async (req, res) => {
   const shopId = requireShopId(req, res);
   if (!shopId) return;
 
   const {
-    name, phone, cnic, address, branch_id,
+    name, phone, cnic, address,
     opening_cash_amount, opening_bank_amount, opening_bank_account_id, opening_cash_account_id,
   } = req.body;
   if (!name?.trim()) return res.status(400).json({ message: 'Name is required' });
-  if (!branch_id) return res.status(400).json({ message: 'Branch is required' });
 
   const cashAmt = Math.round((parseFloat(opening_cash_amount) || 0) * 100) / 100;
   const bankAmt = Math.round((parseFloat(opening_bank_amount) || 0) * 100) / 100;
@@ -88,9 +70,8 @@ exports.create = async (req, res) => {
 
   const transaction = await db.sequelize.transaction();
   try {
-    const branch = await loadBranch(shopId, branch_id, transaction);
     const preparedCnic = await assertCnicAvailable(shopId, cnic, {}, transaction);
-    const parent = await getOrCreateDirectorsBranchParent(shopId, branch, req.user.id, transaction);
+    const parent = await getOrCreateDirectorsParent(shopId, req.user.id, transaction);
     const account = await createAccount({
       shopId,
       accountName: `${name.trim()} — Director Account`,
@@ -103,7 +84,6 @@ exports.create = async (req, res) => {
 
     const member = await db.BoardMember.create({
       shop_id: shopId,
-      branch_id: branch.id,
       name: name.trim(),
       phone: phone || null,
       cnic: preparedCnic.cnic,
@@ -134,7 +114,7 @@ exports.create = async (req, res) => {
         date: new Date(),
         narration: `Opening balance received from ${member.name}`,
         createdBy: req.user.id,
-        branchId: branch.id,
+        branchId: null,
         lines,
       }, transaction);
 
@@ -157,7 +137,7 @@ exports.create = async (req, res) => {
     }
 
     await transaction.commit();
-    const fresh = await db.BoardMember.findByPk(member.id, { include: [branchInclude] });
+    const fresh = await db.BoardMember.findByPk(member.id);
     return res.status(201).json({ member: fresh, account });
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
@@ -194,23 +174,6 @@ exports.update = async (req, res) => {
       member.cnic_normalized = preparedCnic.cnic_normalized;
     }
 
-    if (req.body.branch_id !== undefined && parseInt(req.body.branch_id, 10) !== member.branch_id) {
-      const branch = await loadBranch(shopId, req.body.branch_id, transaction);
-      if (member.chart_of_account_id) {
-        const posted = await hasPostings(member.chart_of_account_id, transaction);
-        if (posted) {
-          await transaction.rollback();
-          return res.status(409).json({ message: 'Cannot change branch after ledger postings exist on this member\'s account' });
-        }
-        const parent = await getOrCreateDirectorsBranchParent(shopId, branch, req.user.id, transaction);
-        await db.ChartOfAccount.update(
-          { parent_account_id: parent.id },
-          { where: { id: member.chart_of_account_id }, transaction },
-        );
-      }
-      member.branch_id = branch.id;
-    }
-
     await member.save({ transaction });
 
     if (req.body.name !== undefined && member.chart_of_account_id) {
@@ -221,7 +184,7 @@ exports.update = async (req, res) => {
     }
 
     await transaction.commit();
-    const fresh = await db.BoardMember.findByPk(member.id, { include: [branchInclude] });
+    const fresh = await db.BoardMember.findByPk(member.id);
     return res.json({ member: fresh });
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();

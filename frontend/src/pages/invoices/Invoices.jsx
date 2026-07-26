@@ -3,8 +3,10 @@ import { FileText, Search, Eye, Loader2, Download } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import StatusBadge from '../../components/ui/StatusBadge';
+import ReportFilters, { filterByDate } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
 
 export default function Invoices() {
@@ -12,36 +14,41 @@ export default function Invoices() {
   const { error } = useToast();
   const { shopParams, shopId } = useShopApi();
   const isRTL = lang === 'ur';
+  const { isHighlighted } = useHighlightRow();
 
   const [invoices, setInvoices] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [reportFilters, setReportFilters] = useState({ from: '', to: '', sale_type: '', customer_id: '' });
 
   const fetchInvoices = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { ...shopParams(), search, type: typeFilter };
-      const { data } = await api.get('/invoices', { params });
-      setInvoices(data.invoices || []);
+      const params = { ...shopParams(), type: typeFilter };
+      const [invRes, custRes] = await Promise.all([
+        api.get('/invoices', { params }),
+        api.get('/customers', { params: shopParams() }),
+      ]);
+      setInvoices(invRes.data.invoices || []);
+      setCustomers(custRes.data.customers || []);
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
     } finally {
       setLoading(false);
     }
-  }, [shopParams, search, typeFilter, error, t]);
+  }, [shopParams, typeFilter, error, t]);
 
   useEffect(() => {
     fetchInvoices();
   }, [fetchInvoices]);
 
-  /** Open A4 invoice in a new browser tab */
   const openInvoice = (inv) => {
     const params = shopId ? `?shop_id=${shopId}` : '';
     window.open(`/invoice/${inv.id}${params}`, '_blank', 'noopener,noreferrer');
   };
 
-  /** Open invoice page then auto-trigger print/save-as-PDF */
   const downloadInvoicePDF = (inv) => {
     const params = shopId ? `?shop_id=${shopId}&auto_print=1` : '?auto_print=1';
     window.open(`/invoice/${inv.id}${params}`, '_blank', 'noopener,noreferrer');
@@ -49,23 +56,36 @@ export default function Invoices() {
 
   const getInvoiceTypeBadge = (type) => {
     switch (type) {
-      case 'sale':
-        return <span className="badge badge-green">{t('sale') || 'Sale'}</span>;
-      case 'purchase':
-        return <span className="badge badge-blue">{t('purchase') || 'Purchase'}</span>;
-      case 'return':
-        return <span className="badge bg-rose-500/10 text-rose-400 border border-rose-500/20">{t('returns') || 'Return'}</span>;
-      default:
-        return <span className="badge">{type}</span>;
+      case 'sale':     return <span className="badge badge-green">{t('sale') || 'Sale'}</span>;
+      case 'purchase': return <span className="badge badge-blue">{t('purchase') || 'Purchase'}</span>;
+      case 'return':   return <span className="badge bg-rose-500/10 text-rose-400 border border-rose-500/20">{t('returns') || 'Return'}</span>;
+      default:         return <span className="badge">{type}</span>;
     }
   };
 
   const filterTabs = [
-    { key: 'all',         label: t('allPlans') || 'All' },
-    { key: 'sale',        label: t('sales') || 'Sales' },
-    { key: 'purchase',    label: t('navProcurement') || 'Purchases' },
-    { key: 'return',      label: t('returns') || 'Returns' },
+    { key: 'all',      label: t('allPlans') || 'All' },
+    { key: 'sale',     label: t('sales') || 'Sales' },
+    { key: 'purchase', label: t('navProcurement') || 'Purchases' },
+    { key: 'return',   label: t('returns') || 'Returns' },
   ];
+
+  // Client-side filtering
+  let displayRows = filterByDate(invoices, 'date', reportFilters.from, reportFilters.to);
+  if (reportFilters.sale_type)  displayRows = displayRows.filter(inv => inv.sale_type === reportFilters.sale_type);
+  if (reportFilters.customer_id) displayRows = displayRows.filter(inv => String(inv.customer_id) === String(reportFilters.customer_id));
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    displayRows = displayRows.filter(inv =>
+      (inv.invoice_number || '').toLowerCase().includes(q) ||
+      (inv.entity_name   || '').toLowerCase().includes(q) ||
+      (inv.sale_type     || '').toLowerCase().includes(q) ||
+      (inv.type          || '').toLowerCase().includes(q) ||
+      (inv.status        || '').toLowerCase().includes(q) ||
+      (String(inv.amount) || '').toLowerCase().includes(q) ||
+      (inv.date ? new Date(inv.date).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK') : '').toLowerCase().includes(q)
+    );
+  }
 
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
@@ -76,7 +96,6 @@ export default function Invoices() {
         subtitle={t('invoicesSub') || 'View all transaction invoices (Sales, Procurement and Returns)'}
       />
 
-      {/* Filter and Search */}
       <div className="glass-card p-4 space-y-3">
         <div className="relative max-w-md">
           <Search
@@ -86,7 +105,7 @@ export default function Invoices() {
           <input
             className="input"
             style={{ paddingInlineStart: '2.5rem' }}
-            placeholder={t('searchInvoice') || 'Search invoice number…'}
+            placeholder="Search invoice #, customer, supplier, type, status…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -106,6 +125,15 @@ export default function Invoices() {
             </button>
           ))}
         </div>
+        <ReportFilters
+          value={reportFilters}
+          onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
+          onClear={() => setReportFilters({ from: '', to: '', sale_type: '', customer_id: '' })}
+          selects={[
+            { key: 'sale_type',   label: t('saleType') || 'Sale Type', options: ['cash', 'bank', 'credit', 'card'].map(v => ({ value: v, label: t(v) || v })) },
+            { key: 'customer_id', label: t('customer') || 'Customer',  options: customers.map(c => ({ value: c.id, label: c.name })) },
+          ]}
+        />
       </div>
 
       {loading ? (
@@ -128,11 +156,16 @@ export default function Invoices() {
               </tr>
             </thead>
             <tbody>
-              {invoices.map(inv => (
+              {displayRows.map(inv => (
                 <tr
                   key={inv.id}
+                  id={`row-${inv.id}`}
                   style={{ borderBottom: '1px solid var(--border-subtle)' }}
-                  className="hover:bg-white/5"
+                  className={`${isHighlighted(inv.id) ? 'highlight-row' : 'hover:bg-white/5'} cursor-pointer transition-colors`}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    openInvoice(inv);
+                  }}
                 >
                   <td className="p-4 font-mono text-brand-400 text-xs font-bold">{inv.invoice_number}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>
@@ -145,31 +178,17 @@ export default function Invoices() {
                   <td className="p-4"><StatusBadge status={inv.status} /></td>
                   <td className="p-4">
                     <div className="flex items-center justify-end gap-1">
-                      {/* View — opens full A4 invoice in a new tab */}
-                      <button
-                        type="button"
-                        onClick={() => openInvoice(inv)}
-                        className="icon-btn"
-                        title={t('view') || 'View Invoice'}
-                      >
+                      <button type="button" onClick={() => openInvoice(inv)} className="icon-btn" title={t('view') || 'View Invoice'}>
                         <Eye className="w-4 h-4" />
                       </button>
-
-                      {/* Download PDF — opens new tab and triggers print dialog */}
-                      <button
-                        type="button"
-                        onClick={() => downloadInvoicePDF(inv)}
-                        className="icon-btn"
-                        title="Download PDF"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
+                      <button type="button" onClick={() => downloadInvoicePDF(inv)} className="icon-btn" title="Download PDF" style={{ color: 'var(--text-secondary)' }}>
                         <Download className="w-4 h-4" />
                       </button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {invoices.length === 0 && (
+              {displayRows.length === 0 && (
                 <tr>
                   <td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>
                     {t('noSales') || 'No invoices found'}

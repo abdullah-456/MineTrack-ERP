@@ -69,7 +69,7 @@ exports.recordReceive = async (req, res) => {
       date: date ? new Date(date) : new Date(),
       narration: `Contribution received from ${member.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
       createdBy: req.user.id,
-      branchId: member.branch_id,
+      branchId: null,
       lines: [
         { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : paymentAccountCode('cash', cashAcc), debit: amt },
         { accountCode: memberAccountCode, credit: amt },
@@ -136,7 +136,7 @@ exports.recordSend = async (req, res) => {
       date: date ? new Date(date) : new Date(),
       narration: `Withdrawal paid to ${member.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
       createdBy: req.user.id,
-      branchId: member.branch_id,
+      branchId: null,
       lines: [
         { accountCode: memberAccountCode, debit: amt },
         { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : paymentAccountCode('cash', cashAcc), credit: amt },
@@ -161,7 +161,6 @@ exports.getLedger = async (req, res) => {
 
     const member = await db.BoardMember.findOne({
       where: { id: req.params.id, shop_id: shopId },
-      include: [{ model: db.Branch, attributes: ['id', 'name'] }],
     });
     if (!member) return res.status(404).json({ message: 'Board member not found' });
 
@@ -204,8 +203,6 @@ exports.getLedger = async (req, res) => {
         name: member.name,
         phone: member.phone,
         cnic: member.cnic,
-        branch_id: member.branch_id,
-        branch_name: member.Branch?.name || null,
       },
       summary: {
         total_contributed: Math.round(totalContributed * 100) / 100,

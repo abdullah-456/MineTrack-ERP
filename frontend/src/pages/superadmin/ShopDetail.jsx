@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import {
   ChevronLeft, Store, Users, GitBranch, Edit,
   CheckCircle, AlertTriangle, Clock, Mail,
-  Phone, MapPin, RefreshCw, Slash, UserCheck
+  Phone, MapPin, RefreshCw, Slash, UserCheck, Trash2
 } from 'lucide-react';
 import api from '../../api/axios';
 
@@ -66,9 +66,27 @@ export default function ShopDetail() {
     });
     if (!ok) return;
     try {
-      await api.delete(`/shops/${id}`);
+      await api.post(`/shops/${id}/suspend`);
       success(t('toastShopSuspended'));
       fetchShop();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    }
+  };
+
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: t('deleteShopPermanently') || t('deleteShop'),
+      message: (t('confirmDeleteShop') || 'Permanently delete this shop and all its data?').replace('{name}', shop.name),
+      confirmLabel: t('deleteShopPermanently') || t('deleteShop'),
+      cancelLabel: t('cancel'),
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/shops/${id}`);
+      success(t('toastShopDeleted'));
+      navigate('/superadmin/shops');
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
     }
@@ -138,10 +156,13 @@ export default function ShopDetail() {
               <UserCheck className="w-4 h-4" /> {t('activateShop')}
             </button>
           ) : (
-            <button onClick={handleSuspend} className="btn-danger flex items-center gap-2">
+            <button onClick={handleSuspend} className="btn-secondary flex items-center gap-2 text-amber-400 border-amber-500/30">
               <Slash className="w-4 h-4" /> {t('suspendShop')}
             </button>
           )}
+          <button onClick={handleDelete} className="btn-danger flex items-center gap-2">
+            <Trash2 className="w-4 h-4" /> {t('deleteShop')}
+          </button>
         </div>
       </div>
 

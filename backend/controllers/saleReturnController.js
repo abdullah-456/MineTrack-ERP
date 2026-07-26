@@ -127,7 +127,7 @@ exports.list = async (req, res) => {
     const where = { shop_id: shopId };
     if (req.query.return_type && req.query.return_type !== 'all') where.return_type = req.query.return_type;
     if (req.query.status && req.query.status !== 'all') where.status = req.query.status;
-    if (req.query.search) where.return_number = { [Op.like]: `%${req.query.search}%` };
+    if (req.query.search) where.return_number = { [Op.iLike]: `%${req.query.search}%` };
 
     const returns = await db.SaleReturn.findAll({
       where,

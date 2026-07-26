@@ -10,8 +10,9 @@ router.get('/stats',   shopController.getPlatformStats);
 router.get('/',        shopController.listShops);
 router.get('/:id',     shopController.getShop);
 router.post('/',       shopController.createShop);
-router.put('/:id',     shopController.updateShop);
-router.delete('/:id',  shopController.deleteShop);
-router.post('/:id/activate', shopController.activateShop);
+router.put('/:id',            shopController.updateShop);
+router.post('/:id/suspend',   shopController.suspendShop);
+router.delete('/:id',         shopController.deleteShop);
+router.post('/:id/activate',  shopController.activateShop);
 
 module.exports = router;

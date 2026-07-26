@@ -23,6 +23,10 @@ const expenseController = require('../controllers/expenseController');
 const financialReportsController = require('../controllers/financialReportsController');
 const roleController = require('../controllers/roleController');
 const deletionRequestController = require('../controllers/deletionRequestController');
+const gatePassController = require('../controllers/gatePassController');
+const godownController = require('../controllers/godownController');
+const purchaseOrderController = require('../controllers/purchaseOrderController');
+const goodsReceiptController = require('../controllers/goodsReceiptController');
 const auditLog = require('../middleware/auditLog');
 
 router.use(authenticate);
@@ -39,6 +43,26 @@ router.post(  '/suppliers/:id/products', authorize('suppliers', 'update'), suppl
 router.get(   '/suppliers/:id/ledger',   authorize('suppliers', 'read'),   supplierLedgerController.getLedger);
 router.post(  '/suppliers/:id/payments', authorize('suppliers', 'update'), supplierLedgerController.recordPayment);
 router.post(  '/suppliers/:id/opening-balance', authorize('suppliers', 'update'), supplierLedgerController.recordOpeningBalance);
+
+// Purchase Orders
+router.get(   '/purchase-orders',                      authorize('purchases', 'read'),   purchaseOrderController.list);
+router.get(   '/purchase-orders/:id',                authorize('purchases', 'read'),   purchaseOrderController.get);
+router.get(   '/purchase-orders/:id/receivable',     authorize('purchases', 'read'),   purchaseOrderController.getReceivable);
+router.post(  '/purchase-orders',                    authorize('purchases', 'create'), purchaseOrderController.create);
+router.put(   '/purchase-orders/:id',                authorize('purchases', 'update'), purchaseOrderController.update);
+router.delete('/purchase-orders/:id',                authorize('purchases', 'delete'), purchaseOrderController.remove);
+router.post(  '/purchase-orders/:id/send',           authorize('purchases', 'update'), purchaseOrderController.send);
+router.post(  '/purchase-orders/:id/cancel',         authorize('purchases', 'update'), purchaseOrderController.cancel);
+router.post(  '/purchase-orders/:poId/receipts',     authorize('purchases', 'create'), goodsReceiptController.createFromPo);
+router.post(  '/purchase-orders/:id/receive',        authorize('purchases', 'create'), goodsReceiptController.receiveFromPo);
+
+// Goods Receipt Notes (GRN)
+router.get(   '/goods-receipts',                     authorize('purchases', 'read'),   goodsReceiptController.list);
+router.get(   '/goods-receipts/:id',                 authorize('purchases', 'read'),   goodsReceiptController.get);
+router.post(  '/goods-receipts',                    authorize('purchases', 'create'), goodsReceiptController.create);
+router.put(   '/goods-receipts/:id',                authorize('purchases', 'update'), goodsReceiptController.update);
+router.delete('/goods-receipts/:id',                authorize('purchases', 'delete'), goodsReceiptController.remove);
+router.post(  '/goods-receipts/:id/post',           authorize('purchases', 'approve'), goodsReceiptController.post);
 
 // Categories
 router.get(   '/categories',             authorize('products', 'read'),   categoryController.list);
@@ -60,6 +84,14 @@ router.get(   '/inventory/movements',    authorize('inventory', 'read'),   inven
 router.post(  '/inventory/adjust',       authorize('inventory', 'update'), inventoryController.adjust);
 router.post(  '/inventory/transfer',     authorize('inventory', 'update'), inventoryController.transferStock);
 router.post(  '/inventory/receive',      authorize('inventory', 'create'), inventoryController.receiveStock);
+
+// Godowns
+router.get(   '/godowns',                authorize('inventory', 'read'),   godownController.list);
+router.get(   '/godowns/:id',            authorize('inventory', 'read'),   godownController.get);
+router.post(  '/godowns',                authorize('inventory', 'create'), godownController.create);
+router.put(   '/godowns/:id',            authorize('inventory', 'update'), godownController.update);
+router.delete('/godowns/:id',            authorize('inventory', 'delete'), godownController.remove);
+router.post(  '/godowns/:id/link-branches', authorize('inventory', 'update'), godownController.linkBranches);
 
 // Customers
 router.get(   '/customers',              authorize('customers', 'read'),   customerController.list);
@@ -95,6 +127,12 @@ router.get(   '/sales/:id',              authorize('sales', 'read'),   saleContr
 router.post(  '/sales',                  authorize('sales', 'create'), saleController.create);
 router.get(   '/sales/:id/returnable',   authorize('returns', 'read'),  saleReturnController.returnable);
 
+// GatePasses
+router.get(   '/gatepasses',             authorize('sales', 'read'),   gatePassController.list);
+router.get(   '/gatepasses/:id',         authorize('sales', 'read'),   gatePassController.get);
+router.post(  '/gatepasses',             authorize('sales', 'create'), gatePassController.create);
+router.delete('/gatepasses/:id',         authorize('sales', 'delete'), gatePassController.remove);
+
 
 // Sales Returns & Exchange
 router.get(   '/returns',                authorize('returns', 'read'),   saleReturnController.list);
@@ -124,7 +162,10 @@ router.get(   '/reports/equity-statement', authorize('reports', 'read'), financi
 router.get(   '/reports/cash-flow',       authorize('reports', 'read'), financialReportsController.cashFlow);
 
 // Financial Setup (first-time wizard) & Cash Sessions
-router.post(  '/financial-setup',        financialSetupController.completeSetup);
+router.post(  '/financial-setup',                 financialSetupController.completeSetup);
+router.post(  '/financial-setup/skip',          financialSetupController.skipSetup);
+router.post(  '/financial-setup/opening-cash',  financialSetupController.setOpeningCash);
+router.post(  '/financial-setup/bank-accounts', financialSetupController.addBankAccounts);
 router.get(   '/bank-accounts',          financialSetupController.listBankAccounts);
 router.post(  '/cash-sessions',          financialSetupController.recordCashSession);
 router.get(   '/cash-sessions/today',    financialSetupController.getTodaySession);

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ShieldAlert, Check, X, Loader2 } from 'lucide-react';
+import { ShieldAlert, Check, X, Loader2, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
@@ -17,6 +17,7 @@ export default function DeletionRequests() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('pending');
+  const [search, setSearch] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -79,6 +80,19 @@ export default function DeletionRequests() {
         ))}
       </div>
 
+      <div className="glass-card p-3">
+        <div className="relative max-w-md">
+          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+          <input
+            className="input"
+            style={{ paddingInlineStart: '2.25rem' }}
+            placeholder="Search module, entity, requested by, status…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-brand-400" /></div>
       ) : (
@@ -96,7 +110,13 @@ export default function DeletionRequests() {
               </tr>
             </thead>
             <tbody>
-              {requests.map(r => (
+              {requests
+                .filter(r => !search.trim() || [
+                  r.module, r.entity_name, r.status,
+                  r.RequestedBy?.name, r.ReviewedBy?.name, r.reason,
+                  r.created_at ? new Date(r.created_at).toLocaleDateString('en-PK') : ''
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map(r => (
                 <tr key={r.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
                     {new Date(r.createdAt).toLocaleString(lang === 'ur' ? 'ur-PK' : 'en-PK', { dateStyle: 'medium', timeStyle: 'short' })}

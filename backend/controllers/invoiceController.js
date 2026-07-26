@@ -18,7 +18,7 @@ exports.list = async (req, res) => {
     if (type === 'all' || type === 'sale') {
       const saleWhere = { shop_id: shopId };
       if (search) {
-        saleWhere.invoice_number = { [Op.like]: `%${search}%` };
+        saleWhere.invoice_number = { [Op.iLike]: `%${search}%` };
       }
       const sales = await db.Sale.findAll({
         where: saleWhere,
@@ -35,6 +35,7 @@ exports.list = async (req, res) => {
           sale_type: s.sale_type,
           date: s.sale_date,
           entity_name: s.Customer?.name || 'Walk-in Customer',
+          customer_id: s.customer_id || null,
           amount: parseFloat(s.total),
           status: s.status,
         });
@@ -45,7 +46,7 @@ exports.list = async (req, res) => {
     if (type === 'all' || type === 'purchase') {
       const purchaseWhere = {};
       if (search) {
-        purchaseWhere.invoice_number = { [Op.like]: `%${search}%` };
+        purchaseWhere.invoice_number = { [Op.iLike]: `%${search}%` };
       }
       const purchases = await db.PurchaseInvoice.findAll({
         where: purchaseWhere,
@@ -73,7 +74,7 @@ exports.list = async (req, res) => {
     if (type === 'all' || type === 'return') {
       const returnWhere = { shop_id: shopId };
       if (search) {
-        returnWhere.return_number = { [Op.like]: `%${search}%` };
+        returnWhere.return_number = { [Op.iLike]: `%${search}%` };
       }
       const returns = await db.SaleReturn.findAll({
         where: returnWhere,
@@ -90,6 +91,7 @@ exports.list = async (req, res) => {
           sale_type: r.return_type === 'refund' ? 'Refund' : 'Exchange',
           date: r.return_date,
           entity_name: r.Customer?.name || 'Walk-in Customer',
+          customer_id: r.customer_id || null,
           amount: parseFloat(r.returned_value),
           status: r.status,
         });
@@ -136,7 +138,21 @@ exports.get = async (req, res) => {
       const purchase = await db.PurchaseInvoice.findOne({
         where: { id: rawId },
         include: [
-          { model: db.Supplier, where: { shop_id: shopId }, include: [{ model: db.Shop, attributes: ['id', 'name', 'owner_name', 'email', 'phone', 'address', 'logo_url'] }] },
+          {
+            model: db.Supplier,
+            where: { shop_id: shopId },
+            include: [{ model: db.Shop, attributes: ['id', 'name', 'owner_name', 'email', 'phone', 'address', 'logo_url'] }],
+          },
+          {
+            model: db.PurchaseInvoiceItem,
+            as: 'PurchaseInvoiceItems',
+            include: [{ model: db.Product, attributes: ['id', 'name', 'sku'] }],
+          },
+          {
+            model: db.GoodsReceiptNote,
+            attributes: ['id', 'grn_number', 'receipt_date', 'supplier_invoice_number'],
+            required: false,
+          },
         ],
       });
       if (!purchase) return res.status(404).json({ message: 'Invoice not found' });

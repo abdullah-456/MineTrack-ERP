@@ -82,28 +82,6 @@ async function getOrCreateDirectorsParent(shopId, createdBy, transaction) {
   }, transaction);
 }
 
-// Per-branch sub-parent under 03-BOD so each director's account rolls up
-// under their branch in Chart of Accounts / reports.
-async function getOrCreateDirectorsBranchParent(shopId, branch, createdBy, transaction) {
-  const shopParent = await getOrCreateDirectorsParent(shopId, createdBy, transaction);
-  const branchCode = `03-BOD-BR-${branch.id}`;
-
-  const existing = await db.ChartOfAccount.findOne({
-    where: { shop_id: shopId, account_code: branchCode },
-    transaction,
-  });
-  if (existing) return existing;
-
-  return createAccount({
-    shopId,
-    accountName: `Directors — ${branch.name}`,
-    accountType: 'liability',
-    parent: shopParent,
-    accountCode: branchCode,
-    createdBy,
-  }, transaction);
-}
-
 function isFundParent(parent) {
   return !!(parent && FUND_PARENT_CODES.has(parent.account_code));
 }
@@ -168,5 +146,4 @@ module.exports = {
   hasPostings,
   wouldCreateCycle,
   getOrCreateDirectorsParent,
-  getOrCreateDirectorsBranchParent,
 };

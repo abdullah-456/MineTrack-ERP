@@ -7,7 +7,7 @@ import {
   TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2, Landmark,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
   Zap, Bell, Search, ChevronLeft, Sun, Moon, Globe, Check,
-  Store, GitBranch, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert } from 'lucide-react';
+  Store, GitBranch, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList } from 'lucide-react';
 
 // ── Nav structure for regular shop users (uses translation keys) ─
 const shopNavGroups = [
@@ -17,6 +17,7 @@ const shopNavGroups = [
       { to: '/dashboard',         icon: LayoutDashboard, labelKey: 'dashboard' },
       { to: '/sales',             icon: TrendingUp,      labelKey: 'sales',          module: 'sales',        action: 'read' },
       { to: '/returns',           icon: RotateCcw,       labelKey: 'salesReturns',   module: 'returns',      action: 'read' },
+      { to: '/gatepasses',        icon: Ticket,          labelKey: 'gatepasses',     module: 'sales',        action: 'read' },
     ]
   },
   {
@@ -24,12 +25,14 @@ const shopNavGroups = [
     items: [
       { to: '/products',          icon: Package,         labelKey: 'products',       module: 'products',     action: 'read' },
       { to: '/inventory',         icon: Building2,       labelKey: 'stock',          module: 'inventory',    action: 'read' },
+      { to: '/godowns',           icon: Warehouse,       labelKey: 'godowns',        module: 'inventory',    action: 'read' },
       { to: '/categories',        icon: BookOpen,        labelKey: 'categories',     module: 'products',     action: 'read' },
     ]
   },
   {
     labelKey: 'navProcurement',
     items: [
+      { to: '/purchase-orders',   icon: ClipboardList,   labelKey: 'purchaseOrders', module: 'purchases',    action: 'read' },
       { to: '/suppliers',         icon: Building2,       labelKey: 'suppliers',      module: 'suppliers',    action: 'read' },
       { to: '/invoices',          icon: CreditCard,      labelKey: 'invoices',       module: 'sales',        action: 'read' },
     ]

@@ -44,8 +44,8 @@ exports.list = async (req, res) => {
     if (req.query.branch_id) where.branch_id = parseInt(req.query.branch_id, 10);
     if (req.query.search) {
       where[Op.or] = [
-        { category: { [Op.like]: `%${req.query.search}%` } },
-        { description: { [Op.like]: `%${req.query.search}%` } },
+        { category: { [Op.iLike]: `%${req.query.search}%` } },
+        { description: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
     if (req.query.from || req.query.to) {
@@ -57,7 +57,7 @@ exports.list = async (req, res) => {
     const expenses = await db.Expense.findAll({
       where,
       include: [
-        { model: db.Branch, attributes: ['id', 'name'] },
+        { model: db.Branch, attributes: ['id', 'name', 'godown_id'], include: [{ model: db.Godown, attributes: ['id', 'name'] }] },
         { model: db.Voucher, attributes: ['id', 'voucher_number'] },
       ],
       order: [['expense_date', 'DESC'], ['id', 'DESC']],
@@ -79,7 +79,7 @@ exports.get = async (req, res) => {
     const expense = await db.Expense.findOne({
       where: { id: req.params.id, shop_id: shopId },
       include: [
-        { model: db.Branch, attributes: ['id', 'name'] },
+        { model: db.Branch, attributes: ['id', 'name', 'godown_id'], include: [{ model: db.Godown, attributes: ['id', 'name'] }] },
         { model: db.Voucher, attributes: ['id', 'voucher_number'] },
       ],
     });

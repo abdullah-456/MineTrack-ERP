@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Landmark, Loader2, RefreshCw } from 'lucide-react';
+import { Landmark, Loader2, RefreshCw, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import { formatVoucherNumber } from '../../utils/ledgerFormat';
@@ -21,6 +22,7 @@ export default function GeneralLedger() {
   const { t, lang } = useTheme();
   const { error } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { isHighlighted } = useHighlightRow();
 
   const [accounts, setAccounts] = useState([]);
   const [entityOptions, setEntityOptions] = useState({ customers: [], suppliers: [], employees: [], board_members: [], branches: [] });
@@ -32,6 +34,7 @@ export default function GeneralLedger() {
   const [entityId, setEntityId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [search, setSearch] = useState('');
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -142,7 +145,18 @@ export default function GeneralLedger() {
         }
       />
 
-      <div className="glass-card p-4 flex flex-wrap gap-4 items-end">
+      <div className="glass-card p-4 space-y-3">
+        <div className="relative max-w-md">
+          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '12px', color: 'var(--text-muted)' }} />
+          <input
+            className="input"
+            style={{ paddingInlineStart: '2.5rem' }}
+            placeholder="Search narration, account name, voucher #…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-wrap gap-4 items-end">
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('filterBy') || 'Filter by'}</span>
           <select className="input max-w-xs" value={filterType} onChange={e => handleFilterTypeChange(e.target.value)}>
@@ -201,6 +215,7 @@ export default function GeneralLedger() {
         <button onClick={fetchEntries} className="btn-secondary flex items-center gap-2">
           <RefreshCw className="w-4 h-4" />{t('refresh') || 'Refresh'}
         </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -231,11 +246,28 @@ export default function GeneralLedger() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e, idx) => {
-                const nextEntry = entries[idx + 1];
+              {entries
+                .filter(e => !search.trim() || [
+                  e.narration, e.account_name, e.voucher_number, e.entity_name,
+                  String(e.debit), String(e.credit), String(e.running_balance),
+                  e.date ? new Date(e.date).toLocaleDateString('en-PK') : ''
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map((e, idx, arr) => {
+                const nextEntry = arr[idx + 1];
                 const showBorder = !nextEntry || nextEntry.voucher_number !== e.voucher_number;
                 return (
-                  <tr key={e.id} style={{ borderBottom: showBorder ? '1px solid var(--border-subtle)' : 'none' }} className="hover:bg-white/5">
+                  <tr
+                    key={e.id}
+                    id={`row-${e.id}`}
+                    style={{ borderBottom: showBorder ? '1px solid var(--border-subtle)' : 'none' }}
+                    className={`${isHighlighted(e.id) || isHighlighted(e.voucher_id) ? 'highlight-row' : 'hover:bg-white/10'} cursor-pointer transition-colors`}
+                    title={t('viewVoucher') || 'View Voucher'}
+                    onClick={() => {
+                      if (e.voucher_id) {
+                        window.open(`/vouchers/${e.voucher_id}`, '_blank', 'noopener,noreferrer');
+                      }
+                    }}
+                  >
                     <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(e.date).toLocaleDateString('en-PK')}</td>
                     <td className="p-4 text-xs font-mono text-brand-400">{formatVoucherNumber(e.voucher_number)}</td>
                     <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{e.account_name}</td>

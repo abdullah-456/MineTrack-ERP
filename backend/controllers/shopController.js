@@ -1,5 +1,24 @@
 const bcrypt = require('bcryptjs');
 const db = require('../models');
+const { destroyShopCompletely } = require('../utils/destroyShop');
+
+function normalizeOptionalString(value) {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+function handleWriteError(res, error, label) {
+  console.error(`${label} error:`, error);
+  if (error.name === 'SequelizeValidationError') {
+    const msg = error.errors?.[0]?.message || 'Validation failed';
+    return res.status(400).json({ message: msg });
+  }
+  if (error.name === 'SequelizeUniqueConstraintError') {
+    return res.status(409).json({ message: 'A record with that value already exists' });
+  }
+  return res.status(500).json({ message: 'Internal server error' });
+}
 
 // ── GET /api/shops — List all shops (SuperAdmin only)
 exports.listShops = async (req, res) => {
@@ -109,7 +128,13 @@ exports.createShop = async (req, res) => {
   try {
     // Create the shop
     const shop = await db.Shop.create({
-      name, owner_name, email, phone, address, plan, status: 'active'
+      name: name.trim(),
+      owner_name: normalizeOptionalString(owner_name),
+      email: normalizeOptionalString(email),
+      phone: normalizeOptionalString(phone),
+      address: normalizeOptionalString(address),
+      plan,
+      status: 'active',
     }, { transaction: t });
 
     // Create a default branch for the shop
@@ -151,8 +176,7 @@ exports.createShop = async (req, res) => {
     });
   } catch (error) {
     await t.rollback();
-    console.error('createShop error:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return handleWriteError(res, error, 'createShop');
   }
 };
 
@@ -166,7 +190,16 @@ exports.updateShop = async (req, res) => {
     const { name, owner_name, email, phone, address, status, plan, logo_url } = req.body;
     const previousStatus = shop.status;
 
-    await shop.update({ name, owner_name, email, phone, address, status, plan, logo_url }, { transaction: t });
+    await shop.update({
+      name: name != null ? String(name).trim() : shop.name,
+      owner_name: owner_name !== undefined ? normalizeOptionalString(owner_name) : shop.owner_name,
+      email: email !== undefined ? normalizeOptionalString(email) : shop.email,
+      phone: phone !== undefined ? normalizeOptionalString(phone) : shop.phone,
+      address: address !== undefined ? normalizeOptionalString(address) : shop.address,
+      status,
+      plan,
+      logo_url,
+    }, { transaction: t });
 
     if (status === 'suspended' && previousStatus !== 'suspended') {
       // Mark the users we are disabling BECAUSE of the suspension so we can
@@ -188,13 +221,12 @@ exports.updateShop = async (req, res) => {
     return res.json({ message: 'Shop updated successfully', shop });
   } catch (error) {
     await t.rollback();
-    console.error('updateShop error:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return handleWriteError(res, error, 'updateShop');
   }
 };
 
-// ── DELETE /api/shops/:id — Suspend shop and all its users
-exports.deleteShop = async (req, res) => {
+// ── POST /api/shops/:id/suspend — Suspend shop and disable its active users
+exports.suspendShop = async (req, res) => {
   const t = await db.sequelize.transaction();
   try {
     const shop = await db.Shop.findByPk(req.params.id);
@@ -210,8 +242,26 @@ exports.deleteShop = async (req, res) => {
     return res.json({ message: 'Shop suspended successfully' });
   } catch (error) {
     await t.rollback();
-    console.error('deleteShop error:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return handleWriteError(res, error, 'suspendShop');
+  }
+};
+
+// ── DELETE /api/shops/:id — Permanently delete shop and all related data
+exports.deleteShop = async (req, res) => {
+  const t = await db.sequelize.transaction();
+  try {
+    const shop = await db.Shop.findByPk(req.params.id, { transaction: t });
+    if (!shop) {
+      await t.rollback();
+      return res.status(404).json({ message: 'Shop not found' });
+    }
+
+    await destroyShopCompletely(shop.id, t);
+    await t.commit();
+    return res.json({ message: 'Shop deleted permanently' });
+  } catch (error) {
+    await t.rollback();
+    return handleWriteError(res, error, 'deleteShop');
   }
 };
 

@@ -10,12 +10,16 @@ import StatusBadge, { StockBadge } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
 import { BankAccountPicker, CashAccountPicker } from '../../components/ui/PaymentAccountSelect';
+import LocationPicker from '../../components/ui/LocationPicker';
+import { defaultLocation } from '../../utils/locationUtils';
 import api from '../../api/axios';
 
 const EMPTY = {
   name: '', sku: '', barcode: '', category_id: '', brand: '',
   cost_price: '0', sale_price: '', tax_rate: '0', reorder_level: '5',
-  supplier_id: '', initial_quantity: '0', branch_id: '', status: 'active',
+  supplier_id: '', initial_quantity: '0',
+  location_type: 'branch', branch_id: '', godown_id: null,
+  status: 'active',
   payment_status: 'unpaid', paid_amount: '', payment_method: 'cash', bank_account_id: null,
 };
 
@@ -64,7 +68,7 @@ export default function Products() {
   const totalStock = (p) => (p.Stock || []).reduce((s, x) => s + (parseFloat(x.quantity_on_hand) || 0), 0);
 
   const openCreate = () => {
-    setForm({ ...EMPTY, branch_id: branches[0]?.id || '' });
+    setForm({ ...EMPTY, ...defaultLocation(branches) });
     setSelected(null);
     setModal('create');
   };
@@ -75,7 +79,8 @@ export default function Products() {
       name: p.name, sku: p.sku, barcode: p.barcode || '', category_id: p.category_id,
       brand: p.brand || '', cost_price: p.cost_price,
       sale_price: p.sale_price, tax_rate: p.tax_rate, reorder_level: p.reorder_level,
-      status: p.status, supplier_id: '', initial_quantity: '0', branch_id: '',
+      status: p.status, supplier_id: '', initial_quantity: '0',
+      location_type: 'branch', branch_id: '', godown_id: null,
       payment_status: 'unpaid', paid_amount: '', payment_method: 'cash', bank_account_id: null,
     });
     setModal('edit');
@@ -98,12 +103,22 @@ export default function Products() {
     setSaving(true);
     try {
       const initialQty = parseFloat(form.initial_quantity) || 0;
+      if (initialQty > 0 && !form.branch_id) {
+        error(t('selectBranch') || 'Please select a location for initial stock');
+        setSaving(false);
+        return;
+      }
       const payload = {
-        ...form,
+        name: form.name,
+        sku: form.sku,
+        barcode: form.barcode,
+        category_id: form.category_id,
+        brand: form.brand,
         cost_price: parseFloat(form.cost_price) || 0,
         sale_price: parseFloat(form.sale_price),
         tax_rate: parseFloat(form.tax_rate) || 0,
         reorder_level: parseInt(form.reorder_level, 10) || 5,
+        status: form.status,
         initial_quantity: initialQty,
         supplier_id: form.supplier_id || undefined,
         branch_id: form.branch_id || undefined,
@@ -157,6 +172,20 @@ export default function Products() {
   let reportRows = products;
   if (reportFilters.category_id) reportRows = reportRows.filter(p => String(p.category_id) === String(reportFilters.category_id));
   if (reportFilters.status) reportRows = reportRows.filter(p => p.status === reportFilters.status);
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    reportRows = reportRows.filter(p =>
+      (p.sku || '').toLowerCase().includes(q) ||
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.brand || '').toLowerCase().includes(q) ||
+      (p.Category?.name || '').toLowerCase().includes(q) ||
+      (p.unit || '').toLowerCase().includes(q) ||
+      (p.status || '').toLowerCase().includes(q) ||
+      (String(p.cost_price) || '').toLowerCase().includes(q) ||
+      (String(p.sale_price) || '').toLowerCase().includes(q) ||
+      (p.ProductSuppliers || []).some(ps => (ps.Supplier?.company_name || '').toLowerCase().includes(q))
+    );
+  }
   const reportColumns = [
     { header: t('sku') || 'SKU', key: 'sku', width: 1 },
     { header: t('name') || 'Name', render: p => p.name + (p.brand ? ` (${p.brand})` : ''), width: 2 },
@@ -308,10 +337,21 @@ export default function Products() {
                     <input className="input" type="number" min="0" step="0.1" value={form.initial_quantity} onChange={setF('initial_quantity')} />
                   </div>
                   <div>
-                    <FormLabel>{t('userBranch')}</FormLabel>
-                    <select className="input" value={form.branch_id} onChange={setF('branch_id')}>
-                      {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
+                    <LocationPicker
+                      required={(parseFloat(form.initial_quantity) || 0) > 0}
+                      label={t('location') || t('userBranch')}
+                      value={{
+                        location_type: form.location_type,
+                        branch_id: form.branch_id,
+                        godown_id: form.godown_id,
+                      }}
+                      onChange={(loc) => setForm(f => ({
+                        ...f,
+                        location_type: loc.location_type,
+                        branch_id: loc.branch_id,
+                        godown_id: loc.godown_id,
+                      }))}
+                    />
                   </div>
                 </>
               )}

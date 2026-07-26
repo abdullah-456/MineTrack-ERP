@@ -4,7 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import {
   Plus, Eye, Edit, Slash, Search, CheckCircle,
-  AlertTriangle, Clock, RefreshCw, Store, UserCheck
+  AlertTriangle, Clock, RefreshCw, Store, UserCheck, Trash2
 } from 'lucide-react';
 import api from '../../api/axios';
 
@@ -51,8 +51,26 @@ export default function ShopsList() {
     });
     if (!ok) return;
     try {
-      await api.delete(`/shops/${shop.id}`);
+      await api.post(`/shops/${shop.id}/suspend`);
       success(t('toastShopSuspended'));
+      fetchShops();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    }
+  };
+
+  const handleDelete = async (shop) => {
+    const ok = await confirm({
+      title: t('deleteShopPermanently') || t('deleteShop'),
+      message: (t('confirmDeleteShop') || 'Permanently delete this shop and all its data?').replace('{name}', shop.name),
+      confirmLabel: t('deleteShopPermanently') || t('deleteShop'),
+      cancelLabel: t('cancel'),
+      variant: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/shops/${shop.id}`);
+      success(t('toastShopDeleted'));
       fetchShops();
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
@@ -78,9 +96,10 @@ export default function ShopsList() {
   };
 
   const filtered = shops.filter(s => {
-    const matchSearch = s.name?.toLowerCase().includes(search.toLowerCase()) ||
-                        s.owner_name?.toLowerCase().includes(search.toLowerCase()) ||
-                        s.email?.toLowerCase().includes(search.toLowerCase());
+    const q = search.trim().toLowerCase();
+    const matchSearch = !q || [
+      s.name, s.owner_name, s.email, s.phone, s.status, s.subdomain, s.custom_domain
+    ].some(v => String(v || '').toLowerCase().includes(q));
     const matchStatus = statusFilter === 'all' || s.status === statusFilter;
     return matchSearch && matchStatus;
   });
@@ -225,12 +244,19 @@ export default function ShopsList() {
                           ) : (
                             <button
                               onClick={() => handleSuspend(shop)}
-                              className="icon-btn text-red-400 hover:text-red-300"
+                              className="icon-btn text-amber-400 hover:text-amber-300"
                               title={t('suspendShop')}
                             >
                               <Slash className="w-4 h-4" />
                             </button>
                           )}
+                          <button
+                            onClick={() => handleDelete(shop)}
+                            className="icon-btn text-red-400 hover:text-red-300"
+                            title={t('deleteShopPermanently') || t('deleteShop')}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
