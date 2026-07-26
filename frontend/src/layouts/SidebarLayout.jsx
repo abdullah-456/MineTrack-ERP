@@ -52,6 +52,8 @@ const shopNavGroups = [
   {
     labelKey: 'navReports',
     items: [
+      { to: '/reports',                 icon: FileBarChart2, labelKey: 'reportsHub',    module: 'reports', action: 'read' },
+      { to: '/reports/sales',           icon: TrendingUp,    labelKey: 'salesReport',   module: 'sales',   action: 'read' },
       { to: '/reports/trial-balance',   icon: FileBarChart2, labelKey: 'trialBalance',  module: 'reports', action: 'read' },
       { to: '/reports/profit-and-loss', icon: TrendingUp,    labelKey: 'plStatement',   module: 'reports', action: 'read' },
       { to: '/reports/balance-sheet',   icon: BookOpen,      labelKey: 'balanceSheet',  module: 'reports', action: 'read' },

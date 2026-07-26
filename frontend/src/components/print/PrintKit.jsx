@@ -1,22 +1,15 @@
 import { Printer, Download, ArrowLeft } from 'lucide-react';
 import { amountInWords } from '../../utils/amountInWords';
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Shared building blocks for every printable business document (invoices,
-// receipts, vouchers). Deliberately print-safe:
-//   • Dark ink on white — never white text on a coloured fill, so nothing
-//     vanishes when the browser drops backgrounds.
-//   • print-color-adjust: exact so the light header fills that DO help legibility
-//     are still printed.
-//   • Solid borders + a consistent letterhead / signature block on all docs.
-// ──────────────────────────────────────────────────────────────────────────────
+// Shared building blocks for printable business documents.
+// Print-safe dark ink; signature/stamp block pins near the bottom of A4.
 
-export const INK = '#111827';        // primary text (near-black)
-export const INK_SOFT = '#374151';   // secondary text — still high-contrast
-export const LINE = '#111827';       // table & box borders
-export const LINE_SOFT = '#9ca3af';  // subtle internal rules
-export const BRAND = '#4338ca';      // letterhead brand (indigo-700)
-export const BRAND_ACCENT = '#059669'; // letterhead accent (emerald-600)
+export const INK = '#111827';
+export const INK_SOFT = '#374151';
+export const LINE = '#111827';
+export const LINE_SOFT = '#9ca3af';
+export const BRAND = '#4338ca';
+export const BRAND_ACCENT = '#059669';
 
 export function PrintStyles() {
   return (
@@ -30,8 +23,18 @@ export function PrintStyles() {
       }
       .sheet {
         width: 210mm; min-height: 297mm; background: #fff; color: ${INK};
-        padding: 16mm 15mm; margin: 0 auto; box-shadow: 0 4px 32px rgba(0,0,0,0.12);
+        padding: 16mm 15mm 12mm; margin: 0 auto; box-shadow: 0 4px 32px rgba(0,0,0,0.12);
+        display: flex; flex-direction: column;
         -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      }
+      .sheet-body { flex: 1 1 auto; }
+      /* Signature / stamp: sit near bottom of A4, a few lines above the edge — not flush under content */
+      .doc-close {
+        margin-top: auto;
+        padding-top: 28px;
+        padding-bottom: 8mm;
+        page-break-inside: avoid;
+        break-inside: avoid;
       }
       .doc-actions {
         width: 210mm; margin: 12px auto; display: flex; align-items: center;
@@ -46,7 +49,6 @@ export function PrintStyles() {
       .doc-btn.pdf   { background: #059669; color: #fff; }
       .doc-btn.back  { background: #fff; color: ${INK_SOFT}; border: 1px solid #d1d5db; }
 
-      /* Bordered document tables (voucher / items) */
       table.doc { width: 100%; border-collapse: collapse; font-size: 12.5px; color: ${INK}; }
       table.doc th, table.doc td { border: 1px solid ${LINE}; padding: 7px 9px; vertical-align: top; }
       table.doc thead th { background: #eef0f4; font-weight: 700; text-align: left; }
@@ -57,17 +59,17 @@ export function PrintStyles() {
       @media print {
         html, body { background: #fff !important; }
         .doc-actions { display: none !important; }
-        .sheet { width: 100%; min-height: unset; margin: 0; padding: 12mm; box-shadow: none; }
+        .sheet {
+          width: 100%; min-height: calc(297mm - 16mm);
+          margin: 0; padding: 10mm 12mm 8mm; box-shadow: none;
+        }
+        .doc-close { padding-bottom: 6mm; }
         @page { size: A4; margin: 8mm; }
       }
     `}</style>
   );
 }
 
-// Letterhead — solid brand-colour band (bleeds to the sheet's own edges via a
-// negative margin matching `.sheet`'s padding) with reversed light-on-colour
-// text so it stays readable against the fill; document title sits below it on
-// the plain white body in dark ink.
 export function CompanyHeader({ company = {}, docTitle }) {
   const contact = [company.address, company.phone && `Ph: ${company.phone}`, company.email]
     .filter(Boolean).join('   |   ');
@@ -111,7 +113,6 @@ export function CompanyHeader({ company = {}, docTitle }) {
   );
 }
 
-// "Rupees … Only" line, boxed like the sample.
 export function AmountWords({ amount, label = 'Amount in words' }) {
   return (
     <div style={{
@@ -124,18 +125,23 @@ export function AmountWords({ amount, label = 'Amount in words' }) {
   );
 }
 
-// Prepared By / Received signature lines.
-export function SignatureRow({ left = 'Prepared By', right = 'Received Sign & Thumb' }) {
-  const cell = (label) => (
-    <div style={{ width: '42%' }}>
-      <div style={{ borderTop: `1px solid ${INK}`, marginBottom: 5 }} />
+export function SignatureRow({ left = 'Prepared By', right = 'Received Sign & Thumb', center }) {
+  const cell = (label, align = 'left') => (
+    <div style={{ width: center ? '30%' : '42%', textAlign: align }}>
+      <div style={{
+        height: 42, borderBottom: `1px solid ${INK}`, marginBottom: 6,
+        display: 'flex', alignItems: 'flex-end', justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
+      }}>
+        <span style={{ fontSize: 9, color: LINE_SOFT, fontStyle: 'italic' }}>Sign / Stamp</span>
+      </div>
       <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{label}</div>
     </div>
   );
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 42 }}>
-      {cell(left)}
-      {cell(right)}
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16 }}>
+      {cell(left, 'left')}
+      {center && cell(center, 'center')}
+      {cell(right, 'right')}
     </div>
   );
 }
@@ -143,11 +149,21 @@ export function SignatureRow({ left = 'Prepared By', right = 'Received Sign & Th
 export function DocFooter({ company = {} }) {
   return (
     <div style={{
-      marginTop: 18, paddingTop: 8, borderTop: `1px solid ${LINE_SOFT}`,
+      marginTop: 14, paddingTop: 8, borderTop: `1px solid ${LINE_SOFT}`,
       display: 'flex', justifyContent: 'space-between', fontSize: 10, color: INK_SOFT,
     }}>
       <span>{company.name || ''} — computer generated document</span>
       <span>Generated: {new Date().toLocaleString('en-PK')}</span>
+    </div>
+  );
+}
+
+/** Pin signature + stamp block near the bottom of the A4 sheet. */
+export function DocClose({ company = {}, left, right, center, children }) {
+  return (
+    <div className="doc-close">
+      {children || <SignatureRow left={left} right={right} center={center} />}
+      <DocFooter company={company} />
     </div>
   );
 }

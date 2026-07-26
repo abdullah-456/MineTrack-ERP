@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, AlertCircle } from 'lucide-react';
 import api from '../../api/axios';
 import {
-  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, SignatureRow, DocFooter,
+  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, DocClose,
   INK, INK_SOFT, LINE,
 } from '../../components/print/PrintKit';
 
@@ -149,6 +149,7 @@ function SaleInvoice({ data }) {
 
   return (
     <div className="sheet">
+      <div className="sheet-body">
       <CompanyHeader company={shop} docTitle="Sales Invoice" />
       <MetaGrid items={[
         { label: 'Invoice #', value: data.invoice_number },
@@ -209,8 +210,9 @@ function SaleInvoice({ data }) {
         </div>
       )}
 
-      <SignatureRow left="Prepared By" right="Received By (Sign & Thumb)" />
-      <DocFooter company={shop} />
+      </div>
+
+      <DocClose company={shop} left="Prepared By" right="Received By (Sign & Thumb)" />
     </div>
   );
 }
@@ -221,6 +223,7 @@ function PurchaseInvoice({ data }) {
   const supplier = data.Supplier || {};
   return (
     <div className="sheet">
+      <div className="sheet-body">
       <CompanyHeader company={shop} docTitle="Purchase Invoice" />
       <MetaGrid items={[
         { label: 'Invoice #', value: data.invoice_number },
@@ -250,8 +253,9 @@ function PurchaseInvoice({ data }) {
       ]} />
       <AmountWords amount={data.amount} />
 
-      <SignatureRow left="Prepared By" right="Authorised Signature" />
-      <DocFooter company={shop} />
+      </div>
+
+      <DocClose company={shop} left="Prepared By" right="Authorised Signature" />
     </div>
   );
 }
@@ -264,6 +268,7 @@ function ReturnInvoice({ data }) {
   const isRefund = data.return_type === 'refund';
   return (
     <div className="sheet">
+      <div className="sheet-body">
       <CompanyHeader company={shop} docTitle="Sales Return" />
       <MetaGrid items={[
         { label: 'Return #', value: data.return_number },
@@ -298,8 +303,8 @@ function ReturnInvoice({ data }) {
       ]} />
 
       <AmountWords amount={isRefund ? data.refund_amount : data.settlement_amount} />
-      <SignatureRow left="Processed By" right="Customer Sign & Thumb" />
-      <DocFooter company={shop} />
+      </div>
+      <DocClose company={shop} left="Processed By" right="Customer Sign & Thumb" />
     </div>
   );
 }
