@@ -156,7 +156,12 @@ export default function AuditLog() {
               </tr>
             </thead>
             <tbody>
-              {logs.map(log => (
+              {logs
+                .filter(log => !search.trim() || [
+                  log.User?.name, log.User?.email, log.action, log.resource, log.details, log.ip_address,
+                  log.created_at ? new Date(log.created_at).toLocaleString('en-PK') : ''
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map(log => (
                 <tr
                   key={log.id}
                   style={{ borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer' }}

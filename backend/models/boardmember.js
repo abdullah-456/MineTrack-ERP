@@ -4,7 +4,6 @@ module.exports = (sequelize, DataTypes) => {
   class BoardMember extends Model {
     static associate(models) {
       BoardMember.belongsTo(models.Shop, { foreignKey: 'shop_id' });
-      BoardMember.belongsTo(models.Branch, { foreignKey: 'branch_id' });
       BoardMember.belongsTo(models.ChartOfAccount, { foreignKey: 'chart_of_account_id' });
     }
   }
@@ -15,10 +14,6 @@ module.exports = (sequelize, DataTypes) => {
       autoIncrement: true
     },
     shop_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false
-    },
-    branch_id: {
       type: DataTypes.INTEGER,
       allowNull: false
     },

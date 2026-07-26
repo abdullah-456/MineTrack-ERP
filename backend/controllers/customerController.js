@@ -14,9 +14,9 @@ exports.list = async (req, res) => {
     if (req.query.customer_type && req.query.customer_type !== 'all') where.customer_type = req.query.customer_type;
     if (req.query.search) {
       where[Op.or] = [
-        { name: { [Op.like]: `%${req.query.search}%` } },
-        { phone: { [Op.like]: `%${req.query.search}%` } },
-        { cnic: { [Op.like]: `%${req.query.search}%` } },
+        { name: { [Op.iLike]: `%${req.query.search}%` } },
+        { phone: { [Op.iLike]: `%${req.query.search}%` } },
+        { cnic: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
 

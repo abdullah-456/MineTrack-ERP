@@ -43,10 +43,10 @@ exports.list = async (req, res) => {
     if (req.query.category_id) where.category_id = req.query.category_id;
     if (req.query.search) {
       where[Op.or] = [
-        { name: { [Op.like]: `%${req.query.search}%` } },
-        { sku: { [Op.like]: `%${req.query.search}%` } },
-        { barcode: { [Op.like]: `%${req.query.search}%` } },
-        { brand: { [Op.like]: `%${req.query.search}%` } },
+        { name: { [Op.iLike]: `%${req.query.search}%` } },
+        { sku: { [Op.iLike]: `%${req.query.search}%` } },
+        { barcode: { [Op.iLike]: `%${req.query.search}%` } },
+        { brand: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
 

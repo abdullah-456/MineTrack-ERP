@@ -435,3 +435,30 @@
 .animate-slide-in {
   animation: slideIn 0.3s ease-out;
 }
+
+@keyframes highlightPulse {
+  0% {
+    background-color: rgba(245, 158, 11, 0.35) !important;
+    outline: 3px solid #f59e0b !important;
+    outline-offset: -3px;
+    box-shadow: 0 0 25px rgba(245, 158, 11, 0.7), inset 0 0 15px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    background-color: rgba(99, 102, 241, 0.4) !important;
+    outline: 3px solid #6366f1 !important;
+    outline-offset: -3px;
+    box-shadow: 0 0 35px rgba(99, 102, 241, 0.8), inset 0 0 20px rgba(99, 102, 241, 0.5);
+  }
+  100% {
+    background-color: rgba(245, 158, 11, 0.35) !important;
+    outline: 3px solid #f59e0b !important;
+    outline-offset: -3px;
+    box-shadow: 0 0 25px rgba(245, 158, 11, 0.7), inset 0 0 15px rgba(245, 158, 11, 0.4);
+  }
+}
+.highlight-row, tr.highlight-row, tr.highlight-row > td {
+  animation: highlightPulse 1.5s infinite ease-in-out !important;
+  position: relative;
+  z-index: 20 !important;
+}
+

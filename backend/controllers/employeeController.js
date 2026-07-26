@@ -6,7 +6,7 @@ const { applyTerminationSettlements, loadTerminationPreview } = require('../util
 const { assertCnicAvailable } = require('../utils/cnic');
 
 const employeeIncludes = [
-  { model: db.Branch, attributes: ['id', 'name'] },
+  { model: db.Branch, attributes: ['id', 'name', 'godown_id'], include: [{ model: db.Godown, attributes: ['id', 'name'] }] },
 ];
 
 exports.list = async (req, res) => {
@@ -19,10 +19,10 @@ exports.list = async (req, res) => {
     if (req.query.branch_id) where.branch_id = req.query.branch_id;
     if (req.query.search) {
       where[Op.or] = [
-        { name: { [Op.like]: `%${req.query.search}%` } },
-        { designation: { [Op.like]: `%${req.query.search}%` } },
-        { phone: { [Op.like]: `%${req.query.search}%` } },
-        { cnic: { [Op.like]: `%${req.query.search}%` } },
+        { name: { [Op.iLike]: `%${req.query.search}%` } },
+        { designation: { [Op.iLike]: `%${req.query.search}%` } },
+        { phone: { [Op.iLike]: `%${req.query.search}%` } },
+        { cnic: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
 

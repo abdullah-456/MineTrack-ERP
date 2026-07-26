@@ -4,6 +4,7 @@ import { Building2, Plus, Search, Edit, Loader2, Link2, Phone, Mail, BookOpen, T
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
@@ -23,6 +24,7 @@ export default function Suppliers() {
   const { success, error, confirm } = useToast();
   const { shopParams } = useShopApi();
   const isRTL = lang === 'ur';
+  const { isHighlighted } = useHighlightRow();
 
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +103,20 @@ export default function Suppliers() {
   ];
   let reportRows = suppliers;
   if (reportFilters.status) reportRows = reportRows.filter(s => s.status === reportFilters.status);
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    reportRows = reportRows.filter(s =>
+      (s.supplier_code || '').toLowerCase().includes(q) ||
+      (s.company_name || '').toLowerCase().includes(q) ||
+      (s.contact_person || '').toLowerCase().includes(q) ||
+      (s.phone || '').toLowerCase().includes(q) ||
+      (s.email || '').toLowerCase().includes(q) ||
+      (s.address || '').toLowerCase().includes(q) ||
+      (s.status || '').toLowerCase().includes(q) ||
+      (String(s.current_payable) || '').toLowerCase().includes(q) ||
+      (String(s.credit_balance) || '').toLowerCase().includes(q)
+    );
+  }
   const reportColumns = [
     { header: t('code') || 'Code', render: s => s.supplier_code || '', width: 1 },
     { header: t('companyName') || 'Company', key: 'company_name', width: 1.8 },
@@ -167,7 +183,11 @@ export default function Suppliers() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {reportRows.map(s => (
-            <div key={s.id} className="glass-card p-5 hover:border-amber-500/30 transition-colors border border-transparent">
+            <div
+              key={s.id}
+              id={`row-${s.id}`}
+              className={`glass-card p-5 border transition-colors ${isHighlighted(s.id) ? 'highlight-row' : 'hover:border-amber-500/30 border-transparent'}`}
+            >
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div>
                   <span className="text-xs font-mono text-amber-400">{s.supplier_code}</span>

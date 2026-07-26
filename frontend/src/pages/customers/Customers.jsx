@@ -4,6 +4,7 @@ import { Users, Plus, Search, Edit, Loader2, CreditCard, UserCheck, ShoppingBag,
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
@@ -24,6 +25,7 @@ export default function Customers() {
   const { shopParams } = useShopApi();
   const navigate = useNavigate();
   const isRTL = lang === 'ur';
+  const { isHighlighted } = useHighlightRow();
 
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -105,6 +107,18 @@ export default function Customers() {
   let reportRows = customers;
   if (reportFilters.customer_type) reportRows = reportRows.filter(c => (c.customer_type || 'registered') === reportFilters.customer_type);
   if (reportFilters.status) reportRows = reportRows.filter(c => c.status === reportFilters.status);
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    reportRows = reportRows.filter(c =>
+      (c.name || '').toLowerCase().includes(q) ||
+      (c.cnic || '').toLowerCase().includes(q) ||
+      (c.phone || '').toLowerCase().includes(q) ||
+      (c.customer_type || '').toLowerCase().includes(q) ||
+      (c.status || '').toLowerCase().includes(q) ||
+      (c.address || '').toLowerCase().includes(q) ||
+      (String(c.current_balance) || '').toLowerCase().includes(q)
+    );
+  }
   const reportColumns = [
     { header: t('name') || 'Name', key: 'name', width: 1.8 },
     { header: t('cnic') || 'CNIC', render: c => c.cnic || '', width: 1.4 },
@@ -161,7 +175,11 @@ export default function Customers() {
             const tc = typeConfig[c.customer_type || 'registered'];
             const TypeIcon = tc?.icon || UserCheck;
             return (
-              <div key={c.id} className="glass-card p-5 border border-transparent hover:border-brand-500/30 transition-colors">
+              <div
+                key={c.id}
+                id={`row-${c.id}`}
+                className={`glass-card p-5 border transition-colors ${isHighlighted(c.id) ? 'highlight-row' : 'border-transparent hover:border-brand-500/30'}`}
+              >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">

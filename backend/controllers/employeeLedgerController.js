@@ -24,7 +24,7 @@ exports.recordAdvance = async (req, res) => {
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
 
-    const { amount, method, bank_account_id, notes, for_month } = req.body;
+    const { amount, method, bank_account_id, notes, for_month, date } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
     if (!['cash', 'bank'].includes(method)) {
@@ -34,10 +34,6 @@ exports.recordAdvance = async (req, res) => {
     if (!for_month || !/^\d{4}-\d{2}$/.test(for_month)) {
       await transaction.rollback();
       return res.status(400).json({ message: 'for_month is required in YYYY-MM format' });
-    }
-    if (for_month < currentMonthStr()) {
-      await transaction.rollback();
-      return res.status(400).json({ message: 'for_month must be the current month or a future month' });
     }
     const alreadyPaid = await db.Payroll.findOne({ where: { employee_id: employee.id, month: for_month }, transaction });
     if (alreadyPaid) {
@@ -53,14 +49,16 @@ exports.recordAdvance = async (req, res) => {
       current_payable: Math.round((parseFloat(employee.current_payable || 0) - amt) * 100) / 100,
     }, { transaction });
 
+    const txnDate = date ? new Date(date) : new Date();
+
     const txn = await db.EmployeeTransaction.create({
-      shop_id: shopId, employee_id: employee.id, date: new Date(), type: 'advance_given',
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'advance_given',
       amount: amt, method, for_month, cleared: false, notes: notes?.trim() || null, created_by: req.user.id,
     }, { transaction });
 
     await postVoucher(shopId, {
       type: 'payment',
-      date: new Date(),
+      date: txnDate,
       narration: `Salary advance paid to employee ${employee.name} for month ${for_month}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
       createdBy: req.user.id,
       lines: [
@@ -94,7 +92,7 @@ exports.recordLoan = async (req, res) => {
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
 
-    const { amount, method, bank_account_id, notes } = req.body;
+    const { amount, method, bank_account_id, notes, date } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
     if (!['cash', 'bank'].includes(method)) {
@@ -110,14 +108,16 @@ exports.recordLoan = async (req, res) => {
       current_payable: Math.round((parseFloat(employee.current_payable || 0) - amt) * 100) / 100,
     }, { transaction });
 
+    const txnDate = date ? new Date(date) : new Date();
+
     const txn = await db.EmployeeTransaction.create({
-      shop_id: shopId, employee_id: employee.id, date: new Date(), type: 'loan_given',
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'loan_given',
       amount: amt, method, notes: notes?.trim() || null, created_by: req.user.id,
     }, { transaction });
 
     await postVoucher(shopId, {
       type: 'payment',
-      date: new Date(),
+      date: txnDate,
       narration: `Loan given to employee ${employee.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
       createdBy: req.user.id,
       lines: [
@@ -152,7 +152,7 @@ exports.receiveLoanPayment = async (req, res) => {
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
 
-    const { amount, method, bank_account_id, notes } = req.body;
+    const { amount, method, bank_account_id, notes, date } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
     if (!['cash', 'bank'].includes(method)) {
@@ -188,14 +188,16 @@ exports.receiveLoanPayment = async (req, res) => {
       current_payable: Math.round((parseFloat(employee.current_payable || 0) + amt) * 100) / 100,
     }, { transaction });
 
+    const txnDate = date ? new Date(date) : new Date();
+
     const txn = await db.EmployeeTransaction.create({
-      shop_id: shopId, employee_id: employee.id, date: new Date(), type: 'loan_repayment',
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'loan_repayment',
       amount: amt, method, notes: notes?.trim() || null, created_by: req.user.id,
     }, { transaction });
 
     await postVoucher(shopId, {
       type: 'receipt',
-      date: new Date(),
+      date: txnDate,
       narration: `Loan payment received from employee ${employee.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
       createdBy: req.user.id,
       lines: [
@@ -286,7 +288,7 @@ exports.giveSalary = async (req, res) => {
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
 
-    const { month, bonus, tax_deduction_percent, method, bank_account_id } = req.body;
+    const { month, bonus, tax_deduction_percent, method, bank_account_id, date } = req.body;
     if (!month || !/^\d{4}-\d{2}$/.test(month)) {
       await transaction.rollback();
       return res.status(400).json({ message: 'month is required in YYYY-MM format' });
@@ -325,6 +327,8 @@ exports.giveSalary = async (req, res) => {
     if (method === 'cash') await assertCashAvailable(shopId, netPay, transaction);
     else bankAcc = await debitBankAccount(shopId, netPay, transaction, bank_account_id);
 
+    const txnDate = date ? new Date(date) : new Date();
+
     const payroll = await db.Payroll.create({
       employee_id: employee.id,
       month,
@@ -343,21 +347,21 @@ exports.giveSalary = async (req, res) => {
     }
 
     await db.EmployeeTransaction.create({
-      shop_id: shopId, employee_id: employee.id, date: new Date(), type: 'salary_due',
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'salary_due',
       amount: Math.round((basicSalary + bonusAmt) * 100) / 100, method: null,
       created_by: req.user.id, notes: `Salary ${month}`,
     }, { transaction });
 
     if (totalDeductions > 0) {
       await db.EmployeeTransaction.create({
-        shop_id: shopId, employee_id: employee.id, date: new Date(), type: 'deduction',
+        shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'deduction',
         amount: totalDeductions, method: null, created_by: req.user.id,
         notes: `Salary ${month} deductions${taxDeduction > 0 ? ` (tax ${taxPercent}%)` : ''}${advanceDeduction > 0 ? ` (incl. advance ${advanceDeduction.toFixed(2)})` : ''}`,
       }, { transaction });
     }
 
     const payoutTxn = await db.EmployeeTransaction.create({
-      shop_id: shopId, employee_id: employee.id, date: new Date(), type: 'payment_made',
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'payment_made',
       amount: netPay, method, related_payroll_id: payroll.id, created_by: req.user.id, notes: `Salary ${month} payout`,
     }, { transaction });
 

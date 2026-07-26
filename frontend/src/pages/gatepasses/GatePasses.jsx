@@ -8,6 +8,8 @@ import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
+import LocationPicker from '../../components/ui/LocationPicker';
+import { defaultLocation, filterRowsByLocation } from '../../utils/locationUtils';
 import api from '../../api/axios';
 
 const dispatchTypeBadgeColor = {
@@ -27,6 +29,8 @@ export default function GatePasses() {
   const [gatePasses, setGatePasses] = useState([]);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [godowns, setGodowns] = useState([]);
+  const [locationFilter, setLocationFilter] = useState({ location_type: 'branch', branch_id: '', godown_id: null });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null); // 'create' | 'detail' | 'delete'
@@ -34,8 +38,14 @@ export default function GatePasses() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    api.get('/godowns', { params: shopParams() })
+      .then(({ data }) => setGodowns(data.godowns || []))
+      .catch(() => setGodowns([]));
+  }, [shopParams]);
+
   const [form, setForm] = useState({
-    branch_id: '',
+    location_type: 'branch', branch_id: '', godown_id: null,
     customer_id: '',
     customer_name: '',
     customer_phone: '',
@@ -73,7 +83,7 @@ export default function GatePasses() {
 
   useEffect(() => {
     if (branches.length && !form.branch_id) {
-      setForm(f => ({ ...f, branch_id: String(branches[0].id) }));
+      setForm(f => ({ ...f, ...defaultLocation(branches) }));
     }
   }, [branches, form.branch_id]);
 
@@ -189,8 +199,25 @@ export default function GatePasses() {
   ];
 
   let filteredRows = filterByDate(gatePasses, 'gate_pass_date', reportFilters.from, reportFilters.to);
+  filteredRows = filterRowsByLocation(filteredRows, locationFilter, godowns, branches);
   if (reportFilters.type) filteredRows = filteredRows.filter(gp => gp.type === reportFilters.type);
   if (reportFilters.branch_id) filteredRows = filteredRows.filter(gp => String(gp.branch_id) === String(reportFilters.branch_id));
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    filteredRows = filteredRows.filter(gp =>
+      (gp.gate_pass_number || '').toLowerCase().includes(q) ||
+      (gp.customer_name || gp.Customer?.name || '').toLowerCase().includes(q) ||
+      (gp.customer_phone || '').toLowerCase().includes(q) ||
+      (gp.vehicle_no || '').toLowerCase().includes(q) ||
+      (gp.driver_name || '').toLowerCase().includes(q) ||
+      (gp.driver_phone || '').toLowerCase().includes(q) ||
+      (gp.remarks || '').toLowerCase().includes(q) ||
+      (gp.type || '').toLowerCase().includes(q) ||
+      (gp.Branch?.name || '').toLowerCase().includes(q) ||
+      (gp.gate_pass_date ? new Date(gp.gate_pass_date).toLocaleString('en-PK') : '').toLowerCase().includes(q) ||
+      (gp.GatePassItems || []).some(i => (i.product_name || i.Product?.name || '').toLowerCase().includes(q))
+    );
+  }
 
   const reportColumns = [
     { header: t('gatepassNumber') || 'Gatepass #', key: 'gate_pass_number', width: 1.4 },
@@ -223,7 +250,7 @@ export default function GatePasses() {
               type="button"
               onClick={() => {
                 setForm({
-                  branch_id: branches[0]?.id || '',
+                  ...defaultLocation(branches),
                   customer_id: '',
                   customer_name: '',
                   customer_phone: '',
@@ -293,14 +320,21 @@ export default function GatePasses() {
 
       {/* Filter and Search Bar */}
       <div className="glass-card p-4 space-y-3">
-        <div className="relative max-w-md">
-          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
-          <input
-            className="input"
-            style={{ paddingInlineStart: '2.5rem' }}
-            placeholder={t('searchGatepass') || 'Search gatepass #, customer, driver, vehicle...'}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
+            <input
+              className="input"
+              style={{ paddingInlineStart: '2.5rem' }}
+              placeholder={t('searchGatepass') || 'Search gatepass #, customer, driver, vehicle...'}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <LocationPicker
+            compact
+            value={locationFilter}
+            onChange={setLocationFilter}
           />
         </div>
         <ReportFilters
@@ -393,11 +427,22 @@ export default function GatePasses() {
         <Modal title={t('createGatepass') || 'Create Gatepass'} onClose={() => setModal(null)} wide>
           <form onSubmit={handleCreate} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <FormLabel required>{t('userBranch') || 'Branch'}</FormLabel>
-                <select className="input" required value={form.branch_id} onChange={e => setForm(f => ({ ...f, branch_id: e.target.value }))}>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
+              <div className="sm:col-span-3">
+                <LocationPicker
+                  required
+                  label={t('location') || 'Branch / Godown Location'}
+                  value={{
+                    location_type: form.location_type,
+                    branch_id: form.branch_id,
+                    godown_id: form.godown_id,
+                  }}
+                  onChange={(loc) => setForm(f => ({
+                    ...f,
+                    location_type: loc.location_type,
+                    branch_id: loc.branch_id,
+                    godown_id: loc.godown_id,
+                  }))}
+                />
               </div>
 
               <div>

@@ -28,8 +28,8 @@ exports.list = async (req, res) => {
     const productWhere = { shop_id: shopId, status: 'active' };
     if (req.query.search) {
       productWhere[Op.or] = [
-        { name: { [Op.like]: `%${req.query.search}%` } },
-        { sku: { [Op.like]: `%${req.query.search}%` } },
+        { name: { [Op.iLike]: `%${req.query.search}%` } },
+        { sku: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
 

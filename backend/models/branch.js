@@ -4,12 +4,12 @@ module.exports = (sequelize, DataTypes) => {
   class Branch extends Model {
     static associate(models) {
       Branch.belongsTo(models.Shop,         { foreignKey: 'shop_id' });
+      Branch.belongsTo(models.Godown,       { foreignKey: 'godown_id' });
       Branch.hasMany(models.User,           { foreignKey: 'branch_id' });
       Branch.hasMany(models.Stock,          { foreignKey: 'branch_id' });
       Branch.hasMany(models.Sale,           { foreignKey: 'branch_id' });
       Branch.hasMany(models.Employee,       { foreignKey: 'branch_id' });
       Branch.hasMany(models.Expense,        { foreignKey: 'branch_id' });
-      Branch.hasMany(models.BoardMember,    { foreignKey: 'branch_id' });
     }
   }
   Branch.init({
@@ -21,6 +21,10 @@ module.exports = (sequelize, DataTypes) => {
     shop_id: {
       type: DataTypes.INTEGER,
       allowNull: false
+    },
+    godown_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     },
     name: {
       type: DataTypes.STRING,

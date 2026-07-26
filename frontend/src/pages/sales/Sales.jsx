@@ -3,6 +3,7 @@ import { TrendingUp, Plus, Search, Eye, Loader2, Receipt, Printer, Ticket } from
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
@@ -10,6 +11,8 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import { BankAccountPicker, CashAccountPicker } from '../../components/ui/PaymentAccountSelect';
+import LocationPicker from '../../components/ui/LocationPicker';
+import { defaultLocation, stockForProductAtLocation, filterRowsByLocation } from '../../utils/locationUtils';
 import api from '../../api/axios';
 
 
@@ -18,6 +21,7 @@ export default function Sales() {
   const { success, error } = useToast();
   const { shopParams, branches } = useShopApi();
   const isRTL = lang === 'ur';
+  const { isHighlighted } = useHighlightRow();
 
   const [sales, setSales] = useState([]);
   const [products, setProducts] = useState([]);
@@ -29,17 +33,21 @@ export default function Sales() {
   const [detail, setDetail] = useState(null);
   const [saving, setSaving] = useState(false);
   const [createdSalePrompt, setCreatedSalePrompt] = useState(null);
+  const [godowns, setGodowns] = useState([]);
   const [gatePassForm, setGatePassForm] = useState({
-    branch_id: '', sale_id: null, customer_id: '', customer_name: '', customer_phone: '',
+    location_type: 'branch', branch_id: '', godown_id: null,
+    sale_id: null, customer_id: '', customer_name: '', customer_phone: '',
     gate_pass_date: new Date().toISOString().slice(0, 16), type: 'sale_dispatch',
     vehicle_no: '', driver_name: '', driver_phone: '', remarks: '', items: []
   });
   const [form, setForm] = useState({
-    customer_id: '', branch_id: '', employee_id: '', sale_type: 'cash',
+    customer_id: '', location_type: 'branch', branch_id: '', godown_id: null,
+    employee_id: '', sale_type: 'cash',
     items: [{ product_id: '', quantity: 1, unit_price: '' }],
-    discount: '0', tax: '0', payment_method: 'cash', bank_account_id: null, description: '',
+    discount: '0', tax: '0', payment_amount: '', payment_method: 'cash', bank_account_id: null, description: '', sale_date: '',
   });
-  const [reportFilters, setReportFilters] = useState({ from: '', to: '', sale_type: '', customer_id: '' });
+  const [reportFilters, setReportFilters] = useState({ from: '', to: '', sale_type: '', customer_id: '', product_id: '', employee_id: '' });
+  const [locationFilter, setLocationFilter] = useState({ location_type: 'branch', branch_id: '', godown_id: null });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -65,21 +73,25 @@ export default function Sales() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
+    api.get('/godowns', { params: shopParams() })
+      .then(({ data }) => setGodowns(data.godowns || []))
+      .catch(() => setGodowns([]));
+  }, [shopParams]);
+
+  useEffect(() => {
     if (branches.length && !form.branch_id) {
-      setForm(f => ({ ...f, branch_id: String(branches[0].id) }));
+      setForm(f => ({ ...f, ...defaultLocation(branches) }));
     }
   }, [branches, form.branch_id]);
 
-  const stockForProduct = (productId, branchId) => {
-    const p = products.find(x => String(x.id) === String(productId));
-    if (!p?.Stock) return 0;
-    const bid = branchId || form.branch_id;
-    if (bid) {
-      const row = p.Stock.find(s => String(s.branch_id) === String(bid));
-      return parseFloat(row?.quantity_on_hand ?? 0);
-    }
-    return p.Stock.reduce((sum, s) => sum + (parseFloat(s.quantity_on_hand) || 0), 0);
+  const saleLocation = {
+    location_type: form.location_type,
+    branch_id: form.branch_id,
+    godown_id: form.godown_id,
   };
+
+  const stockForProduct = (productId, location = saleLocation) =>
+    stockForProductAtLocation(productId, location, products, branches, godowns);
 
   const addLine = () => setForm(f => ({ ...f, items: [...f.items, { product_id: '', quantity: 1, unit_price: '' }] }));
   const updateLine = (i, k, v) => setForm(f => {
@@ -116,7 +128,11 @@ export default function Sales() {
         unit_price: parseFloat(i.unit_price),
       }));
       if (!items.length) { error(t('addAtLeastOneItem')); setSaving(false); return; }
-      if (!form.branch_id) { error(t('selectBranch')); setSaving(false); return; }
+      if (!form.branch_id) {
+        error(form.location_type === 'godown' ? (t('selectGodown') || 'Please select a godown with linked branches') : t('selectBranch'));
+        setSaving(false);
+        return;
+      }
       if (form.sale_type === 'credit' && !form.customer_id) {
         error(t('mustSelectRegisteredCustomer')); setSaving(false); return;
       }
@@ -130,8 +146,10 @@ export default function Sales() {
         discount: parseFloat(form.discount) || 0,
         tax: parseFloat(form.tax) || 0,
         payment_method: form.payment_method,
-        bank_account_id: form.sale_type === 'bank' ? form.bank_account_id : null,
+        payment_amount: form.sale_type === 'credit' && form.payment_amount !== '' ? parseFloat(form.payment_amount) : undefined,
+        bank_account_id: (form.sale_type === 'bank' || (form.sale_type === 'credit' && parseFloat(form.payment_amount) > 0)) ? form.bank_account_id : null,
         description: form.description?.trim() || null,
+        sale_date: form.sale_date || undefined,
         ...shopParams(),
       };
 
@@ -161,7 +179,9 @@ export default function Sales() {
     }));
 
     setGatePassForm({
+      location_type: 'branch',
       branch_id: String(saleObj.branch_id || branches[0]?.id || ''),
+      godown_id: null,
       sale_id: saleObj.id,
       customer_id: saleObj.customer_id ? String(saleObj.customer_id) : '',
       customer_name: saleObj.Customer?.name || '',
@@ -244,10 +264,31 @@ export default function Sales() {
   const reportSelects = [
     { key: 'sale_type', label: t('saleType') || 'Type', options: ['cash', 'bank', 'credit', 'card'].map(v => ({ value: v, label: t(v) || v })) },
     { key: 'customer_id', label: t('customer') || 'Customer', options: customers.map(c => ({ value: c.id, label: c.name })) },
+    { key: 'product_id', label: t('product') || 'Product', options: products.map(p => ({ value: p.id, label: p.name })) },
+    { key: 'employee_id', label: t('employee') || 'Sales Rep', options: employees.map(e => ({ value: e.id, label: e.name })) },
   ];
   let reportRows = filterByDate(sales, 'sale_date', reportFilters.from, reportFilters.to);
+  reportRows = filterRowsByLocation(reportRows, locationFilter, godowns, branches);
   if (reportFilters.sale_type) reportRows = reportRows.filter(s => s.sale_type === reportFilters.sale_type);
   if (reportFilters.customer_id) reportRows = reportRows.filter(s => String(s.Customer?.id || s.customer_id) === String(reportFilters.customer_id));
+  if (reportFilters.product_id) reportRows = reportRows.filter(s => (s.SaleItems || []).some(item => String(item.product_id || item.Product?.id) === String(reportFilters.product_id)));
+  if (reportFilters.employee_id) reportRows = reportRows.filter(s => String(s.Employee?.id || s.employee_id) === String(reportFilters.employee_id));
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    reportRows = reportRows.filter(s =>
+      (s.invoice_number || '').toLowerCase().includes(q) ||
+      (s.Customer?.name || 'walk-in').toLowerCase().includes(q) ||
+      (s.Customer?.phone || '').toLowerCase().includes(q) ||
+      (s.Branch?.name || '').toLowerCase().includes(q) ||
+      (s.sale_type || '').toLowerCase().includes(q) ||
+      (s.status || '').toLowerCase().includes(q) ||
+      (s.Cashier?.name || '').toLowerCase().includes(q) ||
+      (s.Employee?.name || '').toLowerCase().includes(q) ||
+      (String(s.total) || '').toLowerCase().includes(q) ||
+      new Date(s.sale_date).toLocaleDateString('en-PK').toLowerCase().includes(q) ||
+      (s.SaleItems || []).some(i => (i.Product?.name || '').toLowerCase().includes(q) || (i.Product?.sku || '').toLowerCase().includes(q))
+    );
+  }
   const reportColumns = [
     { header: t('invoiceNo') || 'Invoice #', key: 'invoice_number', width: 1.4 },
     { header: t('date') || 'Date', render: s => new Date(s.sale_date).toLocaleDateString('en-PK'), width: 1.1 },
@@ -280,7 +321,7 @@ export default function Sales() {
             <button
               type="button"
               onClick={() => {
-                setForm({ customer_id: '', branch_id: branches[0]?.id || '', employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_method: 'cash', bank_account_id: null, description: '' });
+                setForm({ customer_id: '', ...defaultLocation(branches), employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_amount: '', payment_method: 'cash', bank_account_id: null, description: '' });
                 setModal('create');
               }}
               className="btn-primary flex items-center gap-2"
@@ -292,14 +333,21 @@ export default function Sales() {
       />
 
       <div className="glass-card p-4 space-y-3">
-        <div className="relative max-w-md">
-          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
-          <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchInvoice')} value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
+            <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchInvoice')} value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <LocationPicker
+            compact
+            value={locationFilter}
+            onChange={setLocationFilter}
+          />
         </div>
         <ReportFilters
           value={reportFilters}
           onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
-          onClear={() => setReportFilters({ from: '', to: '', sale_type: '', customer_id: '' })}
+          onClear={() => setReportFilters({ from: '', to: '', sale_type: '', customer_id: '', product_id: '', employee_id: '' })}
           selects={reportSelects}
         />
       </div>
@@ -323,7 +371,16 @@ export default function Sales() {
             </thead>
             <tbody>
               {reportRows.map(s => (
-                <tr key={s.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                <tr
+                  key={s.id}
+                  id={`row-${s.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className={`${isHighlighted(s.id) ? 'highlight-row' : 'hover:bg-white/5'} cursor-pointer transition-colors`}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    viewDetail(s.id);
+                  }}
+                >
                   <td className="p-4 font-mono text-rose-400 text-xs">{s.invoice_number}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>
                     {new Date(s.sale_date).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK')}
@@ -338,7 +395,26 @@ export default function Sales() {
                       <span className="badge badge-yellow ms-1">{t('tax') || 'Tax'}</span>
                     )}
                   </td>
-                  <td className="p-4 font-bold text-emerald-400">{formatPKR(s.total, lang)}</td>
+                  <td className="p-4">
+                    <div className="font-bold text-emerald-400">{formatPKR(s.total, lang)}</div>
+                    {(() => {
+                      const paid = (s.Payments || []).reduce((acc, p) => acc + parseFloat(p.amount || 0), 0);
+                      const due = Math.max(0, parseFloat(s.total || 0) - paid);
+                      if (s.sale_type === 'credit' || due > 0.01) {
+                        return (
+                          <div className="text-[11px] mt-0.5 whitespace-nowrap">
+                            <span style={{ color: 'var(--text-muted)' }}>Paid: {formatPKR(paid, lang)}</span>
+                            {due > 0.01 && (
+                              <span className="font-semibold text-amber-400 ms-1">
+                                (Due: {formatPKR(due, lang)})
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </td>
                   <td className="p-4"><StatusBadge status={s.status} /></td>
                   <td className="p-4 text-end whitespace-nowrap space-x-1">
                     <button
@@ -396,11 +472,18 @@ export default function Sales() {
                   </p>
                 )}
               </div>
-              <div>
-                <FormLabel required>{t('userBranch')}</FormLabel>
-                <select className="input" required value={form.branch_id} onChange={e => setForm(f => ({ ...f, branch_id: e.target.value }))}>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
+              <div className="sm:col-span-2">
+                <LocationPicker
+                  required
+                  label={t('location') || 'Branch / Godown Location'}
+                  value={saleLocation}
+                  onChange={(loc) => setForm(f => ({
+                    ...f,
+                    location_type: loc.location_type,
+                    branch_id: loc.branch_id,
+                    godown_id: loc.godown_id,
+                  }))}
+                />
               </div>
               <div>
                 <FormLabel>Employee / Sales Agent (Optional)</FormLabel>
@@ -452,6 +535,15 @@ export default function Sales() {
                   />
                 </div>
               )}
+              <div>
+                <FormLabel>{t('saleDate') || 'Sale Date & Time (Optional)'}</FormLabel>
+                <input
+                  type="datetime-local"
+                  className="input"
+                  value={form.sale_date || ''}
+                  onChange={e => setForm(f => ({ ...f, sale_date: e.target.value }))}
+                />
+              </div>
             </div>
 
             {/* Items */}
@@ -508,50 +600,126 @@ export default function Sales() {
               })}
             </div>
 
-            {/* Discount + Tax */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FormLabel>{t('discount')}</FormLabel>
-                <input className="input" type="number" min="0" value={form.discount} onChange={e => setForm(f => ({ ...f, discount: e.target.value }))} />
-              </div>
-              <div>
-                <FormLabel>{t('tax')}</FormLabel>
-                <input className="input" type="number" min="0" value={form.tax} onChange={e => setForm(f => ({ ...f, tax: e.target.value }))} />
-              </div>
-            </div>
-
-            {/* Description / note */}
-            <div>
-              <FormLabel>{t('description') || 'Description'}</FormLabel>
-              <textarea
-                className="input min-h-[60px] resize-none"
-                placeholder={t('saleDescriptionPlaceholder') || 'Optional note for this sale (e.g. delivery details, remarks)...'}
-                value={form.description}
-                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-              />
-            </div>
-
-            {/* Totals */}
-            {subtotal > 0 && (
-              <div className="rounded-xl p-3 space-y-1 text-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                <div className="flex justify-between" style={{ color: 'var(--text-secondary)' }}>
-                  <span>{t('subtotal')}</span><span>{formatPKR(subtotal, lang)}</span>
+              {/* Discount + Tax */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FormLabel>{t('discount')}</FormLabel>
+                  <input className="input" type="number" min="0" value={form.discount} onChange={e => setForm(f => ({ ...f, discount: e.target.value }))} />
                 </div>
-                {parseFloat(form.discount) > 0 && (
-                  <div className="flex justify-between text-red-400">
-                    <span>- {t('discount')}</span><span>- {formatPKR(form.discount, lang)}</span>
-                  </div>
-                )}
-                {parseFloat(form.tax) > 0 && (
-                  <div className="flex justify-between text-amber-400">
-                    <span>+ {t('tax')}</span><span>+ {formatPKR(form.tax, lang)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between font-bold text-emerald-400 pt-1" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                  <span>{t('total')}</span><span>{formatPKR(total, lang)}</span>
+                <div>
+                  <FormLabel>{t('tax')}</FormLabel>
+                  <input className="input" type="number" min="0" value={form.tax} onChange={e => setForm(f => ({ ...f, tax: e.target.value }))} />
                 </div>
               </div>
-            )}
+
+              {form.sale_type === 'credit' && (
+                <div className="space-y-3 p-3 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+                  <div>
+                    <FormLabel>{t('paymentAmount') || 'Upfront Payment (Paid Now)'}</FormLabel>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      max={total || undefined}
+                      placeholder="0.00 (Enter amount customer pays now e.g. 20000)"
+                      value={form.payment_amount || ''}
+                      onChange={e => setForm(f => ({ ...f, payment_amount: e.target.value }))}
+                    />
+                    <p className="text-xs text-amber-400 mt-1">
+                      Customer pays {formatPKR(parseFloat(form.payment_amount) || 0, lang)} now; remaining {formatPKR(Math.max(0, total - (parseFloat(form.payment_amount) || 0)), lang)} will be added to customer credit balance.
+                    </p>
+                  </div>
+
+                  {parseFloat(form.payment_amount) > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                      <div>
+                        <FormLabel>{t('upfrontPaymentMethod') || 'Deposit Upfront Payment To'}</FormLabel>
+                        <div className="grid grid-cols-2 gap-2">
+                          {['cash', 'bank'].map(pm => (
+                            <button
+                              key={pm}
+                              type="button"
+                              onClick={() => setForm(f => ({ ...f, payment_method: pm, bank_account_id: null }))}
+                              className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                                (form.payment_method || 'cash') === pm
+                                  ? pm === 'bank' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                                  : 'hover:bg-[var(--bg-hover)]'
+                              }`}
+                              style={(form.payment_method || 'cash') !== pm ? { color: 'var(--text-secondary)', borderColor: 'var(--border-subtle)' } : {}}
+                            >
+                              {pm === 'bank' ? (t('bank') || 'Bank') : (t('cash') || 'Cash')}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {(form.payment_method || 'cash') === 'cash' ? (
+                        <div>
+                          <FormLabel>{t('cashAccount') || 'Cash Account'}</FormLabel>
+                          <CashAccountPicker
+                            value={form.bank_account_id}
+                            onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <FormLabel required>{t('bankAccount') || 'Bank Account'}</FormLabel>
+                          <BankAccountPicker
+                            required
+                            value={form.bank_account_id}
+                            onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Description / note */}
+              <div>
+                <FormLabel>{t('description') || 'Description'}</FormLabel>
+                <textarea
+                  className="input min-h-[60px] resize-none"
+                  placeholder={t('saleDescriptionPlaceholder') || 'Optional note for this sale (e.g. delivery details, remarks)...'}
+                  value={form.description}
+                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                />
+              </div>
+
+              {/* Totals */}
+              {subtotal > 0 && (
+                <div className="rounded-xl p-3 space-y-1 text-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                  <div className="flex justify-between" style={{ color: 'var(--text-secondary)' }}>
+                    <span>{t('subtotal')}</span><span>{formatPKR(subtotal, lang)}</span>
+                  </div>
+                  {parseFloat(form.discount) > 0 && (
+                    <div className="flex justify-between text-red-400">
+                      <span>- {t('discount')}</span><span>- {formatPKR(form.discount, lang)}</span>
+                    </div>
+                  )}
+                  {parseFloat(form.tax) > 0 && (
+                    <div className="flex justify-between text-amber-400">
+                      <span>+ {t('tax')}</span><span>+ {formatPKR(form.tax, lang)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-emerald-400 pt-1" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                    <span>{t('total')}</span><span>{formatPKR(total, lang)}</span>
+                  </div>
+                  {form.sale_type === 'credit' && (
+                    <>
+                      <div className="flex justify-between text-blue-400 pt-1" style={{ borderTop: '1px dashed var(--border-subtle)' }}>
+                        <span>{t('paidNow') || 'Paid Now'}</span>
+                        <span>{formatPKR(parseFloat(form.payment_amount) || 0, lang)}</span>
+                      </div>
+                      <div className="flex justify-between font-bold text-amber-400">
+                        <span>{t('creditRemaining') || 'Remaining Credit (Due)'}</span>
+                        <span>{formatPKR(Math.max(0, total - (parseFloat(form.payment_amount) || 0)), lang)}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
 
             <div className="flex gap-3 pt-2">
@@ -682,11 +850,22 @@ export default function Sales() {
         <Modal title={t('createGatepass') || 'Create Gatepass'} onClose={() => setModal(null)} wide>
           <form onSubmit={handleCreateGatePass} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <FormLabel required>{t('userBranch') || 'Branch'}</FormLabel>
-                <select className="input" required value={gatePassForm.branch_id} onChange={e => setGatePassForm(f => ({ ...f, branch_id: e.target.value }))}>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
+              <div className="sm:col-span-3">
+                <LocationPicker
+                  required
+                  label={t('location') || 'Branch / Godown Location'}
+                  value={{
+                    location_type: gatePassForm.location_type,
+                    branch_id: gatePassForm.branch_id,
+                    godown_id: gatePassForm.godown_id,
+                  }}
+                  onChange={(loc) => setGatePassForm(f => ({
+                    ...f,
+                    location_type: loc.location_type,
+                    branch_id: loc.branch_id,
+                    godown_id: loc.godown_id,
+                  }))}
+                />
               </div>
 
               <div>

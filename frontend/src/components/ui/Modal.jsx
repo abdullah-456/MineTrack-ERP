@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 
 export default function Modal({ title, onClose, children, wide = false, xl = false }) {
-  const widthClass = xl ? 'max-w-4xl' : wide ? 'max-w-2xl' : 'max-w-lg';
+  const widthClass = xl ? 'max-w-6xl' : wide ? 'max-w-4xl' : 'max-w-xl';
   return (
     <div className="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4" onClick={onClose}>
       <div

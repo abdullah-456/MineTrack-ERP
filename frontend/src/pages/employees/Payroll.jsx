@@ -12,6 +12,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 
 export default function Payroll() {
   const { t, lang } = useTheme();
@@ -19,6 +20,7 @@ export default function Payroll() {
   const { shopName } = useAuth();
   const { shopParams } = useShopApi();
   const isRTL = lang === 'ur';
+  const { isHighlighted } = useHighlightRow();
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   const [employees, setEmployees] = useState([]);
@@ -31,9 +33,8 @@ export default function Payroll() {
   const [modalEmp, setModalEmp] = useState(null); // employee row the modal is for
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [advanceForSelectedMonth, setAdvanceForSelectedMonth] = useState(0);
-  const [salaryForm, setSalaryForm] = useState({ month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null });
+  const [salaryForm, setSalaryForm] = useState({ month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '' });
   const [paidMonths, setPaidMonths] = useState(new Set()); // months already given for modalEmp
-  const [minGiveMonth, setMinGiveMonth] = useState(currentMonth); // earliest selectable month (native calendar bound)
   const [monthError, setMonthError] = useState(''); // only set right after an invalid pick attempt
 
   // Salary is always given month-by-month in order, so the month right after
@@ -69,19 +70,16 @@ export default function Payroll() {
 
   const openGiveSalary = async (emp) => {
     setModalEmp(emp);
-    setSalaryForm({ month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null });
+    setSalaryForm({ month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '' });
     setPaidMonths(new Set());
-    setMinGiveMonth(currentMonth);
     setMonthError('');
     setLedgerLoading(true);
     try {
       const { data } = await api.get(`/employees/${emp.id}/ledger`, { params: shopParams() });
       const paid = new Set((data.payroll_history || []).map(p => p.month));
-      // payroll_history is sorted month DESC, so [0] is the latest paid month.
       const latestPaid = data.payroll_history?.[0]?.month;
       const nextMonth = latestPaid ? nextMonthStr(latestPaid) : currentMonth;
       setPaidMonths(paid);
-      setMinGiveMonth(nextMonth);
       setSalaryForm(f => ({ ...f, month: nextMonth }));
       const pending = (data.transaction_history || [])
         .filter(t2 => t2.type === 'advance_given' && !t2.cleared && t2.for_month === nextMonth)
@@ -116,7 +114,7 @@ export default function Payroll() {
   // sequential case, this is the explicit safety net + user-facing message.
   // The message only appears right after a blocked attempt (not persistently).
   const handleMonthChange = (value) => {
-    if (paidMonths.has(value) || value < minGiveMonth) {
+    if (paidMonths.has(value)) {
       setMonthError(`${t('salaryAlreadyGivenFor') || 'Salary for'} ${formatMonthLabel(value)} ${t('salaryAlreadyGivenSuffix') || 'is already given'}`);
       return;
     }
@@ -145,7 +143,7 @@ export default function Payroll() {
 
   const submitSalary = async (e) => {
     e.preventDefault();
-    if (paidMonths.has(salaryForm.month) || salaryForm.month < minGiveMonth) {
+    if (paidMonths.has(salaryForm.month)) {
       error(`${t('salaryAlreadyGivenFor') || 'Salary for'} ${formatMonthLabel(salaryForm.month)} ${t('salaryAlreadyGivenSuffix') || 'is already given'}`);
       return;
     }
@@ -163,6 +161,7 @@ export default function Payroll() {
         tax_deduction_percent: taxPercentVal,
         method: salaryForm.method,
         bank_account_id: salaryForm.bank_account_id,
+        date: salaryForm.date || undefined,
         ...shopParams(),
       });
       success(t('salaryGiven') || 'Salary given successfully');
@@ -232,8 +231,26 @@ export default function Payroll() {
               </tr>
             </thead>
             <tbody>
-              {employees.map(emp => (
-                <tr key={emp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+              {employees
+                .filter(emp => !search.trim() || [
+                  emp.name, emp.designation, emp.phone, emp.status,
+                  String(emp.basic_salary), String(emp.current_payable)
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map(emp => (
+                <tr
+                  key={emp.id}
+                  id={`row-${emp.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className={`${isHighlighted(emp.id) || isHighlighted(latestPayslips[emp.id]?.id) ? 'highlight-row' : 'hover:bg-white/5'} cursor-pointer transition-colors`}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    if (latestPayslips[emp.id]) {
+                      window.open(`/employees/${emp.id}/slip/${latestPayslips[emp.id].transaction_id}?auto_print=1`, '_blank');
+                    } else {
+                      openModal(emp);
+                    }
+                  }}
+                >
                   <td className="p-4">
                     <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{emp.name}</div>
                     {emp.phone && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{emp.phone}</div>}
@@ -290,12 +307,19 @@ export default function Payroll() {
             <div>
               <FormLabel required>{t('month') || 'Month'}</FormLabel>
               <input
-                className="input" type="month" required min={minGiveMonth} value={salaryForm.month}
+                className="input" type="month" required value={salaryForm.month}
                 onChange={e => handleMonthChange(e.target.value)}
               />
               {monthError && (
                 <p className="text-xs text-amber-400 mt-1">{monthError}</p>
               )}
+            </div>
+            <div>
+              <FormLabel>{t('paymentDateTime') || 'Payment Date & Time (Optional)'}</FormLabel>
+              <input
+                className="input" type="datetime-local" value={salaryForm.date || ''}
+                onChange={e => setSalaryForm(f => ({ ...f, date: e.target.value }))}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

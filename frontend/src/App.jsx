@@ -48,6 +48,7 @@ import CashFlowStatement from './pages/reports/CashFlowStatement';
 import Products   from './pages/products/Products';
 import Categories from './pages/products/Categories';
 import Inventory  from './pages/inventory/Inventory';
+import Godowns    from './pages/inventory/Godowns';
 import Customers  from './pages/customers/Customers';
 import Employees  from './pages/employees/Employees';
 import Sales      from './pages/sales/Sales';
@@ -58,6 +59,8 @@ import VoucherPrintPage      from './pages/accounting/VoucherPrintPage';
 import LedgerVoucherPrint   from './pages/accounting/LedgerVoucherPrint';
 import GatePasses        from './pages/gatepasses/GatePasses';
 import GatePassPrintPage  from './pages/gatepasses/GatePassPrintPage';
+import PurchaseOrders    from './pages/purchases/PurchaseOrders';
+import PurchaseOrderPrintPage from './pages/purchases/PurchaseOrderPrintPage';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -74,9 +77,18 @@ function RootRedirect() {
 
 // Global modal overlay — renders financial setup / cash check-in over the whole app
 function GlobalModals() {
-  const { showSetupModal, onSetupComplete, user } = useAuth();
-  if (showSetupModal)  return <ShopSetupModal  shopName={user?.shop_name || 'Your Shop'} onComplete={onSetupComplete} />;
-  return null;
+  const { setupModal, onSetupComplete, closeFinancialSetup, user } = useAuth();
+  if (!setupModal.open) return null;
+  return (
+    <ShopSetupModal
+      shopName={user?.shop_name || 'Your Shop'}
+      onComplete={onSetupComplete}
+      onClose={setupModal.dismissible ? closeFinancialSetup : undefined}
+      initialStep={setupModal.initialStep}
+      focusMode={setupModal.focusMode}
+      dismissible={setupModal.dismissible}
+    />
+  );
 }
 
 function App() {
@@ -95,6 +107,7 @@ function App() {
             {/* ── Standalone Invoice Print Page (new tab, no sidebar) ── */}
             <Route path="/invoice/:invoiceId" element={<InvoicePrintPage />} />
             <Route path="/gatepass/:id" element={<GatePassPrintPage />} />
+            <Route path="/purchase-order/:id" element={<PurchaseOrderPrintPage />} />
             <Route path="/vouchers/:voucherId" element={<VoucherPrintPage />} />
             <Route path="/ledger-voucher" element={<LedgerVoucherPrint />} />
             <Route path="/suppliers/:id/statement" element={<SupplierStatementPrint />} />
@@ -154,10 +167,14 @@ function App() {
                 element={<ProtectedRoute module="products" action="read"><Categories /></ProtectedRoute>} />
               <Route path="/inventory"
                 element={<ProtectedRoute module="inventory" action="read"><Inventory /></ProtectedRoute>} />
+              <Route path="/godowns"
+                element={<ProtectedRoute module="inventory" action="read"><Godowns /></ProtectedRoute>} />
               <Route path="/stock-transfers/new"
                 element={<ProtectedRoute module="inventory" action="create"><ComingSoon title="Stock Transfer" /></ProtectedRoute>} />
 
               {/* Procurement */}
+              <Route path="/purchase-orders"
+                element={<ProtectedRoute module="purchases" action="read"><PurchaseOrders /></ProtectedRoute>} />
               <Route path="/suppliers"
                 element={<ProtectedRoute module="suppliers" action="read"><Suppliers /></ProtectedRoute>} />
               <Route path="/suppliers/:id"

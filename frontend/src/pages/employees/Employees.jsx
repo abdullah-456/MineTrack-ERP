@@ -1,24 +1,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserCheck, Plus, Search, Edit, Loader2, Calendar, BookOpen, Trash2, FileCheck } from 'lucide-react';
+import { UserCheck, Plus, Search, Edit, Loader2, BookOpen, Trash2, FileCheck } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
+import LocationPicker from '../../components/ui/LocationPicker';
 import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
 import { openClearancePrint } from '../../utils/employeeClearancePdf';
 import TerminateEmployeeModal from '../../components/employees/TerminateEmployeeModal';
+import { filterRowsByLocation } from '../../utils/locationUtils';
 
-const EMPTY = {
+const EMPTY = (branches) => ({
   name: '', designation: '', cnic: '', phone: '', address: '',
   basic_salary: '', hire_date: new Date().toISOString().slice(0, 10),
-  branch_id: '', status: 'active',
-};
+  location_type: 'branch', branch_id: branches?.[0]?.id || '', godown_id: null,
+  status: 'active',
+});
 
 export default function Employees() {
   const navigate = useNavigate();
@@ -26,22 +30,29 @@ export default function Employees() {
   const { success, error } = useToast();
   const { shopParams, branches } = useShopApi();
   const isRTL = lang === 'ur';
+  const { isHighlighted } = useHighlightRow();
 
   const [employees, setEmployees] = useState([]);
+  const [godowns, setGodowns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState(EMPTY());
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
   const [terminateTarget, setTerminateTarget] = useState(null);
-  const [reportFilters, setReportFilters] = useState({ from: '', to: '', branch_id: '', status: '' });
+  const [reportFilters, setReportFilters] = useState({ from: '', to: '', status: '' });
+  const [locationFilter, setLocationFilter] = useState({ location_type: 'branch', branch_id: '', godown_id: null });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/employees', { params: { ...shopParams(), search } });
-      setEmployees(data.employees || []);
+      const [empRes, godRes] = await Promise.all([
+        api.get('/employees', { params: { ...shopParams(), search } }),
+        api.get('/godowns', { params: shopParams() }).catch(() => ({ data: { godowns: [] } })),
+      ]);
+      setEmployees(empRes.data.employees || []);
+      setGodowns(godRes.data.godowns || []);
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -65,7 +76,7 @@ export default function Employees() {
       const payload = {
         ...form,
         basic_salary: parseFloat(form.basic_salary),
-        branch_id: parseInt(form.branch_id, 10),
+        branch_id: form.branch_id ? parseInt(form.branch_id, 10) : undefined,
         ...shopParams(),
       };
       if (modal === 'create') {
@@ -87,22 +98,41 @@ export default function Employees() {
   const setF = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const openCreate = () => {
-    setForm({ ...EMPTY, branch_id: branches[0]?.id || '' });
+    setForm(EMPTY(branches));
     setModal('create');
+  };
+
+  const formatLocationName = (emp) => {
+    if (emp.Branch?.Godown) return `${emp.Branch.Godown.name} (${emp.Branch.name})`;
+    return emp.Branch?.name || '—';
   };
 
   // ── Report model ────────────────────────────────────────────────────────────
   const reportSelects = [
-    { key: 'branch_id', label: t('branch') || 'Branch', options: branches.map(b => ({ value: b.id, label: b.name })) },
     { key: 'status', label: t('status') || 'Status', options: [{ value: 'active', label: t('active') || 'Active' }, { value: 'inactive', label: t('inactive') || 'Inactive' }] },
   ];
   let reportRows = filterByDate(employees, 'hire_date', reportFilters.from, reportFilters.to);
-  if (reportFilters.branch_id) reportRows = reportRows.filter(e => String(e.branch_id) === String(reportFilters.branch_id));
   if (reportFilters.status) reportRows = reportRows.filter(e => e.status === reportFilters.status);
+  reportRows = filterRowsByLocation(reportRows, locationFilter, godowns, branches);
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    reportRows = reportRows.filter(e =>
+      (e.name || '').toLowerCase().includes(q) ||
+      (e.designation || '').toLowerCase().includes(q) ||
+      (e.phone || '').toLowerCase().includes(q) ||
+      (e.cnic || '').toLowerCase().includes(q) ||
+      (formatLocationName(e) || '').toLowerCase().includes(q) ||
+      (e.status || '').toLowerCase().includes(q) ||
+      (String(e.basic_salary) || '').toLowerCase().includes(q) ||
+      (String(e.current_payable) || '').toLowerCase().includes(q) ||
+      (e.hire_date ? new Date(e.hire_date).toLocaleDateString('en-PK') : '').toLowerCase().includes(q)
+    );
+  }
+
   const reportColumns = [
     { header: t('name') || 'Name', key: 'name', width: 1.6 },
     { header: t('designation') || 'Designation', render: e => e.designation || '', width: 1.3 },
-    { header: t('userBranch') || 'Branch', render: e => e.Branch?.name || '', width: 1.1 },
+    { header: t('location') || 'Location', render: e => formatLocationName(e), width: 1.4 },
     { header: t('basicSalary') || 'Salary', key: 'basic_salary', money: true, width: 1.1 },
     { header: t('hireDate') || 'Hire Date', render: e => (e.hire_date ? new Date(e.hire_date).toLocaleDateString('en-PK') : ''), width: 1.1 },
     { header: t('currentPayable') || 'Payable', key: 'current_payable', money: true, width: 1.1 },
@@ -139,14 +169,21 @@ export default function Employees() {
       />
 
       <div className="glass-card p-4 space-y-3">
-        <div className="relative max-w-md">
-          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
-          <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchEmployees')} value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
+            <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchEmployees')} value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <LocationPicker
+            compact
+            value={locationFilter}
+            onChange={setLocationFilter}
+          />
         </div>
         <ReportFilters
           value={reportFilters}
           onChange={(k, v) => setReportFilters(f => ({ ...f, [k]: v }))}
-          onClear={() => setReportFilters({ from: '', to: '', branch_id: '', status: '' })}
+          onClear={() => setReportFilters({ from: '', to: '', status: '' })}
           selects={reportSelects}
         />
       </div>
@@ -160,7 +197,7 @@ export default function Employees() {
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th className="text-start p-4">{t('name')}</th>
                 <th className="text-start p-4">{t('designation')}</th>
-                <th className="text-start p-4">{t('userBranch')}</th>
+                <th className="text-start p-4">{t('location') || 'Location'}</th>
                 <th className="text-start p-4">{t('basicSalary')}</th>
                 <th className="text-start p-4">{t('hireDate')}</th>
                 <th className="text-start p-4">{t('currentPayable') || 'Current Payable'}</th>
@@ -170,13 +207,23 @@ export default function Employees() {
             </thead>
             <tbody>
               {reportRows.map(emp => (
-                <tr key={emp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                <tr
+                  key={emp.id}
+                  id={`row-${emp.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className={`${isHighlighted(emp.id) ? 'highlight-row' : 'hover:bg-white/10'} cursor-pointer transition-colors`}
+                  title={t('viewLedger') || 'View Ledger'}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    navigate(`/employees/${emp.id}`);
+                  }}
+                >
                   <td className="p-4">
                     <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{emp.name}</div>
                     {emp.phone && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{emp.phone}</div>}
                   </td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.designation || '—'}</td>
-                  <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.Branch?.name}</td>
+                  <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{formatLocationName(emp)}</td>
                   <td className="p-4 font-semibold text-cyan-400">{formatPKR(emp.basic_salary, lang)}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>
                     {emp.hire_date ? new Date(emp.hire_date).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK') : '—'}
@@ -191,7 +238,7 @@ export default function Employees() {
                       {emp.status === 'terminated' && (
                         <button type="button" onClick={() => openClearancePrint(emp.id)} className="icon-btn text-emerald-400" title={t('clearanceCertificate') || 'Clearance Certificate'}><FileCheck className="w-4 h-4" /></button>
                       )}
-                      <button type="button" onClick={() => { setSelected(emp); setForm({ name: emp.name, designation: emp.designation || '', cnic: emp.cnic || '', phone: emp.phone || '', address: emp.address || '', basic_salary: emp.basic_salary, hire_date: emp.hire_date?.slice(0, 10) || '', branch_id: emp.branch_id, status: emp.status }); setModal('edit'); }} className="icon-btn"><Edit className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => { setSelected(emp); setForm({ name: emp.name, designation: emp.designation || '', cnic: emp.cnic || '', phone: emp.phone || '', address: emp.address || '', basic_salary: emp.basic_salary, hire_date: emp.hire_date?.slice(0, 10) || '', location_type: emp.Branch?.godown_id ? 'godown' : 'branch', branch_id: emp.branch_id, godown_id: emp.Branch?.godown_id || null, status: emp.status }); setModal('edit'); }} className="icon-btn"><Edit className="w-4 h-4" /></button>
                       <button type="button" onClick={() => handleDelete(emp)} className="icon-btn text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
@@ -217,11 +264,22 @@ export default function Employees() {
                 <FormLabel>{t('designation')}</FormLabel>
                 <input className="input" placeholder="Sales Manager" value={form.designation} onChange={setF('designation')} />
               </div>
-              <div>
-                <FormLabel required>{t('userBranch')}</FormLabel>
-                <select className="input" required value={form.branch_id} onChange={setF('branch_id')}>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
+              <div className="sm:col-span-2">
+                <LocationPicker
+                  required
+                  label={t('userBranch') || 'Branch / Godown'}
+                  value={{
+                    location_type: form.location_type || 'branch',
+                    branch_id: form.branch_id,
+                    godown_id: form.godown_id,
+                  }}
+                  onChange={(loc) => setForm(f => ({
+                    ...f,
+                    location_type: loc.location_type,
+                    branch_id: loc.branch_id,
+                    godown_id: loc.godown_id,
+                  }))}
+                />
               </div>
               <div>
                 <FormLabel required>{t('basicSalary')}</FormLabel>

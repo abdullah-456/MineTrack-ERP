@@ -15,7 +15,7 @@ const { postVoucher } = require('./postVoucher');
 // back its transaction and surface the message.
 async function applySupplierStockPayment({
   shopId, supplierRow, totalAmount, paymentStatus, paidAmountInput, paymentMethod,
-  bankAccountId, notes, createdBy, branchId,
+  bankAccountId, notes, createdBy, branchId, grnId, invoiceItems,
 }, transaction) {
   const round = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
   totalAmount = round(totalAmount);
@@ -79,12 +79,20 @@ async function applySupplierStockPayment({
 
   const purchaseInvoice = await db.PurchaseInvoice.create({
     supplier_id: supplierRow.id,
+    grn_id: grnId || null,
     invoice_number,
     invoice_date: new Date(),
     due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     amount: totalAmount,
     status: invStatus,
   }, { transaction });
+
+  if (Array.isArray(invoiceItems) && invoiceItems.length) {
+    await db.PurchaseInvoiceItem.bulkCreate(
+      invoiceItems.map(row => ({ ...row, purchase_invoice_id: purchaseInvoice.id })),
+      { transaction },
+    );
+  }
 
   await supplierRow.update({
     current_payable: round(parseFloat(supplierRow.current_payable || 0) + remainingAmount),
@@ -127,6 +135,8 @@ async function applySupplierStockPayment({
       ...(totalCreditUsed > 0 ? [{ accountCode: '05-SUPCREDIT', credit: totalCreditUsed }] : []),
     ],
   }, transaction);
+
+  await purchaseInvoice.update({ voucher_id: voucher.id }, { transaction });
 
   return { purchaseInvoice, supplierTransaction, voucher };
 }

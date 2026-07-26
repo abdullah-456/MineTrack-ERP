@@ -68,10 +68,10 @@ exports.list = async (req, res) => {
 
     if (search) {
       where[Op.or] = [
-        { gate_pass_number: { [Op.like]: `%${search}%` } },
-        { customer_name:    { [Op.like]: `%${search}%` } },
-        { vehicle_no:       { [Op.like]: `%${search}%` } },
-        { driver_name:      { [Op.like]: `%${search}%` } },
+        { gate_pass_number: { [Op.iLike]: `%${search}%` } },
+        { customer_name:    { [Op.iLike]: `%${search}%` } },
+        { vehicle_no:       { [Op.iLike]: `%${search}%` } },
+        { driver_name:      { [Op.iLike]: `%${search}%` } },
       ];
     }
 

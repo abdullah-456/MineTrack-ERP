@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Building2, Wallet, CreditCard, Loader2, Printer, Plus, History } from 'lucide-react';
+import { ArrowLeft, Building2, Wallet, CreditCard, Loader2, Printer, Plus, History, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
@@ -28,9 +28,10 @@ export default function SupplierLedger() {
   const [ledger, setLedger] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('history');
+  const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null); // 'payment' | 'opening'
   const [saving, setSaving] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
+  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
   const [openingForm, setOpeningForm] = useState({ amount: '', date: new Date().toISOString().slice(0, 10) });
 
   // Open a printable voucher in a new tab for a single transaction
@@ -71,12 +72,13 @@ export default function SupplierLedger() {
         amount: parseFloat(paymentForm.amount),
         method: paymentForm.method,
         bank_account_id: paymentForm.bank_account_id,
+        date: paymentForm.date || undefined,
         notes: paymentForm.notes || undefined,
         ...shopParams(),
       });
       success(t('paymentRecorded') || 'Payment recorded');
       setModal(null);
-      setPaymentForm({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
+      setPaymentForm({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
       fetchData();
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
@@ -215,7 +217,20 @@ export default function SupplierLedger() {
       </div>
 
       {tab === 'history' && (
-        <div className="glass-card overflow-x-auto">
+        <div className="space-y-3">
+          <div className="glass-card p-3">
+            <div className="relative max-w-md">
+              <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+              <input
+                className="input"
+                style={{ paddingInlineStart: '2.25rem' }}
+                placeholder="Search type, notes, method, date…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="glass-card overflow-x-auto">
           <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
@@ -231,8 +246,30 @@ export default function SupplierLedger() {
               </tr>
             </thead>
             <tbody>
-              {transaction_history.map(txn => (
-                <tr key={txn.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+              {transaction_history
+                .filter(txn => !search.trim() || [
+                  TXN_LABELS[txn.type] || txn.type, txn.method, txn.notes,
+                  String(txn.total_amount), String(txn.paid_amount), String(txn.remaining_amount), String(txn.running_balance),
+                  new Date(txn.date).toLocaleDateString('en-PK')
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map(txn => (
+                <tr
+                  key={txn.id}
+                  id={`row-${txn.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className="hover:bg-white/10 cursor-pointer transition-colors"
+                  title={t('clickToViewDetail') || 'Click to view transaction in module'}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    if (['purchase_invoice', 'purchase'].includes(txn.type) || txn.invoice_id) {
+                      navigate(`/invoices?highlight=${txn.invoice_id || txn.id}`);
+                    } else if (['purchase_return', 'return'].includes(txn.type)) {
+                      navigate(`/returns?highlight=${txn.return_id || txn.id}`);
+                    } else {
+                      navigate(`/accounting/general-ledger?highlight=${txn.voucher_id || txn.id}`);
+                    }
+                  }}
+                >
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(txn.date).toLocaleDateString('en-PK')}</td>
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{TXN_LABELS[txn.type] || txn.type}</td>
                   <td className="p-4 text-end" style={{ color: 'var(--text-secondary)' }}>{formatPKR(txn.total_amount, lang)}</td>
@@ -244,7 +281,7 @@ export default function SupplierLedger() {
                   <td className="p-4 text-center">
                     <button
                       type="button"
-                      onClick={() => openVoucher(txn, supplier.company_name)}
+                      onClick={(e) => { e.stopPropagation(); openVoucher(txn, supplier.company_name); }}
                       title="Print Voucher"
                       className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-hover)]"
                       style={{ color: 'var(--text-muted)' }}
@@ -259,6 +296,7 @@ export default function SupplierLedger() {
               )}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 
@@ -340,6 +378,10 @@ export default function SupplierLedger() {
                   {t('supplierAdvanceHint') || 'Amount exceeds payable — the extra will be recorded as prepaid supplier credit for future purchases.'}
                 </p>
               )}
+            </div>
+            <div>
+              <FormLabel>{t('paymentDateTime') || 'Payment Date & Time (Optional)'}</FormLabel>
+              <input className="input" type="datetime-local" value={paymentForm.date || ''} onChange={e => setPaymentForm(f => ({ ...f, date: e.target.value }))} />
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>

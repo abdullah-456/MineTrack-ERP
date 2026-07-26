@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Crown, Wallet, Loader2, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { ArrowLeft, Crown, Wallet, Loader2, ArrowDownCircle, ArrowUpCircle, Printer, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -17,7 +17,7 @@ const TXN_LABELS = {
   adjustment: 'Adjustment',
 };
 
-const EMPTY_FORM = { amount: '', method: 'cash', bank_account_id: null, notes: '' };
+const EMPTY_FORM = { amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' };
 
 export default function BoardMemberLedger() {
   const { id } = useParams();
@@ -28,6 +28,7 @@ export default function BoardMemberLedger() {
 
   const [ledger, setLedger] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null); // 'receive' | 'send'
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -46,15 +47,31 @@ export default function BoardMemberLedger() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const openVoucher = (txn) => {
+    const params = new URLSearchParams({
+      module:     'board_member',
+      txnType:    txn.type,
+      entityName: member?.name || '',
+      amount:     txn.amount,
+      date:       txn.date,
+      method:     txn.method || '',
+      notes:      txn.notes  || '',
+      voucherNo:  txn.voucher_id || txn.id,
+      shopName:   '',
+    });
+    window.open(`/ledger-voucher?${params.toString()}`, '_blank');
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
       const endpoint = modal === 'receive' ? 'receive' : 'send';
-      await api.post(`/board-members/${id}/${endpoint}`, {
+      const { data } = await api.post(`/board-members/${id}/${endpoint}`, {
         amount: parseFloat(form.amount),
         method: form.method,
         bank_account_id: form.bank_account_id,
+        date: form.date || undefined,
         notes: form.notes || undefined,
         ...shopParams(),
       });
@@ -62,6 +79,9 @@ export default function BoardMemberLedger() {
       setModal(null);
       setForm(EMPTY_FORM);
       fetchData();
+      if (data?.transaction) {
+        openVoucher(data.transaction);
+      }
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -81,7 +101,7 @@ export default function BoardMemberLedger() {
         icon={Crown}
         accent="amber"
         title={member.name}
-        subtitle={[member.branch_name, member.phone, member.cnic].filter(Boolean).join(' · ')}
+        subtitle={[member.phone, member.cnic].filter(Boolean).join(' · ')}
         action={
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => navigate('/admin/board-of-directors')} className="btn-secondary flex items-center gap-2">
@@ -112,6 +132,19 @@ export default function BoardMemberLedger() {
         </div>
       </div>
 
+      <div className="glass-card p-3">
+        <div className="relative max-w-md">
+          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+          <input
+            className="input"
+            style={{ paddingInlineStart: '2.25rem' }}
+            placeholder="Search type, notes, method, date…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
       <div className="glass-card overflow-x-auto">
         <table className="w-full text-sm min-w-[760px]">
           <thead>
@@ -123,11 +156,28 @@ export default function BoardMemberLedger() {
               <th className="text-start p-4">{t('method') || 'Method'}</th>
               <th className="text-start p-4">{t('description') || 'Description'}</th>
               <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
+              <th className="p-4"></th>
             </tr>
           </thead>
           <tbody>
-            {transaction_history.map(txn => (
-              <tr key={txn.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+            {transaction_history
+              .filter(txn => !search.trim() || [
+                TXN_LABELS[txn.type] || txn.type, txn.method, txn.notes, txn.bank_account_name,
+                String(txn.amount), String(txn.running_balance),
+                new Date(txn.date).toLocaleDateString('en-PK')
+              ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+              .map(txn => (
+              <tr
+                key={txn.id}
+                id={`row-${txn.id}`}
+                style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                className="hover:bg-white/10 cursor-pointer transition-colors"
+                title="Click to view in accounting"
+                onClick={(e) => {
+                  if (e.target.closest('button')) return;
+                  navigate(`/accounting/general-ledger?highlight=${txn.voucher_id || txn.id}`);
+                }}
+              >
                 <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(txn.date).toLocaleDateString('en-PK')}</td>
                 <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{TXN_LABELS[txn.type] || txn.type}</td>
                 <td className="p-4 text-end font-semibold text-red-400">
@@ -143,10 +193,21 @@ export default function BoardMemberLedger() {
                 </td>
                 <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{txn.notes || '—'}</td>
                 <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(txn.running_balance, lang)}</td>
+                <td className="p-4 text-center">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openVoucher(txn); }}
+                    title="Print Payment Slip"
+                    className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-hover)]"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                  </button>
+                </td>
               </tr>
             ))}
             {transaction_history.length === 0 && (
-              <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
+              <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noTransactions') || 'No transactions yet'}</td></tr>
             )}
           </tbody>
         </table>
@@ -161,6 +222,10 @@ export default function BoardMemberLedger() {
             <div>
               <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input className="input" type="number" step="0.01" min="0.01" required value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+            </div>
+            <div>
+              <FormLabel>{t('paymentDateTime') || 'Transaction Date & Time (Optional)'}</FormLabel>
+              <input className="input" type="datetime-local" value={form.date || ''} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>

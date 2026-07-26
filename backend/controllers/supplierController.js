@@ -17,10 +17,10 @@ exports.list = async (req, res) => {
     if (req.query.status && req.query.status !== 'all') where.status = req.query.status;
     if (req.query.search) {
       where[Op.or] = [
-        { company_name: { [Op.like]: `%${req.query.search}%` } },
-        { supplier_code: { [Op.like]: `%${req.query.search}%` } },
-        { contact_person: { [Op.like]: `%${req.query.search}%` } },
-        { phone: { [Op.like]: `%${req.query.search}%` } },
+        { company_name: { [Op.iLike]: `%${req.query.search}%` } },
+        { supplier_code: { [Op.iLike]: `%${req.query.search}%` } },
+        { contact_person: { [Op.iLike]: `%${req.query.search}%` } },
+        { phone: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
 
