@@ -45,6 +45,8 @@ import ProfitAndLoss from './pages/reports/ProfitAndLoss';
 import BalanceSheet from './pages/reports/BalanceSheet';
 import EquityStatement from './pages/reports/EquityStatement';
 import CashFlowStatement from './pages/reports/CashFlowStatement';
+import ReportsHub from './pages/reports/ReportsHub';
+import SalesReport from './pages/reports/SalesReport';
 import Products   from './pages/products/Products';
 import Categories from './pages/products/Categories';
 import Inventory  from './pages/inventory/Inventory';
@@ -209,6 +211,10 @@ function App() {
                 element={<ProtectedRoute module="expenses" action="read"><Expenses /></ProtectedRoute>} />
 
               {/* Reports */}
+              <Route path="/reports"
+                element={<ProtectedRoute module="reports" action="read"><ReportsHub /></ProtectedRoute>} />
+              <Route path="/reports/sales"
+                element={<ProtectedRoute module="sales" action="read"><SalesReport /></ProtectedRoute>} />
               <Route path="/reports/trial-balance"
                 element={<ProtectedRoute module="reports" action="read"><TrialBalance /></ProtectedRoute>} />
               <Route path="/reports/profit-and-loss"

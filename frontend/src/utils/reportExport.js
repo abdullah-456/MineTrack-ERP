@@ -240,17 +240,23 @@ function createWriter(company, { title, meta = [], filters = [] }) {
     doc,
     space(mm) { y += mm; },
     heading(text) {
-      ensure(9);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(17, 24, 39);
-      doc.text(asText(toEnglishText(text)), margin, y + 3.5); y += 7;
+      ensure(12);
+      doc.setFillColor(238, 240, 244);
+      doc.rect(margin, y, contentW, 7, 'F');
+      doc.setDrawColor(...BRAND_RGB);
+      doc.setLineWidth(0.6);
+      doc.line(margin, y, margin, y + 7);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...TITLE_RGB);
+      doc.text(asText(toEnglishText(text)).toUpperCase(), margin + 3, y + 4.8);
+      y += 10;
     },
     kv(rows) {
-      const widths = [contentW * 0.32, contentW * 0.68];
-      rows.filter(Boolean).forEach(r => {
+      const widths = [contentW * 0.38, contentW * 0.62];
+      rows.filter(Boolean).forEach((r, idx) => {
         rowCells([
           { text: toEnglishText(r.label), align: 'left' },
           { text: toEnglishText(r.value), align: 'left' },
-        ], widths, { });
+        ], widths, { fill: idx % 2 ? [249, 250, 251] : null });
       });
     },
     table({ columns, rows = [], totals, groupKey }) {
@@ -271,16 +277,35 @@ function createWriter(company, { title, meta = [], filters = [] }) {
         }), widths, { bold: true, fill: [226, 232, 240], showBottomBorder: true });
       }
     },
+    // Pin signature near bottom of the current A4 page (a few lines above the edge).
     signature(left = 'Prepared By', right = 'Received / Verified By') {
-      ensure(30); y += 18;
+      const blockH = 38;
+      const bottomReserve = 14; // space for page footer line
+      const targetY = pageH - bottomReserve - blockH;
+      if (y > targetY - 4) {
+        drawFooter();
+        doc.addPage();
+        pageNo += 1;
+        y = drawLetterhead(false);
+      }
+      if (y < targetY) y = targetY;
+
+      doc.setDrawColor(200, 200, 210);
+      doc.setLineWidth(0.2);
+      doc.line(margin, y - 4, pageW - margin, y - 4);
+
       const colW = contentW / 2;
-      doc.setDrawColor(80, 80, 80); doc.setLineWidth(0.3);
-      doc.line(margin, y, margin + colW - 14, y);
-      doc.line(margin + colW + 4, y, pageW - margin, y);
-      y += 4;
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(40, 40, 40);
-      doc.text(left, margin, y);
-      doc.text(right, margin + colW + 4, y);
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(150, 150, 150);
+      doc.text('Sign / Stamp', margin, y + 10);
+      doc.text('Sign / Stamp', margin + colW + 4, y + 10);
+      doc.setDrawColor(40, 40, 40); doc.setLineWidth(0.35);
+      doc.line(margin, y + 16, margin + colW - 14, y + 16);
+      doc.line(margin + colW + 4, y + 16, pageW - margin, y + 16);
+      y += 21;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(30, 30, 30);
+      doc.text(toEnglishText(left), margin, y);
+      doc.text(toEnglishText(right), margin + colW + 4, y);
+      y += 8;
     },
     save(filename, fallback) { drawFooter(); doc.save(filename || fallback); },
   };
@@ -328,9 +353,13 @@ function esc(s) {
 
 const PRINT_CSS = `
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #111827; margin: 0; }
-  .page { padding: 22px; }
-  .lh { position: relative; background: ${BRAND_HEX}; margin: -22px -22px 0; padding: 14px 22px;
+  body { font-family: Inter, Arial, Helvetica, sans-serif; color: #111827; margin: 0; }
+  .page {
+    padding: 18px 22px 14px; min-height: calc(297mm - 16mm);
+    display: flex; flex-direction: column;
+  }
+  .page-body { flex: 1 1 auto; }
+  .lh { position: relative; background: ${BRAND_HEX}; margin: -18px -22px 0; padding: 14px 22px;
         border-bottom: 4px solid ${BRAND_ACCENT_HEX}; }
   .lh .logo { position: absolute; left: 22px; top: 50%; transform: translateY(-50%);
               max-height: 56px; max-width: 110px; object-fit: contain; background: #fff;
@@ -344,7 +373,7 @@ const PRINT_CSS = `
   .meta { font-size: 10px; color: #374151; text-align: center; }
   .filters { font-size: 10px; color: #1f2937; margin: 8px 0; padding: 6px 8px;
              background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11.5px; color: #111827; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11.5px; color: #111827; }
   th, td { border: 1px solid #111827; padding: 6px 8px; }
   th { background: #eef0f4; font-weight: 700; text-align: left; color: #111827; }
   .a-left { text-align: left; } .a-right { text-align: right; } .a-center { text-align: center; }
@@ -353,14 +382,29 @@ const PRINT_CSS = `
   tr.totals td { font-weight: 800; background: #e2e8f0; border-bottom: 1px solid #111827; }
   .empty { text-align: center; color: #6b7280; font-style: italic; padding: 16px; }
   .sec { margin-bottom: 12px; }
-  .sec-h { font-size: 11px; font-weight: 800; color: #374151; text-transform: uppercase;
-           letter-spacing: 1px; margin: 12px 0 4px; }
+  .sec-h {
+    font-size: 10.5px; font-weight: 800; color: ${TITLE_HEX}; text-transform: uppercase;
+    letter-spacing: 1px; margin: 14px 0 6px; padding: 6px 8px; background: #eef0f4;
+    border-left: 3px solid ${BRAND_HEX};
+  }
   table.kv td { border: 1px solid #111827; font-size: 12px; }
-  table.kv td.k { color: #374151; width: 32%; } table.kv td.v { font-weight: 700; }
-  .sign { display: flex; justify-content: space-between; margin-top: 48px; font-size: 12px; font-weight: 700; }
-  .sign > div { width: 44%; } .sign .line { border-top: 1px solid #111827; margin-bottom: 4px; height: 1px; }
-  .foot { margin-top: 20px; text-align: center; font-size: 9px; color: #6b7280; }
-  @media print { @page { margin: 6mm; } }
+  table.kv td.k { color: #374151; width: 38%; background: #fafafa; }
+  table.kv td.v { font-weight: 700; }
+  .doc-close {
+    margin-top: auto; padding-top: 24px; padding-bottom: 8mm;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .sign { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; gap: 24px; }
+  .sign > div { width: 44%; }
+  .sign .stamp {
+    height: 42px; border-bottom: 1px solid #111827; margin-bottom: 6px;
+    font-size: 9px; color: #9ca3af; font-style: italic; display: flex; align-items: flex-end;
+  }
+  .foot {
+    margin-top: 12px; padding-top: 8px; border-top: 1px solid #d1d5db;
+    display: flex; justify-content: space-between; font-size: 9px; color: #6b7280;
+  }
+  @media print { @page { size: A4; margin: 8mm; } .page { min-height: calc(297mm - 16mm); } }
 `;
 
 function letterheadHTML(company, title, meta = [], filters = []) {
@@ -404,18 +448,28 @@ function tableHTML({ columns, rows = [], totals, groupKey }) {
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}${totalRow}</tbody></table>`;
 }
 
-const signHTML = (signature) => (signature
-  ? `<div class="sign"><div><div class="line"></div>Prepared By</div><div><div class="line"></div>Received Sign &amp; Thumb</div></div>`
-  : '');
+const signHTML = (signature) => {
+  if (!signature) return '';
+  const left = typeof signature === 'object' && signature.left ? signature.left : 'Prepared By';
+  const right = typeof signature === 'object' && signature.right ? signature.right : 'Received Sign & Thumb';
+  return `<div class="doc-close">
+    <div class="sign">
+      <div><div class="stamp">Sign / Stamp</div>${esc(left)}</div>
+      <div><div class="stamp">Sign / Stamp</div>${esc(right)}</div>
+    </div>
+    <div class="foot"><span>Computer generated document</span><span>${esc(nowStamp())}</span></div>
+  </div>`;
+};
 
 export function buildReportHTML({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, groupKey }) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Report')}</title>
   <style>${PRINT_CSS}</style></head><body>
     <div class="page">
-      ${letterheadHTML(company, title, meta, filters)}
-      ${tableHTML({ columns, rows, totals, groupKey })}
+      <div class="page-body">
+        ${letterheadHTML(company, title, meta, filters)}
+        ${tableHTML({ columns, rows, totals, groupKey })}
+      </div>
       ${signHTML(signature)}
-      <div class="foot">${esc(company.name || '')} — computer generated report</div>
     </div>
   </body></html>`;
 }
@@ -424,18 +478,19 @@ export function buildDetailHTML({ company = {}, title, meta = [], filters = [], 
   const secHtml = sections.map(s => `
     <div class="sec">
       ${s.heading ? `<div class="sec-h">${esc(s.heading)}</div>` : ''}
-      <table class="kv">${s.rows.filter(Boolean).map(r => `<tr><td class="k">${esc(r.label)}</td><td class="v">${esc(r.value)}</td></tr>`).join('')}</table>
+      <table class="kv">${(s.rows || []).filter(Boolean).map(r => `<tr><td class="k">${esc(r.label)}</td><td class="v">${esc(r.value)}</td></tr>`).join('')}</table>
     </div>`).join('');
   const allTables = [...(table ? [table] : []), ...(tables || [])];
   const tablesHtml = allTables.map(tb => `${tb.heading ? `<div class="sec-h">${esc(tb.heading)}</div>` : ''}${tableHTML({ ...tb, groupKey })}`).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Detail')}</title>
   <style>${PRINT_CSS}</style></head><body>
     <div class="page">
-      ${letterheadHTML(company, title, meta, filters)}
-      ${secHtml}
-      ${tablesHtml}
+      <div class="page-body">
+        ${letterheadHTML(company, title, meta, filters)}
+        ${secHtml}
+        ${tablesHtml}
+      </div>
       ${signHTML(signature)}
-      <div class="foot">${esc(company.name || '')} — computer generated document</div>
     </div>
   </body></html>`;
 }

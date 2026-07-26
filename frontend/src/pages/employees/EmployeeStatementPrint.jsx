@@ -6,7 +6,7 @@ import { formatPKR } from '../../hooks/useShopApi';
 import api from '../../api/axios';
 import { getCompany } from '../../utils/reportExport';
 import {
-  PrintStyles, PrintActionBar, CompanyHeader, SignatureRow, DocFooter, INK, INK_SOFT,
+  PrintStyles, PrintActionBar, CompanyHeader, DocClose, INK, INK_SOFT,
 } from '../../components/print/PrintKit';
 
 export default function EmployeeStatementPrint() {
@@ -71,6 +71,7 @@ export default function EmployeeStatementPrint() {
       <PrintActionBar />
 
       <div className="sheet" dir={isRTL ? 'rtl' : 'ltr'}>
+      <div className="sheet-body">
         <CompanyHeader company={company} docTitle={t('employeeStatementSub') || 'Employee Ledger Statement'} />
 
         {/* Employee identity */}
@@ -149,8 +150,9 @@ export default function EmployeeStatementPrint() {
           </tbody>
         </table>
 
-        <SignatureRow left="Prepared By" right="Employee Sign & Thumb" />
-        <DocFooter company={company} />
+        </div>
+
+        <DocClose company={company} left="Prepared By" right="Employee Sign & Thumb" />
       </div>
     </>
   );

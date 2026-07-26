@@ -3,7 +3,8 @@ import { Printer, Download, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { useShopApi } from '../../hooks/useShopApi';
 import { useTheme } from '../../context/ThemeContext';
 import {
-  getCompany, printReport, downloadReportPDF, downloadReportExcel, printDetail, downloadDetailPDF, downloadDetailExcel,
+  getCompany, printReport, downloadReportPDF, downloadReportExcel,
+  printDetail, downloadDetailPDF, downloadDetailExcel,
 } from '../../utils/reportExport';
 
 // Drop-in Print + Download-PDF + Download-Excel toolbar for any module.
@@ -25,8 +26,11 @@ export default function ReportActions({
     try {
       const company = await getCompany(shopParams());
       const model = buildModel();
+      if (!model || (!model.columns && !model.sections && !model.tables && !model.table)) {
+        return;
+      }
       const payload = { company, ...model };
-      if (model.kind === 'detail') {
+      if (model.kind === 'detail' || model.kind === 'document') {
         if (mode === 'print') printDetail(payload);
         else if (mode === 'pdf') downloadDetailPDF(payload);
         else downloadDetailExcel(payload);

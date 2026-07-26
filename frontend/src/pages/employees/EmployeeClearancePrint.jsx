@@ -7,7 +7,7 @@ import api from '../../api/axios';
 import { downloadEmployeeClearance } from '../../utils/employeeClearancePdf';
 import { getCompany } from '../../utils/reportExport';
 import {
-  PrintStyles, CompanyHeader, SignatureRow, DocFooter, INK, INK_SOFT,
+  PrintStyles, CompanyHeader, DocClose, SignatureRow, INK, INK_SOFT,
 } from '../../components/print/PrintKit';
 
 export default function EmployeeClearancePrint() {
@@ -88,6 +88,7 @@ export default function EmployeeClearancePrint() {
       </div>
 
       <div className="sheet" dir={isRTL ? 'rtl' : 'ltr'}>
+      <div className="sheet-body">
         <CompanyHeader company={company} docTitle={t('clearanceCertificate') || 'Employee Clearance Certificate'} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: INK_SOFT, margin: '0 0 10px' }}>
@@ -262,18 +263,20 @@ export default function EmployeeClearancePrint() {
           {t('clearanceDeclaration') || 'This is to certify that the above-named employee has been terminated from service. All financial clearances, outstanding dues, and recoveries are recorded as stated above. This certificate is issued for official record purposes.'}
         </p>
 
-        <SignatureRow
-          left={t('hrManager') || 'HR / Manager'}
-          right={t('employeeSignThumb') || 'Employee Sign & Thumb'}
-        />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 32 }}>
-          <div style={{ width: '42%' }}>
-            <div style={{ borderTop: `1px solid ${INK}`, marginBottom: 5 }} />
-            <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{t('authorizedSignatory') || 'Authorized Signatory'}</div>
-          </div>
         </div>
 
-        <DocFooter company={company} />
+        <DocClose company={company}>
+          <SignatureRow
+            left={t('hrManager') || 'HR / Manager'}
+            right={t('employeeSignThumb') || 'Employee Sign & Thumb'}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 28 }}>
+            <div style={{ width: '42%' }}>
+              <div style={{ height: 42, borderBottom: `1px solid ${INK}`, marginBottom: 6 }} />
+              <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{t('authorizedSignatory') || 'Authorized Signatory'}</div>
+            </div>
+          </div>
+        </DocClose>
       </div>
     </>
   );

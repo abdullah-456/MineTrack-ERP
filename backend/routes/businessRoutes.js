@@ -21,6 +21,7 @@ const boardMemberController = require('../controllers/boardMemberController');
 const boardMemberLedgerController = require('../controllers/boardMemberLedgerController');
 const expenseController = require('../controllers/expenseController');
 const financialReportsController = require('../controllers/financialReportsController');
+const moduleReportsController = require('../controllers/moduleReportsController');
 const roleController = require('../controllers/roleController');
 const deletionRequestController = require('../controllers/deletionRequestController');
 const gatePassController = require('../controllers/gatePassController');
@@ -160,6 +161,7 @@ router.get(   '/reports/profit-and-loss', authorize('reports', 'read'), financia
 router.get(   '/reports/balance-sheet',   authorize('reports', 'read'), financialReportsController.balanceSheet);
 router.get(   '/reports/equity-statement', authorize('reports', 'read'), financialReportsController.equityStatement);
 router.get(   '/reports/cash-flow',       authorize('reports', 'read'), financialReportsController.cashFlow);
+router.get(   '/reports/modules/sales/summary', authorize('sales', 'read'), moduleReportsController.salesSummary);
 
 // Financial Setup (first-time wizard) & Cash Sessions
 router.post(  '/financial-setup',                 financialSetupController.completeSetup);

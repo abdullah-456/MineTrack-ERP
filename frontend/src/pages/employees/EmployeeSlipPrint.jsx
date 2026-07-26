@@ -7,7 +7,7 @@ import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import { getCompany } from '../../utils/reportExport';
 import {
-  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, SignatureRow, DocFooter, INK, INK_SOFT,
+  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, DocClose, INK, INK_SOFT,
 } from '../../components/print/PrintKit';
 
 export default function EmployeeSlipPrint() {
@@ -93,6 +93,7 @@ export default function EmployeeSlipPrint() {
       </div>
 
       <div className="sheet" dir={isRTL ? 'rtl' : 'ltr'}>
+      <div className="sheet-body">
         <CompanyHeader company={company} docTitle={title} />
 
         {/* Details */}
@@ -162,8 +163,9 @@ export default function EmployeeSlipPrint() {
 
         <AmountWords amount={headlineAmount} />
 
-        <SignatureRow left="Prepared By" right="Received Sign & Thumb" />
-        <DocFooter company={company} />
+        </div>
+
+        <DocClose company={company} left="Prepared By" right="Received Sign & Thumb" />
       </div>
     </>
   );

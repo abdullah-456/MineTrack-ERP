@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   PrintStyles, PrintActionBar, CompanyHeader,
-  AmountWords, SignatureRow, DocFooter,
+  AmountWords, DocClose,
   INK, INK_SOFT,
 } from '../../components/print/PrintKit';
 
@@ -131,6 +131,7 @@ export default function LedgerVoucherPrint() {
       <PrintActionBar />
 
       <div className="sheet">
+      <div className="sheet-body">
         <CompanyHeader company={company} docTitle={docTitle} />
 
         {/* ── Voucher No / Date ── */}
@@ -219,9 +220,8 @@ export default function LedgerVoucherPrint() {
         )}
 
         {/* ── Signature block ── */}
-        <SignatureRow left="Prepared By" right="Receiver Sign & Thumb" />
-
-        <DocFooter company={company} />
+        </div>
+        <DocClose company={company} left="Prepared By" right="Receiver Sign & Thumb" />
       </div>
     </>
   );

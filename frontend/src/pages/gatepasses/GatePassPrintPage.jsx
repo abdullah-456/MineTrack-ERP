@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, AlertCircle } from 'lucide-react';
 import api from '../../api/axios';
 import {
-  PrintStyles, PrintActionBar, CompanyHeader, DocFooter,
+  PrintStyles, PrintActionBar, CompanyHeader, DocClose,
   INK, INK_SOFT, LINE
 } from '../../components/print/PrintKit';
 
@@ -100,17 +100,17 @@ function ItemsTable({ items }) {
 
 function GatePassSignatureRow() {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 45 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
       <div style={{ width: '30%' }}>
-        <div style={{ borderTop: `1px solid ${INK}`, marginBottom: 5 }} />
+        <div style={{ height: 42, borderBottom: `1px solid ${INK}`, marginBottom: 6, fontSize: 9, color: INK_SOFT, fontStyle: 'italic', display: 'flex', alignItems: 'flex-end' }}>Sign / Stamp</div>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: INK }}>Prepared / Issued By</div>
       </div>
       <div style={{ width: '30%', textAlign: 'center' }}>
-        <div style={{ borderTop: `1px solid ${INK}`, marginBottom: 5 }} />
+        <div style={{ height: 42, borderBottom: `1px solid ${INK}`, marginBottom: 6, fontSize: 9, color: INK_SOFT, fontStyle: 'italic', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>Sign / Stamp</div>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: INK }}>Gate Security Sign & Stamp</div>
       </div>
       <div style={{ width: '30%', textAlign: 'right' }}>
-        <div style={{ borderTop: `1px solid ${INK}`, marginBottom: 5 }} />
+        <div style={{ height: 42, borderBottom: `1px solid ${INK}`, marginBottom: 6, fontSize: 9, color: INK_SOFT, fontStyle: 'italic', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>Sign / Stamp</div>
         <div style={{ fontSize: 11.5, fontWeight: 700, color: INK }}>Driver / Receiver Sign</div>
       </div>
     </div>
@@ -188,6 +188,7 @@ export default function GatePassPrintPage() {
       <PrintStyles />
       <PrintActionBar />
       <div className="sheet">
+      <div className="sheet-body">
         <CompanyHeader company={shop} docTitle="GATEPASS / CLEARANCE SLIP" />
         
         <MetaGrid items={[
@@ -227,8 +228,11 @@ export default function GatePassPrintPage() {
           </div>
         )}
 
-        <GatePassSignatureRow />
-        <DocFooter company={shop} />
+        </div>
+
+        <DocClose company={shop}>
+          <GatePassSignatureRow />
+        </DocClose>
       </div>
     </>
   );

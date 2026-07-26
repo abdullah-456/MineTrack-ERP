@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react';
 import api from '../../api/axios';
 import { formatVoucherNumber } from '../../utils/ledgerFormat';
 import {
-  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, SignatureRow, DocFooter,
+  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, DocClose,
   INK, INK_SOFT,
 } from '../../components/print/PrintKit';
 
@@ -74,6 +74,7 @@ export default function VoucherPrintPage() {
       <PrintActionBar />
 
       <div className="sheet">
+      <div className="sheet-body">
         <CompanyHeader company={company} docTitle={title} />
 
         {/* Voucher No + Date */}
@@ -130,8 +131,9 @@ export default function VoucherPrintPage() {
           <div style={{ fontSize: 11, color: INK_SOFT, marginTop: 8 }}>Prepared by: {voucher.created_by}</div>
         )}
 
-        <SignatureRow left="Prepared By" right="Receiver Sign & Thumb" />
-        <DocFooter company={company} />
+        </div>
+
+        <DocClose company={company} left="Prepared By" right="Receiver Sign & Thumb" />
       </div>
     </>
   );

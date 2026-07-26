@@ -3,7 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, AlertCircle } from 'lucide-react';
 import api from '../../api/axios';
 import {
-  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, SignatureRow, DocFooter,
+  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, DocClose,
   INK, INK_SOFT, LINE,
 } from '../../components/print/PrintKit';
 
@@ -131,6 +131,7 @@ export default function PurchaseOrderPrintPage() {
       <PrintStyles />
       <PrintActionBar />
       <div className="sheet">
+      <div className="sheet-body">
         <CompanyHeader company={shop} docTitle="PURCHASE ORDER" />
 
         <MetaGrid items={[
@@ -202,8 +203,9 @@ export default function PurchaseOrderPrintPage() {
           </div>
         )}
 
-        <SignatureRow left="Authorized By" right="Supplier Acknowledgement" />
-        <DocFooter company={shop} />
+        </div>
+
+        <DocClose company={shop} left="Authorized By" right="Supplier Acknowledgement" />
       </div>
     </>
   );
