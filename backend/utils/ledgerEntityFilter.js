@@ -111,8 +111,7 @@ async function listFilterOptions(shopId) {
     db.Employee.findAll({ where: { shop_id: shopId }, attributes: ['id', 'name'], order: [['name', 'ASC']] }),
     db.BoardMember.findAll({
       where: { shop_id: shopId },
-      attributes: ['id', 'name', 'branch_id'],
-      include: [{ model: db.Branch, attributes: ['id', 'name'] }],
+      attributes: ['id', 'name'],
       order: [['name', 'ASC']],
     }),
     db.Branch.findAll({
@@ -128,8 +127,7 @@ async function listFilterOptions(shopId) {
     employees: employees.map(e => ({ id: e.id, name: e.name })),
     board_members: boardMembers.map(b => ({
       id: b.id,
-      name: b.Branch?.name ? `${b.name} (${b.Branch.name})` : b.name,
-      branch_id: b.branch_id,
+      name: b.name,
     })),
   };
 }

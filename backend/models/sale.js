@@ -11,6 +11,7 @@ module.exports = (sequelize, DataTypes) => {
       Sale.hasMany(models.SaleItem,   { foreignKey: 'sale_id', as: 'SaleItems' });
       Sale.hasMany(models.Payment,    { foreignKey: 'sale_id', as: 'Payments' });
       Sale.hasMany(models.SaleReturn, { foreignKey: 'sale_id' });
+      Sale.hasMany(models.GatePass,   { foreignKey: 'sale_id' });
     }
   }
   Sale.init({

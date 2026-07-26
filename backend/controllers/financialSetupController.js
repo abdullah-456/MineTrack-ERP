@@ -4,6 +4,153 @@ const { computeLiveCash, computeTotalCashOnHand } = require('../utils/cashHelper
 const { postVoucher } = require('../utils/postVoucher');
 const { createAccount } = require('../utils/chartOfAccounts');
 
+const round2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+async function createBankAccountsFromPayload(shopId, bank_accounts, userId, transaction) {
+  const bankParent = await db.ChartOfAccount.findOne({ where: { account_code: '05-BANK' }, transaction });
+  let bankOpeningTotal = 0;
+  const bankOpeningLines = [];
+
+  for (const acct of bank_accounts) {
+    if (!acct.account_name || acct.account_name.trim() === '') continue;
+    const openingBal = round2(acct.opening_balance);
+    const ledgerAccount = await createAccount({
+      shopId, accountName: acct.account_name.trim(), accountType: 'asset', parent: bankParent, createdBy: userId,
+    }, transaction);
+    await db.BankAccount.create({
+      shop_id:             shopId,
+      account_name:        acct.account_name.trim(),
+      bank_name:           acct.bank_name?.trim() || null,
+      account_number:      acct.account_number?.trim() || null,
+      opening_balance:     openingBal,
+      current_balance:     openingBal,
+      is_active:           true,
+      chart_of_account_id: ledgerAccount.id,
+    }, { transaction });
+    bankOpeningTotal += openingBal;
+    if (openingBal > 0) bankOpeningLines.push({ accountCode: ledgerAccount.account_code, debit: openingBal });
+  }
+
+  return { bankOpeningTotal: round2(bankOpeningTotal), bankOpeningLines };
+}
+
+async function hadNonZeroCashOpening(shopId, transaction) {
+  return !!(await db.CashSession.findOne({
+    where: { shop_id: shopId, opening_cash: { [Op.gt]: 0 } },
+    transaction,
+  }));
+}
+
+async function upsertTodayCashSession(shopId, openingCashAmt, userId, transaction) {
+  const today = todayStr();
+  await db.CashSession.upsert({
+    shop_id:      shopId,
+    session_date: today,
+    opening_cash: openingCashAmt,
+    created_by:   userId,
+  }, { transaction });
+}
+
+async function postOpeningCashJournal(shopId, amount, userId, transaction) {
+  const openingCashAmt = round2(amount);
+  if (openingCashAmt <= 0) return;
+
+  await postVoucher(shopId, {
+    type: 'journal',
+    date: new Date(),
+    narration: 'Opening cash balance',
+    createdBy: userId,
+    lines: [
+      { accountCode: '05-CASH', debit: openingCashAmt },
+      { accountCode: '01-CAPITAL', credit: openingCashAmt },
+    ],
+  }, transaction);
+}
+
+// ── POST /api/financial-setup/skip ────────────────────────────────────────────
+// Lets an admin dismiss the first-time wizard without entering balances yet.
+exports.skipSetup = async (req, res) => {
+  const shopId = req.user.shop_id;
+  if (!shopId) return res.status(403).json({ message: 'No shop context' });
+
+  try {
+    await db.Shop.update({ setup_completed: true }, { where: { id: shopId } });
+    return res.json({ message: 'Financial setup skipped' });
+  } catch (error) {
+    console.error('skipSetup error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── POST /api/financial-setup/opening-cash ────────────────────────────────────
+// Record opening cash later (from the dashboard cash pill).
+exports.setOpeningCash = async (req, res) => {
+  const shopId = req.user.shop_id;
+  if (!shopId) return res.status(403).json({ message: 'No shop context' });
+
+  const { opening_cash } = req.body;
+  if (opening_cash === undefined || opening_cash === null) {
+    return res.status(400).json({ message: 'opening_cash is required' });
+  }
+
+  const openingCashAmt = round2(opening_cash);
+  const t = await db.sequelize.transaction();
+  try {
+    const alreadyRecorded = await hadNonZeroCashOpening(shopId, t);
+    await upsertTodayCashSession(shopId, openingCashAmt, req.user.id, t);
+    if (!alreadyRecorded) {
+      await postOpeningCashJournal(shopId, openingCashAmt, req.user.id, t);
+    }
+    await t.commit();
+    return res.json({ message: 'Opening cash saved', opening_cash: openingCashAmt });
+  } catch (error) {
+    await t.rollback();
+    console.error('setOpeningCash error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── POST /api/financial-setup/bank-accounts ───────────────────────────────────
+// Add bank accounts later (from the dashboard bank pill).
+exports.addBankAccounts = async (req, res) => {
+  const shopId = req.user.shop_id;
+  if (!shopId) return res.status(403).json({ message: 'No shop context' });
+
+  const { bank_accounts = [] } = req.body;
+  const validAccounts = bank_accounts.filter(a => a.account_name?.trim());
+  if (!validAccounts.length) {
+    return res.status(400).json({ message: 'Add at least one bank account with a label' });
+  }
+
+  const t = await db.sequelize.transaction();
+  try {
+    const { bankOpeningTotal, bankOpeningLines } = await createBankAccountsFromPayload(
+      shopId, validAccounts, req.user.id, t,
+    );
+
+    if (bankOpeningTotal > 0) {
+      await postVoucher(shopId, {
+        type: 'journal',
+        date: new Date(),
+        narration: 'Opening bank balances',
+        createdBy: req.user.id,
+        lines: [
+          ...bankOpeningLines,
+          { accountCode: '01-CAPITAL', credit: bankOpeningTotal },
+        ],
+      }, t);
+    }
+
+    await t.commit();
+    return res.json({ message: 'Bank accounts added', count: validAccounts.length });
+  } catch (error) {
+    await t.rollback();
+    console.error('addBankAccounts error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 // ── POST /api/financial-setup ─────────────────────────────────────────────────
 // Called once when admin first sets up the shop's finances.
 // Saves bank accounts + opening cash, then marks shop.setup_completed = true.
@@ -15,49 +162,21 @@ exports.completeSetup = async (req, res) => {
 
   const t = await db.sequelize.transaction();
   try {
-    // Save bank accounts — each gets its own dedicated ledger sub-account
-    // nested under '05-BANK', same as any bank account added later.
-    const bankParent = await db.ChartOfAccount.findOne({ where: { account_code: '05-BANK' }, transaction: t });
-    let bankOpeningTotal = 0;
-    const bankOpeningLines = [];
-    for (const acct of bank_accounts) {
-      if (!acct.account_name || acct.account_name.trim() === '') continue;
-      const openingBal = parseFloat(acct.opening_balance) || 0;
-      const ledgerAccount = await createAccount({
-        shopId, accountName: acct.account_name.trim(), accountType: 'asset', parent: bankParent, createdBy: req.user.id,
-      }, t);
-      await db.BankAccount.create({
-        shop_id:         shopId,
-        account_name:    acct.account_name.trim(),
-        bank_name:       acct.bank_name?.trim() || null,
-        account_number:  acct.account_number?.trim() || null,
-        opening_balance: openingBal,
-        current_balance: openingBal,
-        is_active:       true,
-        chart_of_account_id: ledgerAccount.id,
-      }, { transaction: t });
-      bankOpeningTotal += openingBal;
-      if (openingBal > 0) bankOpeningLines.push({ accountCode: ledgerAccount.account_code, debit: openingBal });
+    const { bankOpeningTotal, bankOpeningLines } = await createBankAccountsFromPayload(
+      shopId, bank_accounts, req.user.id, t,
+    );
+
+    const openingCashAmt = round2(opening_cash);
+    if (openingCashAmt > 0) {
+      await upsertTodayCashSession(shopId, openingCashAmt, req.user.id, t);
     }
-    bankOpeningTotal = Math.round(bankOpeningTotal * 100) / 100;
 
-    // Save today's opening cash as the first cash session
-    const today = new Date().toISOString().slice(0, 10);
-    const openingCashAmt = parseFloat(opening_cash) || 0;
-    await db.CashSession.upsert({
-      shop_id:      shopId,
-      session_date: today,
-      opening_cash: openingCashAmt,
-      created_by:   req.user.id,
-    }, { transaction: t });
-
-    // Mark shop as fully set up
     await db.Shop.update(
       { setup_completed: true },
       { where: { id: shopId }, transaction: t }
     );
 
-    const openingTotal = Math.round((bankOpeningTotal + openingCashAmt) * 100) / 100;
+    const openingTotal = round2(bankOpeningTotal + openingCashAmt);
     if (openingTotal > 0) {
       await postVoucher(shopId, {
         type: 'journal',

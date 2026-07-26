@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { BookOpen, Plus, Edit, Trash2, Loader2 } from 'lucide-react';
+import { BookOpen, Plus, Edit, Trash2, Loader2, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
@@ -16,6 +16,7 @@ export default function Categories() {
 
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({ name: '', parent_category_id: '' });
   const [selected, setSelected] = useState(null);
@@ -86,6 +87,19 @@ export default function Categories() {
         }
       />
 
+      <div className="glass-card p-3">
+        <div className="relative max-w-md">
+          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+          <input
+            className="input"
+            style={{ paddingInlineStart: '2.25rem' }}
+            placeholder="Search category name or parent…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-violet-400" /></div>
       ) : (
@@ -99,7 +113,11 @@ export default function Categories() {
               </tr>
             </thead>
             <tbody>
-              {categories.map(c => (
+              {categories
+                .filter(c => !search.trim() || [
+                  c.name, c.Parent?.name
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map(c => (
                 <tr key={c.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{c.name}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{c.Parent?.name || '—'}</td>

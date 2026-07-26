@@ -507,3 +507,102 @@ function openPrintWindow(html) {
 
 export function printReport(opts) { openPrintWindow(buildReportHTML(opts)); }
 export function printDetail(opts) { openPrintWindow(buildDetailHTML(opts)); }
+
+// ── Excel Export (CSV with UTF-8 BOM for Excel compatibility) ──────────────────
+export function downloadReportExcel(payload) {
+  const { company = {}, title, columns = [], rows = [], totals, filters, filename } = payload;
+  let csvContent = '\uFEFF';
+
+  const companyName = toEnglishText(company.name || 'Business Report');
+  const reportTitle = toEnglishText(title || 'Report');
+  csvContent += `"${companyName.replace(/"/g, '""')}"\n`;
+  csvContent += `"${reportTitle.replace(/"/g, '""')}"\n`;
+
+  if (filters && filters.length > 0) {
+    const filterText = filters.map(f => `${toEnglishText(f.label || f.key || '')}: ${toEnglishText(f.value || '')}`).join(' | ');
+    csvContent += `"${filterText.replace(/"/g, '""')}"\n`;
+  }
+  csvContent += '\n';
+
+  const headerRow = columns.map(c => `"${toEnglishText(c.header || '').replace(/"/g, '""')}"`).join(',');
+  csvContent += `${headerRow}\n`;
+
+  rows.forEach(r => {
+    const rowValues = columns.map(c => {
+      let val = '';
+      if (c.render) {
+        val = c.render(r);
+      } else if (c.key) {
+        val = r[c.key];
+      }
+      val = asText(toEnglishText(val)).replace(/"/g, '""');
+      return `"${val}"`;
+    });
+    csvContent += `${rowValues.join(',')}\n`;
+  });
+
+  if (totals) {
+    const totalsValues = columns.map((c, idx) => {
+      if (idx === 0) return `"${toEnglishText(totals.__label || 'Total').replace(/"/g, '""')}"`;
+      if (c.key && totals[c.key] !== undefined) {
+        return `"${c.money ? money(totals[c.key]) : totals[c.key]}"`;
+      }
+      return '""';
+    });
+    csvContent += `${totalsValues.join(',')}\n`;
+  }
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const fname = (filename || `${(title || 'report').toLowerCase().replace(/\s+/g, '-')}.csv`).replace(/\.pdf$/i, '.csv');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export function downloadDetailExcel(payload) {
+  const { company = {}, title, sections = [], table, filename } = payload;
+  let csvContent = '\uFEFF';
+
+  const companyName = toEnglishText(company.name || 'Business Record');
+  const docTitle = toEnglishText(title || 'Detail');
+  csvContent += `"${companyName.replace(/"/g, '""')}"\n`;
+  csvContent += `"${docTitle.replace(/"/g, '""')}"\n`;
+  csvContent += '\n';
+
+  sections.forEach(sec => {
+    if (sec.heading || sec.title) csvContent += `"${toEnglishText(sec.heading || sec.title).replace(/"/g, '""')}"\n`;
+    const fields = sec.rows || sec.fields || [];
+    fields.forEach(f => {
+      csvContent += `"${toEnglishText(f.label).replace(/"/g, '""')}","${toEnglishText(asText(f.value)).replace(/"/g, '""')}"\n`;
+    });
+    csvContent += '\n';
+  });
+
+  if (table && table.columns && table.rows) {
+    const headers = table.columns.map(c => `"${toEnglishText(c.header || '').replace(/"/g, '""')}"`).join(',');
+    csvContent += `${headers}\n`;
+    table.rows.forEach(r => {
+      const rowVals = table.columns.map(c => {
+        let val = c.render ? c.render(r) : (c.key ? r[c.key] : '');
+        return `"${asText(toEnglishText(val)).replace(/"/g, '""')}"`;
+      });
+      csvContent += `${rowVals.join(',')}\n`;
+    });
+  }
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const fname = (filename || `${(title || 'detail').toLowerCase().replace(/\s+/g, '-')}.csv`).replace(/\.pdf$/i, '.csv');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}

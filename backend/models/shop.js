@@ -13,6 +13,8 @@ module.exports = (sequelize, DataTypes) => {
       Shop.hasMany(models.Supplier,     { foreignKey: 'shop_id' });
       Shop.hasMany(models.BankAccount,  { foreignKey: 'shop_id' });
       Shop.hasMany(models.CashSession,  { foreignKey: 'shop_id' });
+      Shop.hasMany(models.PurchaseOrder, { foreignKey: 'shop_id' });
+      Shop.hasMany(models.GoodsReceiptNote, { foreignKey: 'shop_id' });
     }
   }
   Shop.init({
@@ -32,7 +34,15 @@ module.exports = (sequelize, DataTypes) => {
     email: {
       type: DataTypes.STRING,
       allowNull: true,
-      validate: { isEmail: true }
+      validate: {
+        isEmailOrEmpty(value) {
+          if (value == null || String(value).trim() === '') return;
+          const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailPattern.test(String(value).trim())) {
+            throw new Error('Must be a valid email address');
+          }
+        },
+      },
     },
     phone: {
       type: DataTypes.STRING,

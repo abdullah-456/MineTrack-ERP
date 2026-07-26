@@ -8,6 +8,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -155,6 +156,7 @@ export default function SalesReturns() {
   const { success, error } = useToast();
   const { can } = useAuth();
   const { shopParams } = useShopApi();
+  const { isHighlighted } = useHighlightRow();
 
   const [returns, setReturns] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -419,7 +421,7 @@ export default function SalesReturns() {
             <input
               className={`${inputCls} pl-9`}
               style={inputStyle}
-              placeholder="Search return number..."
+              placeholder="Search return #, invoice #, customer, value, status..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && fetchReturns()}
@@ -451,11 +453,23 @@ export default function SalesReturns() {
                 </tr>
               </thead>
               <tbody style={{ color: 'var(--text-primary)' }}>
-                {returns.map((r) => (
+                {returns
+                  .filter(r => !search.trim() || [
+                    r.return_number, r.return_type, r.Sale?.invoice_number, r.Customer?.name, r.Customer?.phone,
+                    String(r.returned_value), r.settlement_type, r.status,
+                    r.return_date ? new Date(r.return_date).toLocaleDateString('en-PK') : '',
+                    ...(r.ReturnItems || []).map(i => i.Product?.name || '')
+                  ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                  .map((r) => (
                   <tr
                     key={r.id}
-                    className="border-t"
+                    id={`row-${r.id}`}
+                    className={`border-t cursor-pointer transition-colors hover:bg-white/5 ${isHighlighted(r.id) ? 'highlight-row' : ''}`}
                     style={{ borderColor: 'var(--border-subtle)' }}
+                    onClick={(e) => {
+                      if (e.target.closest('button')) return;
+                      setDetail(r);
+                    }}
                   >
                     <td className="py-3 pr-4 font-mono text-xs">{r.return_number}</td>
                     <td className="py-3 pr-4 capitalize">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Building2, Package, AlertTriangle, TrendingUp, Plus, Loader2, ArrowDownUp, RefreshCw, ArrowRightLeft } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Building2, Package, AlertTriangle, TrendingUp, Plus, Loader2, ArrowDownUp, RefreshCw, ArrowRightLeft, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
@@ -9,6 +10,8 @@ import FormLabel from '../../components/ui/FormLabel';
 import { StockBadge } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import { BankAccountPicker, CashAccountPicker } from '../../components/ui/PaymentAccountSelect';
+import LocationPicker from '../../components/ui/LocationPicker';
+import { defaultLocation, filterRowsByLocation, EMPTY_LOCATION } from '../../utils/locationUtils';
 import api from '../../api/axios';
 
 export default function Inventory() {
@@ -27,23 +30,31 @@ export default function Inventory() {
   const [products, setProducts] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [branchFilter, setBranchFilter] = useState('');
+  const [godowns, setGodowns] = useState([]);
+  const [locationFilter, setLocationFilter] = useState(EMPTY_LOCATION);
   const [productFilter, setProductFilter] = useState('');
+  const [stockSearch, setStockSearch] = useState('');
 
   // Movements state
   const [movements, setMovements] = useState([]);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [movementProductFilter, setMovementProductFilter] = useState('');
-  const [movementBranchFilter, setMovementBranchFilter] = useState('');
+  const [movementLocationFilter, setMovementLocationFilter] = useState(EMPTY_LOCATION);
+  const [movementSearch, setMovementSearch] = useState('');
 
   // Modals state
-  const [modal, setModal] = useState(null); // 'receive' | 'adjust' | 'transfer'
+  const [modal, setModal] = useState(null); // 'receive' | 'receive-po' | 'adjust' | 'transfer'
   const [saving, setSaving] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [formPoReceive, setFormPoReceive] = useState(null);
 
   // Form states
   const [formReceive, setFormReceive] = useState({
     product_id: '',
+    location_type: 'branch',
     branch_id: '',
+    godown_id: null,
     quantity: '',
     supplier_id: '',
     purchase_price: '',
@@ -55,7 +66,9 @@ export default function Inventory() {
 
   const [formAdjust, setFormAdjust] = useState({
     product_id: '',
+    location_type: 'branch',
     branch_id: '',
+    godown_id: null,
     quantity: '',
     direction: 'decrease', // 'increase' or 'decrease'
     reason: 'Physical Audit Correction', // Default reason
@@ -64,8 +77,12 @@ export default function Inventory() {
 
   const [formTransfer, setFormTransfer] = useState({
     product_id: '',
+    from_location_type: 'branch',
     from_branch_id: '',
+    from_godown_id: null,
+    to_location_type: 'branch',
     to_branch_id: '',
+    to_godown_id: null,
     quantity: '',
     notes: '',
   });
@@ -77,7 +94,11 @@ export default function Inventory() {
     // but not suppliers (e.g. cashier, or any custom role scoped to inventory
     // only) must still see stock levels — suppliers is only used for the
     // Receive Stock form's supplier dropdown.
-    const params = { ...shopParams(), branch_id: branchFilter || undefined, product_id: productFilter || undefined };
+    const params = {
+      ...shopParams(),
+      branch_id: locationFilter.location_type === 'branch' && locationFilter.branch_id ? locationFilter.branch_id : undefined,
+      product_id: productFilter || undefined,
+    };
     const [sumRes, invRes, prodRes, supRes] = await Promise.allSettled([
       api.get('/inventory/summary', { params: shopParams() }),
       api.get('/inventory', { params }),
@@ -98,7 +119,7 @@ export default function Inventory() {
     setProducts(prodRes.status === 'fulfilled' ? (prodRes.value.data.products || []) : []);
     setSuppliers(supRes.status === 'fulfilled' ? (supRes.value.data.suppliers || []) : []);
     setLoading(false);
-  }, [shopParams, branchFilter, productFilter, error, t]);
+  }, [shopParams, locationFilter, productFilter, error, t]);
 
   // Fetch audit log movements
   const fetchMovements = useCallback(async () => {
@@ -107,7 +128,9 @@ export default function Inventory() {
       const params = {
         ...shopParams(),
         product_id: movementProductFilter || undefined,
-        branch_id: movementBranchFilter || undefined,
+        branch_id: movementLocationFilter.location_type === 'branch' && movementLocationFilter.branch_id
+          ? movementLocationFilter.branch_id
+          : undefined,
         limit: 100,
       };
       const { data } = await api.get('/inventory/movements', { params });
@@ -117,7 +140,13 @@ export default function Inventory() {
     } finally {
       setLoadingMovements(false);
     }
-  }, [shopParams, movementProductFilter, movementBranchFilter, error, t]);
+  }, [shopParams, movementProductFilter, movementLocationFilter, error, t]);
+
+  useEffect(() => {
+    api.get('/godowns', { params: shopParams() })
+      .then(({ data }) => setGodowns(data.godowns || []))
+      .catch(() => setGodowns([]));
+  }, [shopParams]);
 
   useEffect(() => {
     fetchData();
@@ -128,6 +157,74 @@ export default function Inventory() {
       fetchMovements();
     }
   }, [activeTab, fetchMovements]);
+
+  useEffect(() => {
+    const poId = searchParams.get('receivePo');
+    if (!poId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get(`/purchase-orders/${poId}/receivable`, { params: shopParams() });
+        if (cancelled) return;
+        if (!data.receivable_lines?.length) {
+          error(t('nothingToReceive') || 'Nothing left to receive on this order');
+          return;
+        }
+        const po = data.purchase_order;
+        setFormPoReceive({
+          po_id: parseInt(poId, 10),
+          po_number: po.po_number,
+          supplier_id: po.supplier_id,
+          supplier_name: po.Supplier?.company_name || '',
+          branch_id: po.branch_id,
+          branch_name: po.Branch?.name,
+          items: data.receivable_lines.map(l => ({
+            purchase_order_item_id: l.purchase_order_item_id,
+            product_id: l.product_id,
+            product_name: l.product?.name,
+            product_sku: l.product?.sku,
+            unit: l.product?.unit || 'kg',
+            quantity_pending: l.quantity_pending,
+            quantity_received: String(l.quantity_pending),
+            unit_cost: String(l.unit_cost),
+          })),
+          payment_status: 'unpaid',
+          paid_amount: '',
+          payment_method: 'cash',
+          bank_account_id: null,
+          notes: '',
+          supplier_invoice_number: '',
+        });
+        setModal('receive-po');
+      } catch (err) {
+        if (!cancelled) error(err.response?.data?.message || t('toastErrorGeneric'));
+      } finally {
+        if (!cancelled) {
+          const next = new URLSearchParams(searchParams);
+          next.delete('receivePo');
+          setSearchParams(next, { replace: true });
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams.get('receivePo')]);
+
+  const closePoReceiveModal = () => {
+    setModal(null);
+    setFormPoReceive(null);
+  };
+
+  const updatePoReceiveLine = (idx, key, val) => {
+    setFormPoReceive(f => {
+      if (!f) return f;
+      const items = [...f.items];
+      items[idx] = { ...items[idx], [key]: val };
+      return { ...f, items };
+    });
+  };
 
   // Auto-fill cost price on product selection in receive form
   const handleProductChangeInReceive = (prodId) => {
@@ -144,7 +241,9 @@ export default function Inventory() {
     const p = products.find(x => String(x.id) === String(prodId));
     setFormReceive({
       product_id: String(prodId),
+      location_type: 'branch',
       branch_id: String(branchId),
+      godown_id: null,
       quantity: '',
       supplier_id: '',
       purchase_price: p ? p.cost_price || '' : '',
@@ -159,7 +258,9 @@ export default function Inventory() {
   const openAdjustQuick = (prodId, branchId) => {
     setFormAdjust({
       product_id: String(prodId),
+      location_type: 'branch',
       branch_id: String(branchId),
+      godown_id: null,
       quantity: '',
       direction: 'decrease',
       reason: 'Damaged / Broken Goods',
@@ -172,12 +273,36 @@ export default function Inventory() {
     const otherBranch = branches.find(b => String(b.id) !== String(branchId));
     setFormTransfer({
       product_id: String(prodId),
+      from_location_type: 'branch',
       from_branch_id: String(branchId),
+      from_godown_id: null,
+      to_location_type: 'branch',
       to_branch_id: otherBranch ? String(otherBranch.id) : '',
+      to_godown_id: null,
       quantity: '',
       notes: '',
     });
     setModal('transfer');
+  };
+
+  const filteredInventory = filterRowsByLocation(inventory, locationFilter, godowns, branches)
+    .filter(row => !stockSearch.trim() || [
+      row.Product?.name, row.Product?.sku, row.Branch?.name, row.Product?.ProductSuppliers?.[0]?.Supplier?.company_name
+    ].some(v => (v || '').toLowerCase().includes(stockSearch.trim().toLowerCase())));
+  const filteredMovements = filterRowsByLocation(movements, movementLocationFilter, godowns, branches)
+    .filter(m => !movementSearch.trim() || [
+      m.Product?.name, m.Product?.sku, m.Branch?.name, m.ref_type
+    ].some(v => (v || '').toLowerCase().includes(movementSearch.trim().toLowerCase())));
+
+  const locationFilterLabel = (loc = locationFilter) => {
+    if (loc.location_type === 'godown' && loc.godown_id) {
+      const g = godowns.find(x => String(x.id) === String(loc.godown_id));
+      return g?.name || loc.godown_id;
+    }
+    if (loc.branch_id) {
+      return branches.find(b => String(b.id) === String(loc.branch_id))?.name || loc.branch_id;
+    }
+    return t('allBranches') || 'All Branches';
   };
 
   const transferSourceQty = (() => {
@@ -191,6 +316,10 @@ export default function Inventory() {
   // Submit operations
   const submitReceive = async (e) => {
     e.preventDefault();
+    if (!formReceive.branch_id) {
+      error(t('selectBranch') || 'Please select a location');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -230,8 +359,54 @@ export default function Inventory() {
     }
   };
 
+  const submitPoReceive = async (e) => {
+    e.preventDefault();
+    if (!formPoReceive?.items?.length) return;
+    const validItems = formPoReceive.items.filter(i => parseFloat(i.quantity_received) > 0);
+    if (!validItems.length) {
+      error(t('enterQuantity') || 'Enter quantity to receive');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        branch_id: formPoReceive.branch_id,
+        supplier_invoice_number: formPoReceive.supplier_invoice_number?.trim() || undefined,
+        notes: formPoReceive.notes?.trim() || undefined,
+        items: validItems.map(i => ({
+          purchase_order_item_id: i.purchase_order_item_id,
+          product_id: i.product_id,
+          quantity_received: parseFloat(i.quantity_received),
+          unit_cost: parseFloat(i.unit_cost) || 0,
+        })),
+        payment_status: formPoReceive.payment_status,
+        payment_method: formPoReceive.payment_method,
+        ...shopParams(),
+      };
+      if (formPoReceive.payment_status === 'partial') {
+        payload.paid_amount = parseFloat(formPoReceive.paid_amount) || 0;
+      }
+      if (['cash', 'bank'].includes(formPoReceive.payment_method)) {
+        payload.bank_account_id = formPoReceive.bank_account_id || null;
+      }
+      await api.post(`/purchase-orders/${formPoReceive.po_id}/receive`, payload);
+      success(t('stockReceived') || 'Stock received successfully');
+      closePoReceiveModal();
+      fetchData();
+      if (activeTab === 'movements') fetchMovements();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submitTransfer = async (e) => {
     e.preventDefault();
+    if (!formTransfer.from_branch_id || !formTransfer.to_branch_id) {
+      error(t('selectBranch') || 'Please select from and to locations');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -256,6 +431,10 @@ export default function Inventory() {
 
   const submitAdjust = async (e) => {
     e.preventDefault();
+    if (!formAdjust.branch_id) {
+      error(t('selectBranch') || 'Please select a location');
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -315,14 +494,16 @@ export default function Inventory() {
           { header: t('quantity') || 'Qty', render: m => `${m.quantity > 0 ? '+' : ''}${formatQty(m.quantity)}`, align: 'right', width: 1 },
           { header: t('currentStock') || 'Balance', render: m => formatQty(m.balance_after), align: 'right', width: 1 },
         ],
-        rows: movements,
+        rows: filteredMovements,
         filters: [
           movementProductFilter ? { label: t('product') || 'Product', value: products.find(p => String(p.id) === String(movementProductFilter))?.name || movementProductFilter } : null,
-          movementBranchFilter ? { label: t('branch') || 'Branch', value: branches.find(b => String(b.id) === String(movementBranchFilter))?.name || movementBranchFilter } : null,
+          (movementLocationFilter.branch_id || movementLocationFilter.godown_id)
+            ? { label: t('location') || 'Location', value: locationFilterLabel(movementLocationFilter) }
+            : null,
         ].filter(Boolean),
       }
     : {
-        title: `${(t('currentInventory') || 'Current Inventory').replace(/\s*\([^)]*\)/g, '')} (${branchFilter ? (branches.find(b => String(b.id) === String(branchFilter))?.name || branchFilter) : (t('allBranches') || 'All Branches').replace(/\s*\([^)]*\)/g, '')})`,
+        title: `${(t('currentInventory') || 'Current Inventory').replace(/\s*\([^)]*\)/g, '')} (${locationFilterLabel().replace(/\s*\([^)]*\)/g, '')})`,
         filename: 'inventory-report.pdf',
         columns: [
           { header: t('product') || 'Product', render: r => r.Product?.name || '', width: 2 },
@@ -332,14 +513,16 @@ export default function Inventory() {
           { header: t('supplier') || 'Supplier', render: r => r.Product?.ProductSuppliers?.[0]?.Supplier?.company_name || '', width: 1.4 },
           { header: t('stockValue') || 'Stock Value', key: 'stock_value', render: r => (parseFloat(r.quantity_on_hand) || 0) * parseFloat(r.Product?.cost_price || 0), money: true, width: 1.2 },
         ],
-        rows: inventory,
+        rows: filteredInventory,
         totals: {
           __label: t('total') || 'Total',
-          stock: inventory.reduce((s, r) => s + (parseFloat(r.quantity_on_hand) || 0), 0),
-          stock_value: inventory.reduce((s, r) => s + (parseFloat(r.quantity_on_hand) || 0) * parseFloat(r.Product?.cost_price || 0), 0),
+          stock: filteredInventory.reduce((s, r) => s + (parseFloat(r.quantity_on_hand) || 0), 0),
+          stock_value: filteredInventory.reduce((s, r) => s + (parseFloat(r.quantity_on_hand) || 0) * parseFloat(r.Product?.cost_price || 0), 0),
         },
         filters: [
-          branchFilter ? { label: t('branch') || 'Branch', value: branches.find(b => String(b.id) === String(branchFilter))?.name || branchFilter } : null,
+          (locationFilter.branch_id || locationFilter.godown_id)
+            ? { label: t('location') || 'Location', value: locationFilterLabel() }
+            : null,
           productFilter ? { label: t('product') || 'Product', value: products.find(p => String(p.id) === String(productFilter))?.name || productFilter } : null,
         ].filter(Boolean),
       };
@@ -359,7 +542,7 @@ export default function Inventory() {
               onClick={() => {
                 setFormReceive({
                   product_id: '',
-                  branch_id: branches[0]?.id || '',
+                  ...defaultLocation(branches),
                   quantity: '',
                   supplier_id: '',
                   purchase_price: '',
@@ -379,8 +562,12 @@ export default function Inventory() {
               onClick={() => {
                 setFormTransfer({
                   product_id: '',
+                  from_location_type: 'branch',
                   from_branch_id: branches[0]?.id ? String(branches[0].id) : '',
+                  from_godown_id: null,
+                  to_location_type: 'branch',
                   to_branch_id: branches[1]?.id ? String(branches[1].id) : '',
+                  to_godown_id: null,
                   quantity: '',
                   notes: '',
                 });
@@ -395,7 +582,7 @@ export default function Inventory() {
               onClick={() => {
                 setFormAdjust({
                   product_id: '',
-                  branch_id: branches[0]?.id || '',
+                  ...defaultLocation(branches),
                   quantity: '',
                   direction: 'decrease',
                   reason: 'Physical Audit Correction',
@@ -449,13 +636,12 @@ export default function Inventory() {
         <div className="space-y-4">
           <div className="glass-card p-4 flex flex-wrap gap-3 items-center justify-between">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <label className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>{t('filterByBranch')}</label>
-                <select className="input max-w-xs" value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
-                  <option value="">{t('allBranches')}</option>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              </div>
+              <LocationPicker
+                compact
+                label={t('filterByLocation') || t('filterByBranch') || 'Filter by Location'}
+                value={locationFilter}
+                onChange={setLocationFilter}
+              />
               <div className="flex items-center gap-2">
                 <label className="text-sm whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>{t('filterByProduct') || 'Product'}</label>
                 <select className="input max-w-xs" value={productFilter} onChange={e => setProductFilter(e.target.value)}>
@@ -464,11 +650,17 @@ export default function Inventory() {
                 </select>
               </div>
             </div>
-            <button
-              onClick={fetchData}
-              className="icon-btn"
-              title="Refresh levels"
-            >
+            <div className="relative max-w-sm">
+              <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+              <input
+                className="input"
+                style={{ paddingInlineStart: '2.25rem' }}
+                placeholder="Search product, SKU, branch, supplier…"
+                value={stockSearch}
+                onChange={e => setStockSearch(e.target.value)}
+              />
+            </div>
+            <button onClick={fetchData} className="icon-btn" title="Refresh levels">
               <RefreshCw className="w-4 h-4" />
             </button>
           </div>
@@ -497,7 +689,7 @@ export default function Inventory() {
                     </tr>
                   </thead>
                   <tbody>
-                    {inventory.map(row => (
+                    {filteredInventory.map(row => (
                       <tr key={row.id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s' }} className="hover:bg-[var(--bg-hover)]">
                         <td className="p-4">
                           <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{row.Product?.name}</div>
@@ -543,7 +735,7 @@ export default function Inventory() {
                         </td>
                       </tr>
                     ))}
-                    {inventory.length === 0 && (
+                    {filteredInventory.length === 0 && (
                       <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noInventory')}</td></tr>
                     )}
                   </tbody>
@@ -607,16 +799,21 @@ export default function Inventory() {
                 {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{t('filterByBranch')}</span>
-              <select
-                className="input max-w-xs"
-                value={movementBranchFilter}
-                onChange={e => setMovementBranchFilter(e.target.value)}
-              >
-                <option value="">{t('allBranches')}</option>
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+            <LocationPicker
+              compact
+              label={t('filterByLocation') || t('filterByBranch') || 'Filter by Location'}
+              value={movementLocationFilter}
+              onChange={setMovementLocationFilter}
+            />
+            <div className="relative max-w-sm">
+              <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+              <input
+                className="input"
+                style={{ paddingInlineStart: '2.25rem' }}
+                placeholder="Search product, type, branch…"
+                value={movementSearch}
+                onChange={e => setMovementSearch(e.target.value)}
+              />
             </div>
             <div className="flex gap-2 ms-auto">
               <button onClick={fetchMovements} className="btn-secondary flex items-center gap-2">
@@ -645,7 +842,7 @@ export default function Inventory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {movements.map(m => (
+                  {filteredMovements.map(m => (
                     <tr key={m.id} style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s' }} className="hover:bg-[var(--bg-hover)]">
                       <td className="p-4 text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
                         {new Date(m.created_at || m.createdAt).toLocaleString('en-PK')}
@@ -659,7 +856,7 @@ export default function Inventory() {
                       <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatQty(m.balance_after)} {t('kg') || 'kg'}</td>
                     </tr>
                   ))}
-                  {movements.length === 0 && (
+                  {filteredMovements.length === 0 && (
                     <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>No stock movements found</td></tr>
                   )}
                 </tbody>
@@ -687,17 +884,22 @@ export default function Inventory() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <FormLabel variant="semibold" required>{t('userBranch')}</FormLabel>
-                <select
-                  className="input"
+              <div className="col-span-2">
+                <LocationPicker
                   required
-                  value={formReceive.branch_id}
-                  onChange={e => setFormReceive(f => ({ ...f, branch_id: e.target.value }))}
-                >
-                  <option value="">Select Branch</option>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
+                  label={t('location') || 'Receive Location (Branch / Godown)'}
+                  value={{
+                    location_type: formReceive.location_type,
+                    branch_id: formReceive.branch_id,
+                    godown_id: formReceive.godown_id,
+                  }}
+                  onChange={(loc) => setFormReceive(f => ({
+                    ...f,
+                    location_type: loc.location_type,
+                    branch_id: loc.branch_id,
+                    godown_id: loc.godown_id,
+                  }))}
+                />
               </div>
               <div>
                 <FormLabel variant="semibold">{t('supplier')}</FormLabel>
@@ -878,6 +1080,182 @@ export default function Inventory() {
         </Modal>
       )}
 
+      {/* ── RECEIVE STOCK FROM PO ── */}
+      {modal === 'receive-po' && formPoReceive && (
+        <Modal
+          title={`${t('receiveStock') || 'Receive Stock'} — ${formPoReceive.po_number}`}
+          onClose={closePoReceiveModal}
+          wide
+        >
+          <form onSubmit={submitPoReceive} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm rounded-lg p-3" style={{ border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-elevated)' }}>
+              <div><span style={{ color: 'var(--text-muted)' }}>{t('supplier')}:</span> <span className="font-semibold">{formPoReceive.supplier_name}</span></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>{t('location') || 'Location'}:</span> <span className="font-semibold">{formPoReceive.branch_name || formPoReceive.branch_id}</span></div>
+              <div>
+                <FormLabel>{t('supplierInvoiceNo') || 'Supplier invoice #'}</FormLabel>
+                <input
+                  className="input"
+                  value={formPoReceive.supplier_invoice_number}
+                  onChange={e => setFormPoReceive(f => ({ ...f, supplier_invoice_number: e.target.value }))}
+                  placeholder={t('optional') || 'Optional'}
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
+                <thead>
+                  <tr style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>
+                    <th className="text-start p-2">{t('product')}</th>
+                    <th className="text-end p-2">{t('pending') || 'Pending'}</th>
+                    <th className="text-end p-2">{t('receiveQty') || 'Receive qty'}</th>
+                    <th className="text-end p-2">{t('unitCost')}</th>
+                    <th className="text-end p-2">{t('lineTotal') || 'Line total'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {formPoReceive.items.map((line, idx) => {
+                    const lineTotal = (parseFloat(line.quantity_received) || 0) * (parseFloat(line.unit_cost) || 0);
+                    return (
+                      <tr key={line.purchase_order_item_id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                        <td className="p-2">
+                          <div className="font-medium">{line.product_name}</div>
+                          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{line.product_sku}</div>
+                        </td>
+                        <td className="p-2 text-end">{formatQty(line.quantity_pending)} {line.unit}</td>
+                        <td className="p-2 text-end">
+                          <input
+                            className="input w-24 text-end ms-auto"
+                            type="number"
+                            min="0"
+                            max={line.quantity_pending}
+                            step="0.1"
+                            value={line.quantity_received}
+                            onChange={e => updatePoReceiveLine(idx, 'quantity_received', e.target.value)}
+                          />
+                        </td>
+                        <td className="p-2 text-end">
+                          <input
+                            className="input w-28 text-end ms-auto"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.unit_cost}
+                            onChange={e => updatePoReceiveLine(idx, 'unit_cost', e.target.value)}
+                          />
+                        </td>
+                        <td className="p-2 text-end font-semibold text-emerald-400">{formatPKR(lineTotal, lang)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {(() => {
+              const sup = suppliers.find(s => String(s.id) === String(formPoReceive.supplier_id));
+              const availableCredit = parseFloat(sup?.credit_balance || 0);
+              const totalCost = formPoReceive.items.reduce(
+                (s, i) => s + (parseFloat(i.quantity_received) || 0) * (parseFloat(i.unit_cost) || 0),
+                0,
+              );
+              return (
+                <div className="rounded-lg p-3 space-y-3" style={{ border: '1px solid var(--border-subtle)', backgroundColor: 'var(--bg-elevated)' }}>
+                  <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>{t('paid') || 'Paid?'}</label>
+                  <div className="flex gap-2">
+                    {['unpaid', 'paid', 'partial'].map(opt => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => setFormPoReceive(f => ({ ...f, payment_status: opt }))}
+                        className={`px-3 py-1.5 rounded text-xs font-bold flex-1 transition-all ${
+                          formPoReceive.payment_status === opt ? 'bg-emerald-500 text-white' : ''
+                        }`}
+                        style={formPoReceive.payment_status !== opt ? { backgroundColor: 'var(--bg-base)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' } : {}}
+                      >
+                        {opt === 'unpaid' ? (t('no') || 'No') : opt === 'paid' ? (t('yes') || 'Yes') : (t('partial') || 'Partial')}
+                      </button>
+                    ))}
+                  </div>
+
+                  {formPoReceive.payment_status !== 'unpaid' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      {formPoReceive.payment_status === 'partial' && (
+                        <div>
+                          <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('amountPaid') || 'Amount Paid'}</label>
+                          <input
+                            className="input" type="number" step="0.01" min="0" max={totalCost || undefined}
+                            value={formPoReceive.paid_amount}
+                            onChange={e => setFormPoReceive(f => ({ ...f, paid_amount: e.target.value }))}
+                          />
+                        </div>
+                      )}
+                      <div className={formPoReceive.payment_status === 'partial' ? '' : 'col-span-2'}>
+                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'}</label>
+                        <select
+                          className="input"
+                          value={formPoReceive.payment_method}
+                          onChange={e => setFormPoReceive(f => ({ ...f, payment_method: e.target.value, bank_account_id: null }))}
+                        >
+                          <option value="cash">{t('cash') || 'Cash'}</option>
+                          <option value="bank">{t('bank') || 'Bank'}</option>
+                          <option value="supplier_credit" disabled={availableCredit <= 0}>
+                            {(t('supplierCredit') || 'Supplier Credit')} ({formatPKR(availableCredit, lang)} {t('available') || 'available'})
+                          </option>
+                        </select>
+                        {formPoReceive.payment_method === 'cash' && (
+                          <CashAccountPicker
+                            className="input mt-2"
+                            value={formPoReceive.bank_account_id}
+                            onChange={bank_account_id => setFormPoReceive(f => ({ ...f, bank_account_id }))}
+                          />
+                        )}
+                        {formPoReceive.payment_method === 'bank' && (
+                          <BankAccountPicker
+                            required
+                            className="input mt-2"
+                            value={formPoReceive.bank_account_id}
+                            onChange={bank_account_id => setFormPoReceive(f => ({ ...f, bank_account_id }))}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {availableCredit > 0 && totalCost > 0 && (
+                    <p className="text-xs text-emerald-400">
+                      {formPoReceive.payment_status === 'unpaid'
+                        ? (t('supplierCreditAutoApply') || 'Prepaid supplier credit will apply automatically — payable only increases if the purchase exceeds available credit.')
+                        : (t('supplierCreditAutoApplyPartial') || 'Any remaining amount after cash/bank payment will also draw from prepaid supplier credit first.')}
+                      {' '}{formatPKR(Math.min(availableCredit, totalCost), lang)} {t('available') || 'available'}.
+                    </p>
+                  )}
+                  {totalCost > 0 && (
+                    <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{t('totalCost') || 'Total cost'}: {formatPKR(totalCost, lang)}</p>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div>
+              <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>{t('notes') || 'Notes'}</label>
+              <textarea
+                className="input min-h-[60px]"
+                value={formPoReceive.notes}
+                onChange={e => setFormPoReceive(f => ({ ...f, notes: e.target.value }))}
+                placeholder={t('optional') || 'Optional'}
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={closePoReceiveModal} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1">
+                {saving ? (t('processing') || 'Processing...') : (t('receiveStock') || 'Receive Stock')}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {/* ── ADJUST STOCK MODAL ── */}
       {modal === 'adjust' && (
         <Modal title={t('stockAdjustment')} onClose={() => setModal(null)}>
@@ -895,19 +1273,22 @@ export default function Inventory() {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <FormLabel variant="semibold" required>{t('userBranch')}</FormLabel>
-                <select
-                  className="input"
-                  required
-                  value={formAdjust.branch_id}
-                  onChange={e => setFormAdjust(f => ({ ...f, branch_id: e.target.value }))}
-                >
-                  <option value="">Select Branch</option>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              </div>
+            <div className="space-y-3">
+              <LocationPicker
+                required
+                label={t('location') || 'Adjustment Location (Branch / Godown)'}
+                value={{
+                  location_type: formAdjust.location_type,
+                  branch_id: formAdjust.branch_id,
+                  godown_id: formAdjust.godown_id,
+                }}
+                onChange={(loc) => setFormAdjust(f => ({
+                  ...f,
+                  location_type: loc.location_type,
+                  branch_id: loc.branch_id,
+                  godown_id: loc.godown_id,
+                }))}
+              />
               <div>
                 <FormLabel variant="semibold" required>Adjustment Direction</FormLabel>
                 <select
@@ -994,33 +1375,37 @@ export default function Inventory() {
                 {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <FormLabel variant="semibold" required>{t('fromBranch') || 'From Branch'}</FormLabel>
-                <select
-                  className="input"
-                  required
-                  value={formTransfer.from_branch_id}
-                  onChange={e => setFormTransfer(f => ({ ...f, from_branch_id: e.target.value }))}
-                >
-                  <option value="">{t('selectBranch') || 'Select branch'}</option>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <FormLabel variant="semibold" required>{t('toBranch') || 'To Branch'}</FormLabel>
-                <select
-                  className="input"
-                  required
-                  value={formTransfer.to_branch_id}
-                  onChange={e => setFormTransfer(f => ({ ...f, to_branch_id: e.target.value }))}
-                >
-                  <option value="">{t('selectBranch') || 'Select branch'}</option>
-                  {branches.filter(b => String(b.id) !== String(formTransfer.from_branch_id)).map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="space-y-3">
+              <LocationPicker
+                required
+                label={t('fromLocation') || 'From Location (Branch / Godown)'}
+                value={{
+                  location_type: formTransfer.from_location_type,
+                  branch_id: formTransfer.from_branch_id,
+                  godown_id: formTransfer.from_godown_id,
+                }}
+                onChange={(loc) => setFormTransfer(f => ({
+                  ...f,
+                  from_location_type: loc.location_type,
+                  from_branch_id: loc.branch_id,
+                  from_godown_id: loc.godown_id,
+                }))}
+              />
+              <LocationPicker
+                required
+                label={t('toLocation') || 'To Location (Branch / Godown)'}
+                value={{
+                  location_type: formTransfer.to_location_type,
+                  branch_id: formTransfer.to_branch_id,
+                  godown_id: formTransfer.to_godown_id,
+                }}
+                onChange={(loc) => setFormTransfer(f => ({
+                  ...f,
+                  to_location_type: loc.location_type,
+                  to_branch_id: loc.branch_id,
+                  to_godown_id: loc.godown_id,
+                }))}
+              />
             </div>
             {formTransfer.product_id && formTransfer.from_branch_id && (
               <p className="text-xs text-purple-400">

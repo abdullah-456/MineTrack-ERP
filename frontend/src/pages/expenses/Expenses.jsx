@@ -3,14 +3,17 @@ import { Receipt, Plus, Edit, Trash2, Loader2, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
+import LocationPicker from '../../components/ui/LocationPicker';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import ExpenseCategorySelect from '../../components/ui/ExpenseCategorySelect';
 import api from '../../api/axios';
+import { filterRowsByLocation } from '../../utils/locationUtils';
 
 function toDatetimeLocal(d) {
   const dt = d ? new Date(d) : new Date();
@@ -22,7 +25,7 @@ const emptyForm = (branches) => ({
   category: '', expense_account_id: null, description: '', amount: '',
   expense_date: toDatetimeLocal(new Date()),
   paid_via: 'cash', bank_account_id: null,
-  branch_id: branches?.[0]?.id || '',
+  location_type: 'branch', branch_id: branches?.[0]?.id || '', godown_id: null,
 });
 
 export default function Expenses() {
@@ -30,8 +33,10 @@ export default function Expenses() {
   const { success, error, confirm } = useToast();
   const { shopParams, branches } = useShopApi();
   const isRTL = lang === 'ur';
+  const { isHighlighted } = useHighlightRow();
 
   const [expenses, setExpenses] = useState([]);
+  const [godowns, setGodowns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
@@ -39,12 +44,17 @@ export default function Expenses() {
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
   const [reportFilters, setReportFilters] = useState({ from: '', to: '', category: '', paid_via: '', branch_id: '' });
+  const [locationFilter, setLocationFilter] = useState({ location_type: 'branch', branch_id: '', godown_id: null });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/expenses', { params: { ...shopParams(), search } });
-      setExpenses(data.expenses || []);
+      const [expRes, godRes] = await Promise.all([
+        api.get('/expenses', { params: { ...shopParams(), search } }),
+        api.get('/godowns', { params: shopParams() }).catch(() => ({ data: { godowns: [] } })),
+      ]);
+      setExpenses(expRes.data.expenses || []);
+      setGodowns(godRes.data.godowns || []);
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -66,7 +76,9 @@ export default function Expenses() {
       amount: exp.amount,
       expense_date: toDatetimeLocal(exp.expense_date),
       paid_via: exp.paid_via, bank_account_id: exp.bank_account_id || null,
+      location_type: exp.Branch?.godown_id ? 'godown' : 'branch',
       branch_id: exp.branch_id,
+      godown_id: exp.Branch?.godown_id || null,
     });
     setModal('edit');
   };
@@ -77,6 +89,7 @@ export default function Expenses() {
     try {
       const payload = {
         ...form,
+        branch_id: form.branch_id ? parseInt(form.branch_id, 10) : undefined,
         amount: parseFloat(form.amount) || 0,
         expense_date: form.expense_date ? new Date(form.expense_date).toISOString() : undefined,
         ...shopParams(),
@@ -114,17 +127,36 @@ export default function Expenses() {
   const reportSelects = [
     { key: 'category', label: t('category') || 'Category', options: categories.map(c => ({ value: c, label: c })) },
     { key: 'paid_via', label: t('method') || 'Method', options: [{ value: 'cash', label: t('cash') || 'Cash' }, { value: 'bank', label: t('bank') || 'Bank' }] },
-    { key: 'branch_id', label: t('branch') || 'Branch', options: branches.map(b => ({ value: b.id, label: b.name })) },
   ];
   let reportRows = filterByDate(expenses, 'expense_date', reportFilters.from, reportFilters.to);
   if (reportFilters.category) reportRows = reportRows.filter(e => e.category === reportFilters.category);
   if (reportFilters.paid_via) reportRows = reportRows.filter(e => e.paid_via === reportFilters.paid_via);
-  if (reportFilters.branch_id) reportRows = reportRows.filter(e => String(e.branch_id) === String(reportFilters.branch_id));
+  reportRows = filterRowsByLocation(reportRows, locationFilter, godowns, branches);
+  if (search.trim()) {
+    const q = search.trim().toLowerCase();
+    reportRows = reportRows.filter(e =>
+      (e.title || '').toLowerCase().includes(q) ||
+      (e.category || '').toLowerCase().includes(q) ||
+      (e.paid_via || '').toLowerCase().includes(q) ||
+      (e.notes || '').toLowerCase().includes(q) ||
+      (e.BankAccount?.account_name || '').toLowerCase().includes(q) ||
+      (e.Branch?.name || '').toLowerCase().includes(q) ||
+      (e.Branch?.Godown?.name || '').toLowerCase().includes(q) ||
+      (String(e.amount) || '').toLowerCase().includes(q) ||
+      (e.expense_date ? new Date(e.expense_date).toLocaleDateString('en-PK') : '').toLowerCase().includes(q)
+    );
+  }
+
+  const formatLocationName = (exp) => {
+    if (exp.Branch?.Godown) return `${exp.Branch.Godown.name} (${exp.Branch.name})`;
+    return exp.Branch?.name || '—';
+  };
+
   const reportColumns = [
     { header: t('date') || 'Date', render: e => new Date(e.expense_date).toLocaleString('en-PK', { dateStyle: 'medium', timeStyle: 'short' }), width: 1.5 },
     { header: t('category') || 'Category', key: 'category', width: 1.3 },
     { header: t('description') || 'Description', render: e => e.description || '', width: 2 },
-    { header: t('branch') || 'Branch', render: e => e.Branch?.name || '', width: 1.1 },
+    { header: t('location') || 'Location', render: e => formatLocationName(e), width: 1.4 },
     { header: t('method') || 'Method', render: e => (e.paid_via === 'bank' ? t('bank') : t('cash')), width: 0.9 },
     { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.1 },
   ];
@@ -155,9 +187,16 @@ export default function Expenses() {
       />
 
       <div className="glass-card p-4 space-y-3">
-        <div className="relative max-w-md">
-          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
-          <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchExpenses')} value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ [isRTL ? 'right' : 'left']: '12px', color: 'var(--text-muted)' }} />
+            <input className="input" style={{ paddingInlineStart: '2.5rem' }} placeholder={t('searchExpenses')} value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <LocationPicker
+            compact
+            value={locationFilter}
+            onChange={setLocationFilter}
+          />
         </div>
         <ReportFilters
           value={reportFilters}
@@ -177,7 +216,7 @@ export default function Expenses() {
                 <th className="text-start p-4 font-medium">{t('date')}</th>
                 <th className="text-start p-4 font-medium">{t('category')}</th>
                 <th className="text-start p-4 font-medium">{t('description')}</th>
-                <th className="text-start p-4 font-medium">{t('branch')}</th>
+                <th className="text-start p-4 font-medium">{t('location') || 'Location'}</th>
                 <th className="text-start p-4 font-medium">{t('method')}</th>
                 <th className="text-end p-4 font-medium">{t('amount')}</th>
                 <th className="text-end p-4 font-medium">{t('actions')}</th>
@@ -185,13 +224,22 @@ export default function Expenses() {
             </thead>
             <tbody>
               {reportRows.map(exp => (
-                <tr key={exp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                <tr
+                  key={exp.id}
+                  id={`row-${exp.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className={`${isHighlighted(exp.id) ? 'highlight-row' : 'hover:bg-white/5'} cursor-pointer transition-colors`}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    openEdit(exp);
+                  }}
+                >
                   <td className="p-4 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
                     {new Date(exp.expense_date).toLocaleString(lang === 'ur' ? 'ur-PK' : 'en-PK', { dateStyle: 'medium', timeStyle: 'short' })}
                   </td>
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{exp.category}</td>
                   <td className="p-4 max-w-xs truncate" style={{ color: 'var(--text-secondary)' }}>{exp.description || '—'}</td>
-                  <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{exp.Branch?.name || '—'}</td>
+                  <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{formatLocationName(exp)}</td>
                   <td className="p-4">
                     <span className={`badge ${exp.paid_via === 'bank' ? 'badge-blue' : 'badge-green'}`}>
                       {exp.paid_via === 'bank' ? t('bank') : t('cash')}
@@ -243,11 +291,22 @@ export default function Expenses() {
                   onChange={({ method, bank_account_id }) => setForm(f => ({ ...f, paid_via: method, bank_account_id }))}
                 />
               </div>
-              <div>
-                <FormLabel required>{t('branch')}</FormLabel>
-                <select className="input" required value={form.branch_id} onChange={setF('branch_id')}>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
+              <div className="sm:col-span-2">
+                <LocationPicker
+                  required
+                  label={t('location') || 'Branch / Godown Location'}
+                  value={{
+                    location_type: form.location_type || 'branch',
+                    branch_id: form.branch_id,
+                    godown_id: form.godown_id,
+                  }}
+                  onChange={(loc) => setForm(f => ({
+                    ...f,
+                    location_type: loc.location_type,
+                    branch_id: loc.branch_id,
+                    godown_id: loc.godown_id,
+                  }))}
+                />
               </div>
               <div className="sm:col-span-2">
                 <FormLabel>{t('description')}</FormLabel>

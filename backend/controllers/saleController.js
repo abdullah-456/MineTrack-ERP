@@ -72,9 +72,9 @@ exports.list = async (req, res) => {
         where: {
           ...where,
           [Op.or]: [
-            { invoice_number: { [Op.like]: searchTerm } },
-            { '$Customer.name$': { [Op.like]: searchTerm } },
-            { '$Customer.phone$': { [Op.like]: searchTerm } },
+            { invoice_number: { [Op.iLike]: searchTerm } },
+            { '$Customer.name$': { [Op.iLike]: searchTerm } },
+            { '$Customer.phone$': { [Op.iLike]: searchTerm } },
           ],
         },
         include: saleIncludes,
@@ -89,7 +89,7 @@ exports.list = async (req, res) => {
         include: [{
           model: db.Product,
           attributes: [],
-          where: { name: { [Op.like]: searchTerm } },
+          where: { name: { [Op.iLike]: searchTerm } },
           required: true,
         }],
         group: ['sale_id'],

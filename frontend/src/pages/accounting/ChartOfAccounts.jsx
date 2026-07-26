@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { BookOpen, Loader2, Plus, Edit, Trash2 } from 'lucide-react';
+import { BookOpen, Loader2, Plus, Edit, Trash2, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
@@ -60,6 +60,7 @@ export default function ChartOfAccounts() {
   const [form, setForm] = useState(EMPTY);
   const [selected, setSelected] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
 
   const canCreate = can('accounting', 'create');
   const canUpdate = can('accounting', 'update');
@@ -79,7 +80,17 @@ export default function ChartOfAccounts() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const rows = useMemo(() => flattenTree(accounts), [accounts]);
+  const rows = useMemo(() => {
+    const all = flattenTree(accounts);
+    if (!search.trim()) return all;
+    const q = search.trim().toLowerCase();
+    return all.filter(({ account }) =>
+      (account.account_name || '').toLowerCase().includes(q) ||
+      (account.account_code || '').toLowerCase().includes(q) ||
+      (account.account_type || '').toLowerCase().includes(q) ||
+      (String(account.balance) || '').toLowerCase().includes(q)
+    );
+  }, [accounts, search]);
 
   const accountById = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts]);
   const bankParentId = useMemo(() => accounts.find(a => a.account_code === '05-BANK')?.id, [accounts]);
@@ -213,6 +224,19 @@ export default function ChartOfAccounts() {
       <p className="text-xs px-1" style={{ color: 'var(--text-muted)' }}>
         {t('chartOfAccountsHint') || 'Accounts marked "Payment Account" can be picked wherever money moves — sales, expenses, payments. Add bank or cash fund accounts under Bank or Cash in Hand. Every other account is for bookkeeping and reporting only; post to it directly via a Manual Journal Entry.'}
       </p>
+
+      <div className="glass-card p-4">
+        <div className="relative max-w-md">
+          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '12px', color: 'var(--text-muted)' }} />
+          <input
+            className="input"
+            style={{ paddingInlineStart: '2.5rem' }}
+            placeholder="Search account name, code, type…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
 
       <div className="glass-card overflow-x-auto">
         <table className="w-full text-sm min-w-[760px]">

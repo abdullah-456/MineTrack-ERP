@@ -3,14 +3,16 @@ import api from '../api/axios';
 
 const AuthContext = createContext(null);
 
+const DEFAULT_SETUP_MODAL = { open: false, initialStep: 1, focusMode: null, dismissible: false };
+
 export function AuthProvider({ children }) {
   const [user, setUser]               = useState(null);
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading]         = useState(true);
 
-  // Modal states driven by backend flags
-  const [showSetupModal, setShowSetupModal]         = useState(false);
-  const [showCashCheckin, setShowCashCheckin]       = useState(false);
+  // Financial setup modal — first-time wizard or reopened from dashboard pills
+  const [setupModal, setSetupModal]   = useState(DEFAULT_SETUP_MODAL);
+  const [showCashCheckin, setShowCashCheckin] = useState(false);
 
   const fetchMe = useCallback(async () => {
     try {
@@ -23,7 +25,9 @@ export function AuthProvider({ children }) {
       // closing balance (like a bank account), so there's no daily cash
       // check-in prompt — only the first-time financial setup wizard remains.
       if (data.user?.role === 'admin' && data.user?.shop_id) {
-        setShowSetupModal(!data.setup_completed);
+        if (!data.setup_completed) {
+          setSetupModal({ open: true, initialStep: 1, focusMode: null, dismissible: false });
+        }
         setShowCashCheckin(false);
       }
     } catch (err) {
@@ -58,18 +62,29 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('accessToken');
     setUser(null);
     setPermissions([]);
-    setShowSetupModal(false);
+    setSetupModal(DEFAULT_SETUP_MODAL);
     setShowCashCheckin(false);
   };
 
-  // Called when the setup wizard is completed
+  const closeFinancialSetup = () => {
+    setSetupModal(DEFAULT_SETUP_MODAL);
+  };
+
+  // Reopen setup from dashboard pills — focusMode: null | 'bank' | 'cash'
+  const openFinancialSetup = (focusMode = null, initialStep = 1) => {
+    setSetupModal({
+      open: true,
+      initialStep: focusMode === 'bank' ? 2 : focusMode === 'cash' ? 3 : initialStep,
+      focusMode,
+      dismissible: true,
+    });
+  };
+
   const onSetupComplete = () => {
-    setShowSetupModal(false);
-    // Re-fetch so cash_session_today is re-evaluated
+    closeFinancialSetup();
     fetchMe();
   };
 
-  // Called when cash check-in is completed or skipped
   const onCashCheckinComplete = () => {
     setShowCashCheckin(false);
   };
@@ -81,7 +96,6 @@ export function AuthProvider({ children }) {
     return permissions.includes(`${module}:${action}`) || permissions.includes('*:*');
   };
 
-  // Convenience helpers
   const isSuperAdmin = () => user?.role === 'super_admin';
   const isAdmin      = () => user?.role === 'admin' || user?.role === 'super_admin';
   const shopId       = user?.shop_id || null;
@@ -94,7 +108,10 @@ export function AuthProvider({ children }) {
       isSuperAdmin, isAdmin,
       shopId, shopName,
       fetchMe,
-      showSetupModal,
+      setupModal,
+      showSetupModal: setupModal.open,
+      openFinancialSetup,
+      closeFinancialSetup,
       showCashCheckin,
       onSetupComplete,
       onCashCheckinComplete,

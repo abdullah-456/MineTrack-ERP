@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, UserCheck, Wallet, CreditCard, Loader2, Printer, Download, Plus, HandCoins, PiggyBank, FileCheck } from 'lucide-react';
+import { ArrowLeft, UserCheck, Wallet, CreditCard, Loader2, Printer, Download, Plus, HandCoins, PiggyBank, FileCheck, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
@@ -54,13 +54,14 @@ export default function EmployeeLedger() {
   const [ledger, setLedger] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('history');
+  const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null); // advance | loan | receivable
   const [saving, setSaving] = useState(false);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
-  const [advanceForm, setAdvanceForm] = useState({ amount: '', method: 'cash', bank_account_id: null, for_month: currentMonth, notes: '' });
-  const [loanForm, setLoanForm] = useState({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
-  const [receivableForm, setReceivableForm] = useState({ amount: '', method: 'cash', bank_account_id: null, notes: '' });
+  const [advanceForm, setAdvanceForm] = useState({ amount: '', method: 'cash', bank_account_id: null, for_month: currentMonth, date: '', notes: '' });
+  const [loanForm, setLoanForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
+  const [receivableForm, setReceivableForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
 
   // Open a printable voucher in a new tab for a single transaction
   const openVoucher = (txn, employeeName) => {
@@ -129,16 +130,6 @@ export default function EmployeeLedger() {
   const payableToEmployee = Math.max(0, summary.current_payable);
   const loanReceivable = summary.loan_receivable || 0;
 
-  // If the current month's salary was already given, an advance can no
-  // longer target it (it would never get auto-cleared) — push the earliest
-  // selectable month to the next one instead.
-  const nextMonthStr = (m) => {
-    const [y, mo] = m.split('-').map(Number);
-    return new Date(Date.UTC(y, mo, 1)).toISOString().slice(0, 7);
-  };
-  const currentMonthPaid = (payroll_history || []).some(p => p.month === currentMonth);
-  const minAdvanceMonth = currentMonthPaid ? nextMonthStr(currentMonth) : currentMonth;
-
   const slips = (transaction_history || []).filter(txn => SLIP_TYPES.has(txn.type));
 
   const pills = [
@@ -174,14 +165,14 @@ export default function EmployeeLedger() {
             )}
             <button
               type="button"
-              onClick={() => { setAdvanceForm({ amount: '', method: 'cash', for_month: minAdvanceMonth, notes: '' }); setModal('advance'); }}
+              onClick={() => { setAdvanceForm({ amount: '', method: 'cash', for_month: currentMonth, date: '', notes: '' }); setModal('advance'); }}
               className="btn-secondary flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />{t('giveAdvance') || 'Advance'}
             </button>
             <button
               type="button"
-              onClick={() => { setLoanForm({ amount: '', method: 'cash', notes: '' }); setModal('loan'); }}
+              onClick={() => { setLoanForm({ amount: '', method: 'cash', date: '', notes: '' }); setModal('loan'); }}
               className="btn-secondary flex items-center gap-2"
             >
               <HandCoins className="w-4 h-4" />{t('giveLoan') || 'Loan'}
@@ -189,7 +180,7 @@ export default function EmployeeLedger() {
             {loanReceivable > 0 && (
               <button
                 type="button"
-                onClick={() => { setReceivableForm({ amount: '', method: 'cash', notes: '' }); setModal('receivable'); }}
+                onClick={() => { setReceivableForm({ amount: '', method: 'cash', date: '', notes: '' }); setModal('receivable'); }}
                 className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg text-sm transition-colors flex items-center gap-2"
               >
                 <PiggyBank className="w-4 h-4" />{t('receiveLoanPayment') || 'Receive Loan Payment'}
@@ -236,7 +227,20 @@ export default function EmployeeLedger() {
       </div>
 
       {tab === 'history' && (
-        <div className="glass-card overflow-x-auto">
+        <div className="space-y-3">
+          <div className="glass-card p-3">
+            <div className="relative max-w-md">
+              <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+              <input
+                className="input"
+                style={{ paddingInlineStart: '2.25rem' }}
+                placeholder="Search type, notes, method, date…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="glass-card overflow-x-auto">
           <table className="w-full text-sm min-w-[850px]">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
@@ -250,8 +254,28 @@ export default function EmployeeLedger() {
               </tr>
             </thead>
             <tbody>
-              {transaction_history.map(txn => (
-                <tr key={txn.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+              {transaction_history
+                .filter(txn => !search.trim() || [
+                  TXN_LABELS[txn.type] || txn.type, txn.method, txn.notes,
+                  String(txn.amount), String(txn.running_balance),
+                  new Date(txn.date).toLocaleDateString('en-PK')
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map(txn => (
+                <tr
+                  key={txn.id}
+                  id={`row-${txn.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className="hover:bg-white/10 cursor-pointer transition-colors"
+                  title={t('clickToViewDetail') || 'Click to view transaction in module'}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    if (['payroll_accrual', 'salary_payment', 'payroll'].includes(txn.type) || txn.payroll_id) {
+                      navigate(`/payroll?highlight=${txn.payroll_id || txn.id}`);
+                    } else {
+                      navigate(`/employees?highlight=${employee.id}`);
+                    }
+                  }}
+                >
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(txn.date).toLocaleDateString('en-PK')}</td>
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>
                     {TXN_LABELS[txn.type] || txn.type}
@@ -268,7 +292,7 @@ export default function EmployeeLedger() {
                   <td className="p-4 text-center">
                     <button
                       type="button"
-                      onClick={() => openVoucher(txn, employee.name)}
+                      onClick={(e) => { e.stopPropagation(); openVoucher(txn, employee.name); }}
                       title="Print Voucher"
                       className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-hover)]"
                       style={{ color: 'var(--text-muted)' }}
@@ -283,6 +307,7 @@ export default function EmployeeLedger() {
               )}
             </tbody>
           </table>
+        </div>
         </div>
       )}
 
@@ -301,7 +326,17 @@ export default function EmployeeLedger() {
             </thead>
             <tbody>
               {payroll_history.map(p => (
-                <tr key={p.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
+                <tr
+                  key={p.id}
+                  id={`row-${p.id}`}
+                  style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                  className="hover:bg-white/10 cursor-pointer transition-colors"
+                  title={t('clickToViewDetail') || 'Click to view payroll details'}
+                  onClick={(e) => {
+                    if (e.target.closest('button')) return;
+                    navigate(`/payroll?highlight=${p.id}`);
+                  }}
+                >
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{p.month}</td>
                   <td className="p-4 text-end">{formatPKR(p.basic_salary, lang)}</td>
                   <td className="p-4 text-end text-emerald-400">{formatPKR(p.bonus, lang)}</td>
@@ -380,10 +415,11 @@ export default function EmployeeLedger() {
             </div>
             <div>
               <FormLabel required>{t('forMonth') || 'For Salary Month'}</FormLabel>
-              <input className="input" type="month" min={minAdvanceMonth} required value={advanceForm.for_month} onChange={e => setAdvanceForm(f => ({ ...f, for_month: e.target.value }))} />
-              {currentMonthPaid && (
-                <p className="text-xs text-amber-400 mt-1">{t('currentMonthPaidHint') || "This month's salary was already given — pick a later month."}</p>
-              )}
+              <input className="input" type="month" required value={advanceForm.for_month} onChange={e => setAdvanceForm(f => ({ ...f, for_month: e.target.value }))} />
+            </div>
+            <div>
+              <FormLabel>{t('date') || 'Date & Time (Optional)'}</FormLabel>
+              <input className="input" type="datetime-local" value={advanceForm.date || ''} onChange={e => setAdvanceForm(f => ({ ...f, date: e.target.value }))} />
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
@@ -411,6 +447,10 @@ export default function EmployeeLedger() {
             <div>
               <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input className="input" type="number" step="0.01" min="0.01" required value={loanForm.amount} onChange={e => setLoanForm(f => ({ ...f, amount: e.target.value }))} />
+            </div>
+            <div>
+              <FormLabel>{t('date') || 'Date & Time (Optional)'}</FormLabel>
+              <input className="input" type="datetime-local" value={loanForm.date || ''} onChange={e => setLoanForm(f => ({ ...f, date: e.target.value }))} />
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
@@ -448,6 +488,10 @@ export default function EmployeeLedger() {
                 value={receivableForm.amount}
                 onChange={e => setReceivableForm(f => ({ ...f, amount: e.target.value }))}
               />
+            </div>
+            <div>
+              <FormLabel>{t('date') || 'Date & Time (Optional)'}</FormLabel>
+              <input className="input" type="datetime-local" value={receivableForm.date || ''} onChange={e => setReceivableForm(f => ({ ...f, date: e.target.value }))} />
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>

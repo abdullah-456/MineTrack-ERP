@@ -1,8 +1,12 @@
+import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
+import { useShopApi } from '../../hooks/useShopApi';
+import api from '../../api/axios';
+import { linkedBranchIds } from '../../utils/locationUtils';
 
 /**
- * Shared date + branch filters for financial reports.
+ * Shared date + location (branch/godown) filters for financial reports.
  * mode: 'period' (from/to) | 'point' (as_of only)
  */
 export default function FinancialReportFilters({
@@ -19,6 +23,18 @@ export default function FinancialReportFilters({
   onRefresh,
 }) {
   const { t } = useTheme();
+  const { shopParams } = useShopApi();
+  const [godowns, setGodowns] = useState([]);
+
+  useEffect(() => {
+    let unmounted = false;
+    api.get('/godowns', { params: shopParams() })
+      .then(({ data }) => {
+        if (!unmounted) setGodowns(data.godowns || []);
+      })
+      .catch(() => {});
+    return () => { unmounted = true; };
+  }, [shopParams]);
 
   return (
     <div className="glass-card p-4 flex flex-wrap gap-4 items-end">
@@ -39,14 +55,33 @@ export default function FinancialReportFilters({
           <input className="input" type="date" value={asOf} onChange={e => onAsOfChange?.(e.target.value)} />
         </div>
       )}
-      {branches.length > 0 && (
-        <div className="flex flex-col gap-1.5 min-w-[160px]">
-          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('userBranch') || 'Branch'}</span>
-          <select className="input" value={branchId} onChange={e => onBranchChange?.(e.target.value)}>
-            <option value="">{t('allBranches') || 'All Branches'}</option>
-            {branches.map(b => (
-              <option key={b.id} value={b.id}>{b.name}</option>
-            ))}
+      {(branches.length > 0 || godowns.length > 0) && (
+        <div className="flex flex-col gap-1.5 min-w-[200px]">
+          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('location') || 'Location (Branch / Godown)'}</span>
+          <select className="input text-xs" value={branchId} onChange={e => onBranchChange?.(e.target.value)}>
+            <option value="">{t('allLocations') || t('allBranches') || 'All Locations'}</option>
+            {branches.length > 0 && (
+              <optgroup label={t('branches') || 'Retail Branches'}>
+                {branches.map(b => (
+                  <option key={`br_${b.id}`} value={b.id}>
+                    {b.name} {b.is_default ? `(${t('default') || 'Default'})` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {godowns.length > 0 && (
+              <optgroup label={t('godowns') || 'Godowns / Warehouses'}>
+                {godowns.map(g => {
+                  const linked = linkedBranchIds(g, branches);
+                  const targetBranchId = linked[0] || '';
+                  return (
+                    <option key={`gd_${g.id}`} value={targetBranchId} disabled={!linked.length}>
+                      {g.name} {g.code ? `[${g.code}]` : ''}
+                    </option>
+                  );
+                })}
+              </optgroup>
+            )}
           </select>
         </div>
       )}
@@ -67,7 +102,7 @@ export function buildReportFilterList({ t, from, to, asOf, branchId, branches, m
   }
   if (branchId) {
     const branch = branches.find(b => String(b.id) === String(branchId));
-    list.push({ label: t('userBranch') || 'Branch', value: branch?.name || branchId });
+    list.push({ label: t('location') || 'Location', value: branch?.name || branchId });
   }
   return list;
 }

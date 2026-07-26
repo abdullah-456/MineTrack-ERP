@@ -51,11 +51,23 @@ module.exports = {
       ))[0].length > 0);
 
       // eslint-disable-next-line no-await-in-loop
+      const now = new Date();
+      // eslint-disable-next-line no-await-in-loop
+      await queryInterface.bulkInsert('chart_of_accounts', [{
+        account_code: code,
+        account_name: acc.account_name,
+        account_type: 'asset',
+        parent_account_id: bankParent.id,
+        shop_id: acc.shop_id,
+        is_active: true,
+        created_at: now,
+        updated_at: now,
+      }]);
+
+      // eslint-disable-next-line no-await-in-loop
       const [[inserted]] = await queryInterface.sequelize.query(
-        `INSERT INTO chart_of_accounts (account_code, account_name, account_type, parent_account_id, shop_id, is_active, created_at, updated_at)
-         VALUES (:code, :name, 'asset', :parentId, :shopId, true, NOW(), NOW())
-         RETURNING id`,
-        { replacements: { code, name: acc.account_name, parentId: bankParent.id, shopId: acc.shop_id } },
+        `SELECT id FROM chart_of_accounts WHERE account_code = :code`,
+        { replacements: { code } },
       );
 
       // eslint-disable-next-line no-await-in-loop

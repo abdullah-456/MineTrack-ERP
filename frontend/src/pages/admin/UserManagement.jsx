@@ -9,6 +9,7 @@ import {
 import ReportActions from '../../components/ui/ReportActions';
 import api from '../../api/axios';
 import FormLabel from '../../components/ui/FormLabel';
+import LocationPicker from '../../components/ui/LocationPicker';
 
 const ROLE_COLORS = {
   super_admin: 'badge-purple',
@@ -273,8 +274,10 @@ export default function UserManagement() {
   };
 
   const filtered = users.filter(u => {
-    const matchSearch = u.name?.toLowerCase().includes(search.toLowerCase()) ||
-                        u.email?.toLowerCase().includes(search.toLowerCase());
+    const q = search.trim().toLowerCase();
+    const matchSearch = !q || [
+      u.name, u.username, u.email, u.phone, u.status, u.Role?.name, u.Shop?.name, u.Branch?.name
+    ].some(v => (v || '').toLowerCase().includes(q));
     const matchRole   = roleFilter   === 'all' || u.Role?.name === roleFilter;
     const matchStatus = statusFilter === 'all' || u.status === statusFilter;
     return matchSearch && matchRole && matchStatus;
@@ -293,20 +296,21 @@ export default function UserManagement() {
       )}
       {needsShop && (
         <div>
-          <FormLabel variant="admin" required={needsBranch}>
-            {t('userBranch')}{!needsBranch && ` (${t('optional')})`}
-          </FormLabel>
-          <select
-            value={form.branch_id}
-            onChange={setF('branch_id')}
+          <LocationPicker
             required={needsBranch}
-            className="input-field"
-          >
-            <option value="">{needsBranch ? t('selectBranch') : t('allBranches')}</option>
-            {branches.map(b => (
-              <option key={b.id} value={b.id}>{b.name}{b.is_default ? ` (${t('defaultBranch')})` : ''}</option>
-            ))}
-          </select>
+            label={t('userBranch') || 'Branch / Godown'}
+            value={{
+              location_type: form.location_type || 'branch',
+              branch_id: form.branch_id,
+              godown_id: form.godown_id,
+            }}
+            onChange={(loc) => setForm(f => ({
+              ...f,
+              location_type: loc.location_type,
+              branch_id: loc.branch_id,
+              godown_id: loc.godown_id,
+            }))}
+          />
         </div>
       )}
       {!isEdit && superAdmin && selectedRoleName === 'super_admin' && (

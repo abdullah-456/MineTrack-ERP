@@ -151,6 +151,19 @@ function SaleInvoice({ data }) {
     <div className="sheet">
       <div className="sheet-body">
       <CompanyHeader company={shop} docTitle="Sales Invoice" />
+      {(balanceDue > 0.01 || data.sale_type === 'credit') && (
+        <div style={{
+          border: '1.5px solid #dc2626', background: '#fef2f2', padding: '6px 12px',
+          borderRadius: 4, margin: '8px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+        }}>
+          <span style={{ color: '#991b1b', fontWeight: 800, fontSize: 11, letterSpacing: 0.5 }}>
+            CREDIT SALE / PARTIAL PAYMENT
+          </span>
+          <span style={{ color: '#b91c1c', fontWeight: 800, fontSize: 12 }}>
+            REMAINING BALANCE DUE: {fmtPKR(balanceDue > 0 ? balanceDue : 0)}
+          </span>
+        </div>
+      )}
       <MetaGrid items={[
         { label: 'Invoice #', value: data.invoice_number },
         { label: 'Date', value: fmtDate(data.sale_date) },
@@ -165,6 +178,15 @@ function SaleInvoice({ data }) {
         heading="BILL TO"
         name={customer.name || 'Walk-in Customer'}
         lines={[customer.phone && `Ph: ${customer.phone}`, customer.cnic && `CNIC: ${customer.cnic}`, customer.address]}
+        right={customer.current_balance !== undefined && customer.current_balance !== null ? (
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: INK_SOFT, letterSpacing: 1.2, marginBottom: 4 }}>CUSTOMER CREDIT ACCOUNT</div>
+            <div style={{ fontSize: 11.5, color: INK_SOFT }}>Total Balance Owed to Shop:</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: parseFloat(customer.current_balance) > 0 ? '#b91c1c' : '#047857', marginTop: 2 }}>
+              {fmtPKR(customer.current_balance)}
+            </div>
+          </div>
+        ) : null}
       />
 
       <ItemsTable items={items} rowOf={(it) => ({
@@ -221,6 +243,8 @@ function SaleInvoice({ data }) {
 function PurchaseInvoice({ data }) {
   const shop = data.Shop || data.Supplier?.Shop || {};
   const supplier = data.Supplier || {};
+  const items = data.PurchaseInvoiceItems || [];
+  const grn = data.GoodsReceiptNote;
   return (
     <div className="sheet">
       <div className="sheet-body">
@@ -229,6 +253,9 @@ function PurchaseInvoice({ data }) {
         { label: 'Invoice #', value: data.invoice_number },
         { label: 'Date', value: fmtDate(data.invoice_date) },
         data.due_date && { label: 'Due Date', value: fmtDate(data.due_date) },
+        grn?.grn_number && { label: 'GRN #', value: grn.grn_number },
+        data.supplier_invoice_number && { label: 'Supplier Inv #', value: data.supplier_invoice_number },
+        grn?.supplier_invoice_number && !data.supplier_invoice_number && { label: 'Supplier Inv #', value: grn.supplier_invoice_number },
         { label: 'Status', value: <StatusChip status={data.status} /> },
       ]} />
 
@@ -243,10 +270,20 @@ function PurchaseInvoice({ data }) {
         right={(
           <>
             <div style={{ fontSize: 10, fontWeight: 800, color: INK_SOFT, letterSpacing: 1.2, marginBottom: 4 }}>NOTES</div>
-            <div style={{ fontSize: 11.5, color: INK_SOFT, lineHeight: 1.6 }}>{data.notes || 'No additional notes.'}</div>
+            <div style={{ fontSize: 11.5, color: INK_SOFT, lineHeight: 1.6 }}>{data.notes || grn?.notes || 'No additional notes.'}</div>
           </>
         )}
       />
+
+      {items.length > 0 && (
+        <ItemsTable items={items} rowOf={(it) => ({
+          name: it.description || it.Product?.name || `Product #${it.product_id}`,
+          sku: it.Product?.sku,
+          qty: fmtQty(it.quantity),
+          price: fmtPKR(it.unit_cost),
+          amount: fmtPKR(it.line_total),
+        })} />
+      )}
 
       <TotalsBox rows={[
         { label: 'Total Purchase Amount', value: fmtPKR(data.amount), bold: true },

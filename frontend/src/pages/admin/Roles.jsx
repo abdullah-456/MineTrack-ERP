@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { KeyRound, Plus, Edit, Trash2, Loader2, Lock } from 'lucide-react';
+import { KeyRound, Plus, Edit, Trash2, Loader2, Lock, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
@@ -19,6 +19,7 @@ export default function Roles() {
   const [roles, setRoles] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [selected, setSelected] = useState(null);
@@ -131,6 +132,19 @@ export default function Roles() {
         }
       />
 
+      <div className="glass-card p-3">
+        <div className="relative max-w-md">
+          <Search className="absolute top-1/2 -translate-y-1/2 w-4 h-4" style={{ left: '10px', color: 'var(--text-muted)' }} />
+          <input
+            className="input"
+            style={{ paddingInlineStart: '2.25rem' }}
+            placeholder="Search role name, description, type…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-brand-400" /></div>
       ) : (
@@ -146,7 +160,12 @@ export default function Roles() {
               </tr>
             </thead>
             <tbody>
-              {roles.map(r => (
+              {roles
+                .filter(r => !search.trim() || [
+                  r.display_name, r.name, r.description,
+                  r.is_system ? 'system' : 'custom'
+                ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
+                .map(r => (
                 <tr key={r.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 font-medium flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
                     {r.locked && <Lock className="w-3.5 h-3.5" style={{ color: 'var(--text-muted)' }} />}

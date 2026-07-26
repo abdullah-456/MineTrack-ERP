@@ -107,10 +107,21 @@ function BankRow({ acct, idx, onChange, onRemove, isOnly }) {
 }
 
 /* ── Main Component ───────────────────────────────────────────────────────────── */
-export default function ShopSetupModal({ shopName, onComplete }) {
-  const [step, setStep] = useState(1);
+export default function ShopSetupModal({
+  shopName,
+  onComplete,
+  onClose,
+  initialStep = 1,
+  focusMode = null, // null | 'bank' | 'cash'
+  dismissible = false,
+}) {
+  const [step, setStep] = useState(initialStep);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const isBankOnly = focusMode === 'bank';
+  const isCashOnly = focusMode === 'cash';
+  const isPartial = isBankOnly || isCashOnly;
 
   const [bankAccounts, setBankAccounts] = useState([
     { account_name: '', bank_name: '', account_number: '', opening_balance: '' }
@@ -137,10 +148,31 @@ export default function ShopSetupModal({ shopName, onComplete }) {
     setError('');
     try {
       const validAccounts = bankAccounts.filter(a => a.account_name.trim());
-      await api.post('/financial-setup', {
-        bank_accounts: validAccounts,
-        opening_cash: parseFloat(openingCash) || 0,
-      });
+      if (isBankOnly) {
+        await api.post('/financial-setup/bank-accounts', { bank_accounts: validAccounts });
+      } else if (isCashOnly) {
+        await api.post('/financial-setup/opening-cash', {
+          opening_cash: parseFloat(openingCash) || 0,
+        });
+      } else {
+        await api.post('/financial-setup', {
+          bank_accounts: validAccounts,
+          opening_cash: parseFloat(openingCash) || 0,
+        });
+      }
+      onComplete();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSkip = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await api.post('/financial-setup/skip');
       onComplete();
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong. Please try again.');
@@ -155,6 +187,12 @@ export default function ShopSetupModal({ shopName, onComplete }) {
     { step: 3, label: 'Cash',     icon: Wallet },
     { step: 4, label: 'Confirm',  icon: CheckCircle2 },
   ];
+
+  const modalTitle = isBankOnly
+    ? 'Add Bank Accounts'
+    : isCashOnly
+      ? 'Set Cash in Hand'
+      : 'Financial Setup';
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
@@ -173,15 +211,26 @@ export default function ShopSetupModal({ shopName, onComplete }) {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center shadow-lg shadow-brand-500/30">
               <Building2 className="w-5 h-5 text-white" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
-                Financial Setup
+                {modalTitle}
               </h2>
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{shopName}</p>
             </div>
+            {dismissible && onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="ms-auto topbar-btn text-xs"
+                disabled={loading}
+              >
+                Close
+              </button>
+            )}
           </div>
 
-          {/* Steps */}
+          {/* Steps — hidden for partial (bank/cash-only) modals */}
+          {!isPartial && (
           <div className="flex items-center justify-between mt-5 px-2">
             {steps.map((s, i) => (
               <div key={s.step} className="flex items-center flex-1">
@@ -194,13 +243,14 @@ export default function ShopSetupModal({ shopName, onComplete }) {
               </div>
             ))}
           </div>
+          )}
         </div>
 
         {/* Content */}
         <div className="px-6 pb-6">
 
           {/* ── STEP 1: Welcome ── */}
-          {step === 1 && (
+          {!isPartial && step === 1 && (
             <div className="text-center py-6">
               <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-500/20 to-purple-500/20 flex items-center justify-center mx-auto mb-5
                              border border-brand-500/20">
@@ -228,18 +278,28 @@ export default function ShopSetupModal({ shopName, onComplete }) {
                   </div>
                 ))}
               </div>
-              <button
-                type="button"
-                onClick={() => setStep(2)}
-                className="btn-primary w-full flex items-center justify-center gap-2"
-              >
-                Get Started <ArrowRight className="w-4 h-4" />
-              </button>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleSkip}
+                  disabled={loading}
+                  className="topbar-btn flex-1 text-sm"
+                >
+                  {loading ? 'Skipping…' : 'Skip for now'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="btn-primary flex-1 flex items-center justify-center gap-2"
+                >
+                  Get Started <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           )}
 
           {/* ── STEP 2: Bank Accounts ── */}
-          {step === 2 && (
+          {(isBankOnly || (!isPartial && step === 2)) && (
             <div>
               <div className="mb-4">
                 <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -273,20 +333,51 @@ export default function ShopSetupModal({ shopName, onComplete }) {
               </button>
 
               <div className="flex gap-3 mt-5">
-                <button type="button" onClick={() => setStep(1)}
-                  className="topbar-btn flex items-center gap-1.5 flex-shrink-0">
-                  <ChevronLeft className="w-4 h-4" /> Back
-                </button>
-                <button type="button" onClick={() => setStep(3)}
-                  className="btn-primary flex-1 flex items-center justify-center gap-2">
-                  Continue <ChevronRight className="w-4 h-4" />
-                </button>
+                {!isBankOnly && (
+                  <button type="button" onClick={() => setStep(1)}
+                    className="topbar-btn flex items-center gap-1.5 flex-shrink-0">
+                    <ChevronLeft className="w-4 h-4" /> Back
+                  </button>
+                )}
+                {isBankOnly ? (
+                  <>
+                    {dismissible && onClose && (
+                      <button type="button" onClick={onClose} className="topbar-btn flex-shrink-0" disabled={loading}>
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={loading || bankAccounts.every(a => !a.account_name.trim())}
+                      className="btn-primary flex-1 flex items-center justify-center gap-2"
+                    >
+                      {loading ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                      ) : (
+                        <><CheckCircle2 className="w-4 h-4" /> Save Bank Accounts</>
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setStep(3)}
+                    className="btn-primary flex-1 flex items-center justify-center gap-2">
+                    Continue <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
               </div>
+
+              {error && (
+                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl px-3 py-2.5 mt-4 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  {error}
+                </div>
+              )}
             </div>
           )}
 
           {/* ── STEP 3: Cash in Hand ── */}
-          {step === 3 && (
+          {(isCashOnly || (!isPartial && step === 3)) && (
             <div>
               <div className="mb-6">
                 <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -326,20 +417,51 @@ export default function ShopSetupModal({ shopName, onComplete }) {
               </div>
 
               <div className="flex gap-3">
-                <button type="button" onClick={() => setStep(2)}
-                  className="topbar-btn flex items-center gap-1.5 flex-shrink-0">
-                  <ChevronLeft className="w-4 h-4" /> Back
-                </button>
-                <button type="button" onClick={() => setStep(4)}
-                  className="btn-primary flex-1 flex items-center justify-center gap-2">
-                  Review Summary <ChevronRight className="w-4 h-4" />
-                </button>
+                {!isCashOnly && (
+                  <button type="button" onClick={() => setStep(2)}
+                    className="topbar-btn flex items-center gap-1.5 flex-shrink-0">
+                    <ChevronLeft className="w-4 h-4" /> Back
+                  </button>
+                )}
+                {isCashOnly ? (
+                  <>
+                    {dismissible && onClose && (
+                      <button type="button" onClick={onClose} className="topbar-btn flex-shrink-0" disabled={loading}>
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={loading}
+                      className="btn-primary flex-1 flex items-center justify-center gap-2"
+                    >
+                      {loading ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                      ) : (
+                        <><CheckCircle2 className="w-4 h-4" /> Save Cash Balance</>
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setStep(4)}
+                    className="btn-primary flex-1 flex items-center justify-center gap-2">
+                    Review Summary <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
               </div>
+
+              {error && (
+                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl px-3 py-2.5 mt-4 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  {error}
+                </div>
+              )}
             </div>
           )}
 
           {/* ── STEP 4: Confirm ── */}
-          {step === 4 && (
+          {!isPartial && step === 4 && (
             <div>
               <div className="mb-4">
                 <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>

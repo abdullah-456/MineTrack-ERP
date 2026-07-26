@@ -28,7 +28,8 @@ exports.listBranches = async (req, res) => {
 
     const branches = await db.Branch.findAll({
       where,
-      attributes: ['id', 'name', 'address', 'is_default', 'status'],
+      attributes: ['id', 'name', 'address', 'is_default', 'status', 'godown_id'],
+      include: [{ model: db.Godown, attributes: ['id', 'name', 'code'] }],
       order: [['is_default', 'DESC'], ['name', 'ASC']],
     });
 
@@ -66,7 +67,7 @@ exports.createBranch = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) { await t.rollback(); return; }
 
-    const { name, address, is_default } = req.body;
+    const { name, address, is_default, godown_id } = req.body;
     if (!name) {
       await t.rollback();
       return res.status(400).json({ message: 'Branch name is required' });
@@ -78,6 +79,7 @@ exports.createBranch = async (req, res) => {
 
     const branch = await db.Branch.create({
       shop_id: shopId,
+      godown_id: godown_id ? parseInt(godown_id, 10) : null,
       name,
       address: address || null,
       is_default: !!is_default,
@@ -106,7 +108,7 @@ exports.updateBranch = async (req, res) => {
       return res.status(404).json({ message: 'Branch not found' });
     }
 
-    const { name, address, is_default, status } = req.body;
+    const { name, address, is_default, status, godown_id } = req.body;
 
     if (status === 'disabled' && branch.status !== 'disabled') {
       const activeCount = await db.Branch.count({ where: { shop_id: shopId, status: 'active' }, transaction: t });
@@ -124,6 +126,7 @@ exports.updateBranch = async (req, res) => {
     if (address !== undefined) branch.address = address;
     if (is_default !== undefined) branch.is_default = !!is_default;
     if (status !== undefined) branch.status = status;
+    if (godown_id !== undefined) branch.godown_id = godown_id ? parseInt(godown_id, 10) : null;
     await branch.save({ transaction: t });
 
     // If the branch being disabled was the default, promote another active branch to default.
