@@ -27,6 +27,14 @@ function dayKey(d) {
   return dt.toISOString().slice(0, 10);
 }
 
+/** Local calendar-day bounds (avoid UTC midnight cutting off PK morning entries). */
+function rangeDates(from, to) {
+  return {
+    fromDate: new Date(`${from}T00:00:00.000`),
+    toDate: new Date(`${to}T23:59:59.999`),
+  };
+}
+
 /**
  * Sales module consolidated report.
  * Money-flow language:
@@ -43,8 +51,7 @@ exports.salesSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
-    const fromDate = new Date(`${from}T00:00:00.000Z`);
-    const toDate = new Date(`${to}T23:59:59.999Z`);
+    const { fromDate, toDate } = rangeDates(from, to);
 
     const saleWhere = {
       shop_id: shopId,
@@ -357,6 +364,1958 @@ exports.salesSummary = async (req, res) => {
     });
   } catch (error) {
     console.error('salesSummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+function moneyStr(n) {
+  return `Rs. ${round2(n).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function openLink(type, id) {
+  const n = parseInt(id, 10);
+  return Number.isFinite(n) && n > 0 ? { type, id: n } : null;
+}
+
+function pdfTable(heading, columns, rows, totals) {
+  return {
+    heading,
+    columns,
+    rows: rows.slice(0, 100),
+    ...(totals != null ? { totals } : {}),
+  };
+}
+
+function supplierName(s) {
+  return s?.company_name || s?.name || '—';
+}
+
+exports.purchasesSummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const { fromDate, toDate } = rangeDates(from, to);
+
+    const grnWhere = {
+      shop_id: shopId,
+      status: 'posted',
+      receipt_date: { [Op.between]: [fromDate, toDate] },
+    };
+    if (branchId) grnWhere.branch_id = branchId;
+
+    const receipts = await db.GoodsReceiptNote.findAll({
+      where: grnWhere,
+      include: [
+        { model: db.Supplier, attributes: ['id', 'company_name', 'name'] },
+        { model: db.Branch, attributes: ['id', 'name'] },
+        { model: db.PurchaseInvoice, attributes: ['id', 'invoice_number'] },
+      ],
+      order: [['receipt_date', 'DESC']],
+    });
+
+    const txnWhere = {
+      shop_id: shopId,
+      date: { [Op.between]: [fromDate, toDate] },
+    };
+    const transactions = await db.SupplierTransaction.findAll({
+      where: txnWhere,
+      include: [{ model: db.Supplier, attributes: ['id', 'company_name', 'name'] }],
+      order: [['date', 'DESC']],
+    });
+
+    const suppliers = await db.Supplier.findAll({
+      where: { shop_id: shopId, status: 'active' },
+      attributes: ['id', 'company_name', 'name', 'phone', 'current_payable', 'credit_balance'],
+      order: [['company_name', 'ASC']],
+    });
+
+    let stockReceived = 0;
+    const byDayMap = new Map();
+    const receiptRows = receipts.map(r => {
+      const amt = round2(r.total);
+      stockReceived += amt;
+      const day = dayKey(r.receipt_date) || from;
+      const row = byDayMap.get(day) || { date: day, stock_in: 0, payments: 0, credit: 0 };
+      row.stock_in = round2(row.stock_in + amt);
+      byDayMap.set(day, row);
+      const out = {
+        id: r.id,
+        grn_number: r.grn_number,
+        receipt_date: r.receipt_date,
+        supplier_id: r.supplier_id,
+        supplier_name: supplierName(r.Supplier),
+        branch_name: r.Branch?.name || null,
+        total: amt,
+        open: r.PurchaseInvoice?.id
+          ? openLink('purchase_invoice', r.PurchaseInvoice.id)
+          : (r.purchase_order_id
+            ? openLink('purchase_order', r.purchase_order_id)
+            : openLink('supplier', r.supplier_id)),
+      };
+      if (r.purchase_order_id) {
+        out.purchase_order_id = r.purchase_order_id;
+        out.purchase_order_open = openLink('purchase_order', r.purchase_order_id);
+      }
+      if (r.PurchaseInvoice?.id) {
+        out.purchase_invoice_id = r.PurchaseInvoice.id;
+      }
+      return out;
+    });
+
+    let paymentsOut = 0;
+    let paymentCash = 0;
+    let paymentBank = 0;
+    let creditPurchases = 0;
+    const paymentRows = [];
+    const creditRows = [];
+    for (const t of transactions) {
+      if (t.type === 'payment_made') {
+        const amt = round2(t.total_amount);
+        paymentsOut += amt;
+        if (t.method === 'cash') paymentCash += amt;
+        else if (t.method === 'bank') paymentBank += amt;
+        const day = dayKey(t.date) || from;
+        const row = byDayMap.get(day) || { date: day, stock_in: 0, payments: 0, credit: 0 };
+        row.payments = round2(row.payments + amt);
+        byDayMap.set(day, row);
+        paymentRows.push({
+          id: t.id,
+          date: t.date,
+          supplier_id: t.supplier_id,
+          supplier_name: supplierName(t.Supplier),
+          amount: amt,
+          method: t.method,
+          notes: t.notes,
+          open: openLink('supplier', t.supplier_id),
+        });
+      } else if (t.type === 'stock_received') {
+        const credit = round2(
+          t.method === 'supplier_credit'
+            ? parseFloat(t.total_amount || 0)
+            : Math.max(0, parseFloat(t.total_amount || 0) - parseFloat(t.paid_amount || 0)),
+        );
+        if (credit > 0) {
+          creditPurchases += credit;
+          const day = dayKey(t.date) || from;
+          const row = byDayMap.get(day) || { date: day, stock_in: 0, payments: 0, credit: 0 };
+          row.credit = round2(row.credit + credit);
+          byDayMap.set(day, row);
+          creditRows.push({
+            id: t.id,
+            date: t.date,
+            supplier_id: t.supplier_id,
+            supplier_name: supplierName(t.Supplier),
+            method: t.method,
+            credit_amount: credit,
+            open: openLink('supplier', t.supplier_id),
+          });
+        }
+      }
+    }
+
+    const payablesList = suppliers
+      .filter(s => parseFloat(s.current_payable || 0) > 0.009)
+      .map(s => ({
+        supplier_id: s.id,
+        supplier_name: supplierName(s),
+        phone: s.phone,
+        payable: round2(s.current_payable),
+        open: openLink('supplier', s.id),
+      }))
+      .sort((a, b) => b.payable - a.payable);
+
+    const advancesList = suppliers
+      .filter(s => parseFloat(s.credit_balance || 0) > 0.009)
+      .map(s => ({
+        supplier_id: s.id,
+        supplier_name: supplierName(s),
+        advance: round2(s.credit_balance),
+        open: openLink('supplier', s.id),
+      }))
+      .sort((a, b) => b.advance - a.advance);
+
+    const payablesTotal = round2(payablesList.reduce((s, p) => s + p.payable, 0));
+    const advancesTotal = round2(advancesList.reduce((s, p) => s + p.advance, 0));
+    const byDay = [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+    // Fallback: if no posted GRNs, show supplier ledger stock_received lines so data isn't blank
+    const stockLedgerRows = transactions
+      .filter(t => t.type === 'stock_received')
+      .map(t => ({
+        id: t.id,
+        grn_number: t.notes || `Stock #${t.id}`,
+        receipt_date: t.date,
+        supplier_id: t.supplier_id,
+        supplier_name: supplierName(t.Supplier),
+        branch_name: null,
+        total: round2(t.total_amount),
+        open: openLink('supplier', t.supplier_id),
+      }));
+    const stockLedgerTotal = round2(stockLedgerRows.reduce((s, r) => s + r.total, 0));
+    const stockCardRows = receiptRows.length ? receiptRows : stockLedgerRows;
+    const stockCardTotal = receiptRows.length ? round2(stockReceived) : stockLedgerTotal;
+    const stockCardExtra = receiptRows.length
+      ? `${receiptRows.length} receipt(s)`
+      : `${stockLedgerRows.length} ledger entr${stockLedgerRows.length === 1 ? 'y' : 'ies'}`;
+
+    return res.json({
+      module: 'purchases',
+      from,
+      to,
+      branch_id: branchId || null,
+      cards: [
+        {
+          key: 'stock_received',
+          title: 'Stock received (billed)',
+          amount: stockCardTotal,
+          hint: receiptRows.length
+            ? 'Posted goods receipt notes in this period'
+            : 'Supplier ledger stock received (no posted GRNs in range)',
+          tone: 'green',
+          extra: stockCardExtra,
+          breakdown: {
+            columns: [
+              { header: receiptRows.length ? 'GRN' : 'Ref', key: 'grn_number' },
+              { header: 'Date', key: 'receipt_date' },
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Amount', key: 'total', money: true, align: 'right' },
+            ],
+            rows: stockCardRows,
+            total: stockCardTotal,
+          },
+        },
+        {
+          key: 'payments_out',
+          title: 'Payments to suppliers',
+          amount: round2(paymentsOut),
+          hint: 'Cash/bank paid to suppliers in this period',
+          tone: 'red',
+          extra: `Cash ${moneyStr(paymentCash)} · Bank ${moneyStr(paymentBank)}`,
+          breakdown: {
+            columns: [
+              { header: 'Date', key: 'date' },
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Method', key: 'method' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            rows: paymentRows,
+            total: round2(paymentsOut),
+          },
+        },
+        {
+          key: 'credit_purchases',
+          title: 'Credit purchases',
+          amount: round2(creditPurchases),
+          hint: 'New payables booked from stock received on credit',
+          tone: 'amber',
+          extra: null,
+          breakdown: {
+            columns: [
+              { header: 'Date', key: 'date' },
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Method', key: 'method' },
+              { header: 'Credit amount', key: 'credit_amount', money: true, align: 'right' },
+            ],
+            rows: creditRows,
+            total: round2(creditPurchases),
+          },
+        },
+        {
+          key: 'payables',
+          title: 'Payables outstanding',
+          amount: payablesTotal,
+          hint: 'Amount suppliers are still owed (snapshot)',
+          tone: 'amber',
+          extra: `${payablesList.length} supplier(s)`,
+          breakdown: {
+            columns: [
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Payable', key: 'payable', money: true, align: 'right' },
+            ],
+            rows: payablesList,
+            total: payablesTotal,
+          },
+        },
+        {
+          key: 'advances',
+          title: 'Supplier advances / credit',
+          amount: advancesTotal,
+          hint: 'Prepaid balance with suppliers (snapshot)',
+          tone: 'blue',
+          extra: `${advancesList.length} supplier(s)`,
+          breakdown: {
+            columns: [
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Advance', key: 'advance', money: true, align: 'right' },
+            ],
+            rows: advancesList,
+            total: advancesTotal,
+          },
+        },
+      ],
+      tabs: [
+        {
+          id: 'by_day',
+          label: 'By day',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Stock in', key: 'stock_in', money: true, align: 'right' },
+            { header: 'Payments', key: 'payments', money: true, align: 'right' },
+            { header: 'Credit', key: 'credit', money: true, align: 'right' },
+          ],
+          rows: byDay,
+          totals: {
+            __label: 'Total',
+            stock_in: round2(byDay.reduce((s, d) => s + d.stock_in, 0)),
+            payments: round2(byDay.reduce((s, d) => s + d.payments, 0)),
+            credit: round2(byDay.reduce((s, d) => s + d.credit, 0)),
+          },
+        },
+        {
+          id: 'receipts',
+          label: 'Receipts',
+          columns: [
+            { header: 'GRN / Ref', key: 'grn_number' },
+            { header: 'Date', key: 'receipt_date' },
+            { header: 'Supplier', key: 'supplier_name' },
+            { header: 'Branch', key: 'branch_name' },
+            { header: 'Total', key: 'total', money: true, align: 'right' },
+          ],
+          rows: stockCardRows,
+        },
+        {
+          id: 'payments',
+          label: 'Payments',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Supplier', key: 'supplier_name' },
+            { header: 'Method', key: 'method' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: paymentRows,
+          totals: { __label: 'Total', amount: round2(paymentsOut) },
+        },
+        {
+          id: 'payables',
+          label: 'Payables',
+          columns: [
+            { header: 'Supplier', key: 'supplier_name' },
+            { header: 'Phone', key: 'phone' },
+            { header: 'Payable', key: 'payable', money: true, align: 'right' },
+          ],
+          rows: payablesList,
+          totals: { __label: 'Total', payable: payablesTotal },
+        },
+      ],
+      pdf: {
+        title: 'Purchases Summary Report',
+        sections: [
+          {
+            heading: 'Money flow',
+            rows: [
+              { label: 'Stock received', value: moneyStr(stockReceived) },
+              { label: 'Payments out', value: moneyStr(paymentsOut) },
+              { label: 'Credit purchases', value: moneyStr(creditPurchases) },
+              { label: 'Payables (snapshot)', value: moneyStr(payablesTotal) },
+              { label: 'Supplier advances', value: moneyStr(advancesTotal) },
+            ],
+          },
+        ],
+        tables: [
+          pdfTable(
+            'Goods receipts',
+            [
+              { header: 'GRN', key: 'grn_number' },
+              { header: 'Date', key: 'receipt_date', render: (row) => dayKey(row.receipt_date) },
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Amount', key: 'total', money: true, align: 'right' },
+            ],
+            receiptRows,
+            { __label: 'Total', total: round2(stockReceived) },
+          ),
+          pdfTable(
+            'Supplier payments',
+            [
+              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Method', key: 'method' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            paymentRows,
+            { __label: 'Total', amount: round2(paymentsOut) },
+          ),
+        ],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('purchasesSummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.inventorySummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const { fromDate, toDate } = rangeDates(from, to);
+
+    const moveWhere = { created_at: { [Op.between]: [fromDate, toDate] } };
+    if (branchId) moveWhere.branch_id = branchId;
+
+    const movements = await db.StockMovement.findAll({
+      where: moveWhere,
+      include: [
+        { model: db.Product, where: { shop_id: shopId }, attributes: ['id', 'name', 'sku', 'cost_price'] },
+        { model: db.Branch, attributes: ['id', 'name'] },
+      ],
+      order: [['created_at', 'DESC']],
+    });
+
+    const productWhere = { shop_id: shopId, status: 'active' };
+    const stockInclude = {
+      model: db.Stock,
+      as: 'Stock',
+      attributes: ['branch_id', 'quantity_on_hand'],
+      ...(branchId ? { where: { branch_id: branchId } } : {}),
+    };
+    const products = await db.Product.findAll({
+      where: productWhere,
+      attributes: ['id', 'name', 'sku', 'cost_price', 'reorder_level'],
+      include: [stockInclude],
+    });
+
+    let stockInQty = 0;
+    let stockInValue = 0;
+    let stockOutQty = 0;
+    let stockOutValue = 0;
+    const byProductMap = new Map();
+    const movementRows = [];
+
+    for (const m of movements) {
+      const qty = parseFloat(m.quantity || 0);
+      const cost = parseFloat(m.Product?.cost_price || 0);
+      const value = round2(Math.abs(qty) * cost);
+      const incoming = qty > 0;
+      const outgoing = qty < 0;
+
+      if (incoming) {
+        stockInQty = round2(stockInQty + Math.abs(qty));
+        stockInValue = round2(stockInValue + value);
+      }
+      if (outgoing) {
+        stockOutQty = round2(stockOutQty + Math.abs(qty));
+        stockOutValue = round2(stockOutValue + value);
+      }
+
+      const pid = m.product_id;
+      const prow = byProductMap.get(pid) || {
+        product_id: pid,
+        product_name: m.Product?.name || `Product #${pid}`,
+        sku: m.Product?.sku || null,
+        in_qty: 0,
+        out_qty: 0,
+        net_qty: 0,
+        value_moved: 0,
+      };
+      if (incoming) prow.in_qty = round2(prow.in_qty + Math.abs(qty));
+      if (outgoing) prow.out_qty = round2(prow.out_qty + Math.abs(qty));
+      prow.net_qty = round2(prow.in_qty - prow.out_qty);
+      prow.value_moved = round2(prow.value_moved + value);
+      byProductMap.set(pid, prow);
+
+      movementRows.push({
+        id: m.id,
+        date: m.created_at,
+        product_id: pid,
+        product_name: m.Product?.name || '—',
+        sku: m.Product?.sku || null,
+        branch_name: m.Branch?.name || null,
+        ref_type: m.ref_type,
+        quantity: round2(qty),
+        value: value,
+        open: openLink('product', pid),
+      });
+    }
+
+    let onHandQty = 0;
+    let onHandValue = 0;
+    const onHandRows = [];
+    const lowStockRows = [];
+    for (const p of products) {
+      const stocks = p.Stock || [];
+      const qty = round2(stocks.reduce((s, st) => s + parseFloat(st.quantity_on_hand || 0), 0));
+      const value = round2(qty * parseFloat(p.cost_price || 0));
+      onHandQty = round2(onHandQty + qty);
+      onHandValue = round2(onHandValue + value);
+      if (qty > 0.009) {
+        onHandRows.push({
+          product_id: p.id,
+          product_name: p.name,
+          sku: p.sku,
+          qty,
+          value,
+          open: openLink('product', p.id),
+        });
+      }
+      if (qty <= parseFloat(p.reorder_level || 0)) {
+        lowStockRows.push({
+          product_id: p.id,
+          product_name: p.name,
+          sku: p.sku,
+          on_hand: qty,
+          reorder_level: p.reorder_level,
+          value,
+          open: openLink('product', p.id),
+        });
+      }
+    }
+    onHandRows.sort((a, b) => b.value - a.value);
+    lowStockRows.sort((a, b) => a.on_hand - b.on_hand);
+    const byProduct = [...byProductMap.values()]
+      .map(p => ({ ...p, open: openLink('product', p.product_id) }))
+      .sort((a, b) => b.value_moved - a.value_moved);
+    const stockInRows = movementRows.filter(r => r.quantity > 0);
+    const stockOutRows = movementRows.filter(r => r.quantity < 0);
+
+    return res.json({
+      module: 'inventory',
+      from,
+      to,
+      branch_id: branchId || null,
+      cards: [
+        {
+          key: 'stock_in',
+          title: 'Stock in',
+          amount: round2(stockInValue),
+          hint: 'Incoming movements in this period (at cost)',
+          tone: 'green',
+          extra: `${stockInQty} units`,
+          breakdown: {
+            columns: [
+              { header: 'Date', key: 'date' },
+              { header: 'Product', key: 'product_name' },
+              { header: 'Qty', key: 'quantity', align: 'right' },
+              { header: 'Value', key: 'value', money: true, align: 'right' },
+            ],
+            rows: stockInRows,
+            total: round2(stockInValue),
+          },
+        },
+        {
+          key: 'stock_out',
+          title: 'Stock out',
+          amount: round2(stockOutValue),
+          hint: 'Outgoing movements in this period (at cost)',
+          tone: 'red',
+          extra: `${stockOutQty} units`,
+          breakdown: {
+            columns: [
+              { header: 'Date', key: 'date' },
+              { header: 'Product', key: 'product_name' },
+              { header: 'Qty', key: 'quantity', align: 'right' },
+              { header: 'Value', key: 'value', money: true, align: 'right' },
+            ],
+            rows: stockOutRows,
+            total: round2(stockOutValue),
+          },
+        },
+        {
+          key: 'on_hand_value',
+          title: 'On-hand value',
+          amount: round2(onHandValue),
+          hint: 'Current stock quantity × cost price',
+          tone: 'blue',
+          extra: `${onHandQty} units on hand`,
+          breakdown: {
+            columns: [
+              { header: 'Product', key: 'product_name' },
+              { header: 'SKU', key: 'sku' },
+              { header: 'Qty', key: 'qty', align: 'right' },
+              { header: 'Value', key: 'value', money: true, align: 'right' },
+            ],
+            rows: onHandRows,
+            total: round2(onHandValue),
+          },
+        },
+        {
+          key: 'low_stock',
+          title: 'Low stock items',
+          amount: lowStockRows.length,
+          hint: 'Products at or below reorder level',
+          tone: 'amber',
+          extra: null,
+          breakdown: {
+            columns: [
+              { header: 'Product', key: 'product_name' },
+              { header: 'On hand', key: 'on_hand', align: 'right' },
+              { header: 'Reorder', key: 'reorder_level', align: 'right' },
+            ],
+            rows: lowStockRows,
+            total: lowStockRows.length,
+          },
+        },
+      ],
+      tabs: [
+        {
+          id: 'movements',
+          label: 'Movements',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Product', key: 'product_name' },
+            { header: 'Type', key: 'ref_type' },
+            { header: 'Qty', key: 'quantity', align: 'right' },
+            { header: 'Value', key: 'value', money: true, align: 'right' },
+          ],
+          rows: movementRows,
+        },
+        {
+          id: 'by_product',
+          label: 'By product',
+          columns: [
+            { header: 'Product', key: 'product_name' },
+            { header: 'In', key: 'in_qty', align: 'right' },
+            { header: 'Out', key: 'out_qty', align: 'right' },
+            { header: 'Value moved', key: 'value_moved', money: true, align: 'right' },
+          ],
+          rows: byProduct,
+        },
+        {
+          id: 'low_stock',
+          label: 'Low stock',
+          columns: [
+            { header: 'Product', key: 'product_name' },
+            { header: 'SKU', key: 'sku' },
+            { header: 'On hand', key: 'on_hand', align: 'right' },
+            { header: 'Reorder', key: 'reorder_level', align: 'right' },
+            { header: 'Value', key: 'value', money: true, align: 'right' },
+          ],
+          rows: lowStockRows,
+        },
+      ],
+      pdf: {
+        title: 'Inventory Summary Report',
+        sections: [
+          {
+            heading: 'Stock flow',
+            rows: [
+              { label: 'Stock in (value)', value: moneyStr(stockInValue) },
+              { label: 'Stock out (value)', value: moneyStr(stockOutValue) },
+              { label: 'On-hand value', value: moneyStr(onHandValue) },
+              { label: 'Low stock count', value: String(lowStockRows.length) },
+            ],
+          },
+        ],
+        tables: [
+          pdfTable(
+            'Recent movements',
+            [
+              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Product', key: 'product_name' },
+              { header: 'Type', key: 'ref_type' },
+              { header: 'Qty', key: 'quantity', align: 'right' },
+              { header: 'Value', key: 'value', money: true, align: 'right' },
+            ],
+            movementRows,
+          ),
+        ],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('inventorySummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.customersSummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const { fromDate, toDate } = rangeDates(from, to);
+
+    const txns = await db.CustomerTransaction.findAll({
+      where: { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } },
+      include: [{ model: db.Customer, attributes: ['id', 'name', 'phone', 'current_balance'] }],
+      order: [['date', 'DESC']],
+    });
+
+    const customers = await db.Customer.findAll({
+      where: { shop_id: shopId, status: 'active' },
+      attributes: ['id', 'name', 'phone', 'current_balance', 'credit_limit'],
+      order: [['name', 'ASC']],
+    });
+
+    let charges = 0;
+    let recoveries = 0;
+    let returnCredits = 0;
+    const byDayMap = new Map();
+    const txnRows = [];
+    const customerDetailCols = [
+      { header: 'Date', key: 'date' },
+      { header: 'Customer', key: 'customer_name' },
+      { header: 'Amount', key: 'amount', money: true, align: 'right' },
+      { header: 'Method', key: 'method' },
+    ];
+
+    for (const t of txns) {
+      const amt = round2(t.amount);
+      const day = dayKey(t.date) || from;
+      const dayRow = byDayMap.get(day) || { date: day, charges: 0, recoveries: 0, returns: 0 };
+      const row = {
+        id: t.id,
+        date: t.date,
+        type: t.type,
+        customer_id: t.customer_id,
+        customer_name: t.Customer?.name || '—',
+        amount: amt,
+        method: t.method,
+        open: openLink('customer', t.customer_id),
+      };
+      if (t.related_sale_id) {
+        row.related_sale_id = t.related_sale_id;
+        row.sale_open = openLink('sale', t.related_sale_id);
+      }
+      txnRows.push(row);
+      if (t.type === 'sale_charge') {
+        charges += amt;
+        dayRow.charges = round2(dayRow.charges + amt);
+      } else if (t.type === 'payment_received') {
+        recoveries += amt;
+        dayRow.recoveries = round2(dayRow.recoveries + amt);
+      } else if (t.type === 'return_credit') {
+        returnCredits += amt;
+        dayRow.returns = round2(dayRow.returns + amt);
+      }
+      byDayMap.set(day, dayRow);
+    }
+
+    const debtors = customers
+      .filter(c => parseFloat(c.current_balance || 0) > 0.009)
+      .map(c => ({
+        customer_id: c.id,
+        customer_name: c.name,
+        phone: c.phone,
+        receivable: round2(c.current_balance),
+        credit_limit: round2(c.credit_limit),
+        open: openLink('customer', c.id),
+      }))
+      .sort((a, b) => b.receivable - a.receivable);
+
+    const advances = customers
+      .filter(c => parseFloat(c.current_balance || 0) < -0.009)
+      .map(c => ({
+        customer_id: c.id,
+        customer_name: c.name,
+        advance: round2(Math.abs(c.current_balance)),
+        open: openLink('customer', c.id),
+      }))
+      .sort((a, b) => b.advance - a.advance);
+
+    const receivablesTotal = round2(debtors.reduce((s, d) => s + d.receivable, 0));
+    const advancesTotal = round2(advances.reduce((s, d) => s + d.advance, 0));
+    const byDay = [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
+    const chargeRows = txnRows.filter(r => r.type === 'sale_charge');
+    const recoveryRows = txnRows.filter(r => r.type === 'payment_received');
+    const returnCreditRows = txnRows.filter(r => r.type === 'return_credit');
+
+    return res.json({
+      module: 'customers',
+      from,
+      to,
+      branch_id: branchId || null,
+      cards: [
+        {
+          key: 'charges',
+          title: 'Sale charges',
+          amount: round2(charges),
+          hint: 'Customer ledger charges in this period',
+          tone: 'green',
+          extra: null,
+          breakdown: {
+            columns: customerDetailCols,
+            rows: chargeRows,
+            total: round2(charges),
+          },
+        },
+        {
+          key: 'recoveries',
+          title: 'Recoveries',
+          amount: round2(recoveries),
+          hint: 'Payments received from customers',
+          tone: 'blue',
+          extra: null,
+          breakdown: {
+            columns: customerDetailCols,
+            rows: recoveryRows,
+            total: round2(recoveries),
+          },
+        },
+        {
+          key: 'return_credits',
+          title: 'Return credits',
+          amount: round2(returnCredits),
+          hint: 'Credits issued via returns',
+          tone: 'red',
+          extra: null,
+          breakdown: {
+            columns: customerDetailCols,
+            rows: returnCreditRows,
+            total: round2(returnCredits),
+          },
+        },
+        {
+          key: 'receivables',
+          title: 'Receivables outstanding',
+          amount: receivablesTotal,
+          hint: 'Customers who currently owe the shop',
+          tone: 'amber',
+          extra: `${debtors.length} customer(s)`,
+          breakdown: {
+            columns: [
+              { header: 'Customer', key: 'customer_name' },
+              { header: 'Due', key: 'receivable', money: true, align: 'right' },
+            ],
+            rows: debtors,
+            total: receivablesTotal,
+          },
+        },
+        {
+          key: 'advances',
+          title: 'Customer advances',
+          amount: advancesTotal,
+          hint: 'Prepaid customer balances (snapshot)',
+          tone: 'violet',
+          extra: `${advances.length} customer(s)`,
+          breakdown: {
+            columns: [
+              { header: 'Customer', key: 'customer_name' },
+              { header: 'Advance', key: 'advance', money: true, align: 'right' },
+            ],
+            rows: advances,
+            total: advancesTotal,
+          },
+        },
+      ],
+      tabs: [
+        {
+          id: 'by_day',
+          label: 'By day',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Charges', key: 'charges', money: true, align: 'right' },
+            { header: 'Recoveries', key: 'recoveries', money: true, align: 'right' },
+            { header: 'Returns', key: 'returns', money: true, align: 'right' },
+          ],
+          rows: byDay,
+        },
+        {
+          id: 'transactions',
+          label: 'Transactions',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Type', key: 'type' },
+            { header: 'Customer', key: 'customer_name' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: txnRows,
+        },
+        {
+          id: 'debtors',
+          label: 'Debtors',
+          columns: [
+            { header: 'Customer', key: 'customer_name' },
+            { header: 'Phone', key: 'phone' },
+            { header: 'Receivable', key: 'receivable', money: true, align: 'right' },
+          ],
+          rows: debtors,
+          totals: { __label: 'Total', receivable: receivablesTotal },
+        },
+      ],
+      pdf: {
+        title: 'Customers Summary Report',
+        sections: [
+          {
+            heading: 'Money flow',
+            rows: [
+              { label: 'Sale charges', value: moneyStr(charges) },
+              { label: 'Recoveries', value: moneyStr(recoveries) },
+              { label: 'Return credits', value: moneyStr(returnCredits) },
+              { label: 'Receivables', value: moneyStr(receivablesTotal) },
+              { label: 'Advances', value: moneyStr(advancesTotal) },
+            ],
+          },
+        ],
+        tables: [
+          pdfTable(
+            'Transactions',
+            [
+              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Type', key: 'type' },
+              { header: 'Customer', key: 'customer_name' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            txnRows,
+          ),
+        ],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('customersSummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.suppliersSummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const { fromDate, toDate } = rangeDates(from, to);
+
+    const transactions = await db.SupplierTransaction.findAll({
+      where: { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } },
+      include: [{ model: db.Supplier, attributes: ['id', 'company_name', 'name'] }],
+      order: [['date', 'DESC']],
+    });
+
+    const suppliers = await db.Supplier.findAll({
+      where: { shop_id: shopId, status: 'active' },
+      attributes: ['id', 'company_name', 'name', 'phone', 'current_payable', 'credit_balance'],
+      order: [['company_name', 'ASC']],
+    });
+
+    let stockReceived = 0;
+    let paymentsOut = 0;
+    const txnRows = [];
+    const supplierDetailCols = [
+      { header: 'Date', key: 'date' },
+      { header: 'Supplier', key: 'supplier_name' },
+      { header: 'Amount', key: 'amount', money: true, align: 'right' },
+      { header: 'Method', key: 'method' },
+    ];
+
+    for (const t of transactions) {
+      const amt = round2(t.total_amount);
+      if (t.type === 'stock_received') {
+        stockReceived += amt;
+        txnRows.push({
+          id: t.id,
+          date: t.date,
+          type: t.type,
+          supplier_id: t.supplier_id,
+          supplier_name: supplierName(t.Supplier),
+          amount: amt,
+          method: t.method,
+          open: openLink('supplier', t.supplier_id),
+        });
+      } else if (t.type === 'payment_made') {
+        paymentsOut += amt;
+        txnRows.push({
+          id: t.id,
+          date: t.date,
+          type: t.type,
+          supplier_id: t.supplier_id,
+          supplier_name: supplierName(t.Supplier),
+          amount: amt,
+          method: t.method,
+          open: openLink('supplier', t.supplier_id),
+        });
+      }
+    }
+
+    const stockReceivedRows = txnRows.filter(r => r.type === 'stock_received');
+    const paymentOutRows = txnRows.filter(r => r.type === 'payment_made');
+
+    const payablesList = suppliers
+      .filter(s => parseFloat(s.current_payable || 0) > 0.009)
+      .map(s => ({
+        supplier_id: s.id,
+        supplier_name: supplierName(s),
+        phone: s.phone,
+        payable: round2(s.current_payable),
+        open: openLink('supplier', s.id),
+      }))
+      .sort((a, b) => b.payable - a.payable);
+
+    const advancesList = suppliers
+      .filter(s => parseFloat(s.credit_balance || 0) > 0.009)
+      .map(s => ({
+        supplier_id: s.id,
+        supplier_name: supplierName(s),
+        advance: round2(s.credit_balance),
+        open: openLink('supplier', s.id),
+      }))
+      .sort((a, b) => b.advance - a.advance);
+
+    const payablesTotal = round2(payablesList.reduce((s, p) => s + p.payable, 0));
+    const advancesTotal = round2(advancesList.reduce((s, p) => s + p.advance, 0));
+
+    return res.json({
+      module: 'suppliers',
+      from,
+      to,
+      branch_id: branchId || null,
+      cards: [
+        {
+          key: 'stock_received',
+          title: 'Stock received',
+          amount: round2(stockReceived),
+          hint: 'Supplier ledger stock received in period',
+          tone: 'green',
+          extra: null,
+          breakdown: {
+            columns: supplierDetailCols,
+            rows: stockReceivedRows,
+            total: round2(stockReceived),
+          },
+        },
+        {
+          key: 'payments_out',
+          title: 'Payments made',
+          amount: round2(paymentsOut),
+          hint: 'Cash/bank paid to suppliers',
+          tone: 'red',
+          extra: null,
+          breakdown: {
+            columns: supplierDetailCols,
+            rows: paymentOutRows,
+            total: round2(paymentsOut),
+          },
+        },
+        {
+          key: 'payables',
+          title: 'Payables outstanding',
+          amount: payablesTotal,
+          hint: 'Current supplier dues (snapshot)',
+          tone: 'amber',
+          extra: `${payablesList.length} supplier(s)`,
+          breakdown: {
+            columns: [
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Payable', key: 'payable', money: true, align: 'right' },
+            ],
+            rows: payablesList,
+            total: payablesTotal,
+          },
+        },
+        {
+          key: 'advances',
+          title: 'Supplier advances',
+          amount: advancesTotal,
+          hint: 'Credit balance with suppliers',
+          tone: 'blue',
+          extra: `${advancesList.length} supplier(s)`,
+          breakdown: {
+            columns: [
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Advance', key: 'advance', money: true, align: 'right' },
+            ],
+            rows: advancesList,
+            total: advancesTotal,
+          },
+        },
+      ],
+      tabs: [
+        {
+          id: 'transactions',
+          label: 'Transactions',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Type', key: 'type' },
+            { header: 'Supplier', key: 'supplier_name' },
+            { header: 'Method', key: 'method' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: txnRows,
+        },
+        {
+          id: 'payables',
+          label: 'Payables',
+          columns: [
+            { header: 'Supplier', key: 'supplier_name' },
+            { header: 'Phone', key: 'phone' },
+            { header: 'Payable', key: 'payable', money: true, align: 'right' },
+          ],
+          rows: payablesList,
+          totals: { __label: 'Total', payable: payablesTotal },
+        },
+      ],
+      pdf: {
+        title: 'Suppliers Summary Report',
+        sections: [
+          {
+            heading: 'Ledger summary',
+            rows: [
+              { label: 'Stock received', value: moneyStr(stockReceived) },
+              { label: 'Payments out', value: moneyStr(paymentsOut) },
+              { label: 'Payables', value: moneyStr(payablesTotal) },
+              { label: 'Advances', value: moneyStr(advancesTotal) },
+            ],
+          },
+        ],
+        tables: [
+          pdfTable(
+            'Transactions',
+            [
+              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Type', key: 'type' },
+              { header: 'Supplier', key: 'supplier_name' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            txnRows,
+          ),
+        ],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('suppliersSummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.expensesSummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const { fromDate, toDate } = rangeDates(from, to);
+
+    const expWhere = {
+      shop_id: shopId,
+      status: 'posted',
+      expense_date: { [Op.between]: [fromDate, toDate] },
+    };
+    if (branchId) expWhere.branch_id = branchId;
+
+    const expenses = await db.Expense.findAll({
+      where: expWhere,
+      include: [{ model: db.Branch, attributes: ['id', 'name'] }],
+      order: [['expense_date', 'DESC']],
+    });
+
+    let totalOut = 0;
+    let cashTotal = 0;
+    let bankTotal = 0;
+    const byCategoryMap = new Map();
+    const byDayMap = new Map();
+    const expenseRows = [];
+
+    for (const e of expenses) {
+      const amt = round2(e.amount);
+      totalOut += amt;
+      if (e.paid_via === 'cash') cashTotal += amt;
+      else if (e.paid_via === 'bank') bankTotal += amt;
+
+      const cat = e.category || 'Other';
+      byCategoryMap.set(cat, round2((byCategoryMap.get(cat) || 0) + amt));
+
+      const day = dayKey(e.expense_date) || from;
+      byDayMap.set(day, round2((byDayMap.get(day) || 0) + amt));
+
+      expenseRows.push({
+        id: e.id,
+        expense_date: e.expense_date,
+        category: cat,
+        description: e.description,
+        paid_via: e.paid_via,
+        branch_name: e.Branch?.name || null,
+        amount: amt,
+      });
+    }
+
+    const byCategory = [...byCategoryMap.entries()]
+      .map(([category, amount]) => ({ category, amount: round2(amount) }))
+      .sort((a, b) => b.amount - a.amount);
+    const byDay = [...byDayMap.entries()]
+      .map(([date, amount]) => ({ date, amount: round2(amount) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const expenseDetailCols = [
+      { header: 'Date', key: 'expense_date' },
+      { header: 'Category', key: 'category' },
+      { header: 'Description', key: 'description' },
+      { header: 'Amount', key: 'amount', money: true, align: 'right' },
+    ];
+    const cashExpenseRows = expenseRows.filter(r => r.paid_via === 'cash');
+    const bankExpenseRows = expenseRows.filter(r => r.paid_via === 'bank');
+
+    return res.json({
+      module: 'expenses',
+      from,
+      to,
+      branch_id: branchId || null,
+      cards: [
+        {
+          key: 'total_outgoings',
+          title: 'Total expenses',
+          amount: round2(totalOut),
+          hint: 'Posted expenses in this period',
+          tone: 'red',
+          extra: `${expenseRows.length} expense(s)`,
+          breakdown: {
+            columns: expenseDetailCols,
+            rows: expenseRows,
+            total: round2(totalOut),
+          },
+        },
+        {
+          key: 'cash',
+          title: 'Paid by cash',
+          amount: round2(cashTotal),
+          hint: 'Expenses paid from cash',
+          tone: 'amber',
+          extra: null,
+          breakdown: {
+            columns: expenseDetailCols,
+            rows: cashExpenseRows,
+            total: round2(cashTotal),
+          },
+        },
+        {
+          key: 'bank',
+          title: 'Paid by bank',
+          amount: round2(bankTotal),
+          hint: 'Expenses paid from bank',
+          tone: 'blue',
+          extra: null,
+          breakdown: {
+            columns: expenseDetailCols,
+            rows: bankExpenseRows,
+            total: round2(bankTotal),
+          },
+        },
+      ],
+      tabs: [
+        {
+          id: 'by_category',
+          label: 'By category',
+          columns: [
+            { header: 'Category', key: 'category' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: byCategory,
+          totals: { __label: 'Total', amount: round2(totalOut) },
+        },
+        {
+          id: 'by_day',
+          label: 'By day',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: byDay,
+          totals: { __label: 'Total', amount: round2(totalOut) },
+        },
+        {
+          id: 'expenses',
+          label: 'Expenses',
+          columns: [
+            { header: 'Date', key: 'expense_date' },
+            { header: 'Category', key: 'category' },
+            { header: 'Paid via', key: 'paid_via' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: expenseRows,
+          totals: { __label: 'Total', amount: round2(totalOut) },
+        },
+      ],
+      pdf: {
+        title: 'Expenses Summary Report',
+        sections: [
+          {
+            heading: 'Outgoings',
+            rows: [
+              { label: 'Total expenses', value: moneyStr(totalOut) },
+              { label: 'Cash', value: moneyStr(cashTotal) },
+              { label: 'Bank', value: moneyStr(bankTotal) },
+            ],
+          },
+        ],
+        tables: [
+          pdfTable(
+            'By category',
+            [
+              { header: 'Category', key: 'category' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            byCategory,
+            { __label: 'Total', amount: round2(totalOut) },
+          ),
+          pdfTable(
+            'Expenses',
+            [
+              { header: 'Date', key: 'expense_date', render: (row) => dayKey(row.expense_date) },
+              { header: 'Category', key: 'category' },
+              { header: 'Paid via', key: 'paid_via' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            expenseRows,
+            { __label: 'Total', amount: round2(totalOut) },
+          ),
+        ],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('expensesSummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.accountingSummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const { fromDate, toDate } = rangeDates(from, to);
+
+    const voucherWhere = {
+      shop_id: shopId,
+      status: 'posted',
+      voucher_date: { [Op.between]: [fromDate, toDate] },
+    };
+    if (branchId) voucherWhere.branch_id = branchId;
+
+    const vouchers = await db.Voucher.findAll({
+      where: voucherWhere,
+      include: [{ model: db.VoucherEntry, attributes: ['debit_amount', 'credit_amount'] }],
+      order: [['voucher_date', 'DESC']],
+    });
+
+    let receiptsIn = 0;
+    let paymentsOut = 0;
+    let journalTotal = 0;
+    let contraTotal = 0;
+    let journalCount = 0;
+    let contraCount = 0;
+    const byTypeMap = new Map();
+    const byDayMap = new Map();
+    const voucherRows = [];
+
+    for (const v of vouchers) {
+      const entries = v.VoucherEntries || [];
+      const debitSum = round2(entries.reduce((s, e) => s + parseFloat(e.debit_amount || 0), 0));
+      const creditSum = round2(entries.reduce((s, e) => s + parseFloat(e.credit_amount || 0), 0));
+      const amount = debitSum || creditSum;
+
+      if (v.voucher_type === 'receipt') receiptsIn += debitSum;
+      else if (v.voucher_type === 'payment') paymentsOut += creditSum;
+      else if (v.voucher_type === 'journal') {
+        journalCount += 1;
+        journalTotal = round2(journalTotal + debitSum);
+      } else if (v.voucher_type === 'contra') {
+        contraCount += 1;
+        contraTotal = round2(contraTotal + debitSum);
+      }
+
+      byTypeMap.set(v.voucher_type, round2((byTypeMap.get(v.voucher_type) || 0) + amount));
+
+      const day = dayKey(v.voucher_date) || from;
+      byDayMap.set(day, round2((byDayMap.get(day) || 0) + amount));
+
+      voucherRows.push({
+        id: v.id,
+        voucher_number: v.voucher_number,
+        voucher_date: v.voucher_date,
+        voucher_type: v.voucher_type,
+        amount,
+        narration: v.narration,
+        open: openLink('voucher', v.id),
+      });
+    }
+
+    const byType = [...byTypeMap.entries()]
+      .map(([voucher_type, amount]) => ({ voucher_type, amount: round2(amount) }))
+      .sort((a, b) => b.amount - a.amount);
+    const byDay = [...byDayMap.entries()]
+      .map(([date, amount]) => ({ date, amount: round2(amount) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const voucherDetailCols = [
+      { header: 'Number', key: 'voucher_number' },
+      { header: 'Date', key: 'voucher_date' },
+      { header: 'Type', key: 'voucher_type' },
+      { header: 'Amount', key: 'amount', money: true, align: 'right' },
+    ];
+    const receiptRows = voucherRows.filter(r => r.voucher_type === 'receipt');
+    const paymentRows = voucherRows.filter(r => r.voucher_type === 'payment');
+    const journalRows = voucherRows.filter(r => r.voucher_type === 'journal');
+    const contraRows = voucherRows.filter(r => r.voucher_type === 'contra');
+
+    return res.json({
+      module: 'accounting',
+      from,
+      to,
+      branch_id: branchId || null,
+      cards: [
+        {
+          key: 'receipts_in',
+          title: 'Receipts',
+          amount: round2(receiptsIn),
+          hint: 'Money in via receipt vouchers',
+          tone: 'green',
+          extra: null,
+          breakdown: {
+            columns: voucherDetailCols,
+            rows: receiptRows,
+            total: round2(receiptsIn),
+          },
+        },
+        {
+          key: 'payments_out',
+          title: 'Payments',
+          amount: round2(paymentsOut),
+          hint: 'Money out via payment vouchers',
+          tone: 'red',
+          extra: null,
+          breakdown: {
+            columns: voucherDetailCols,
+            rows: paymentRows,
+            total: round2(paymentsOut),
+          },
+        },
+        {
+          key: 'journals',
+          title: 'Journal vouchers',
+          amount: round2(journalTotal),
+          hint: 'Journal entry value in period',
+          tone: 'violet',
+          extra: `${journalCount} voucher(s)`,
+          breakdown: {
+            columns: voucherDetailCols,
+            rows: journalRows,
+            total: round2(journalTotal),
+          },
+        },
+        {
+          key: 'contra',
+          title: 'Contra vouchers',
+          amount: round2(contraTotal),
+          hint: 'Contra / transfer vouchers',
+          tone: 'cyan',
+          extra: `${contraCount} voucher(s)`,
+          breakdown: {
+            columns: voucherDetailCols,
+            rows: contraRows,
+            total: round2(contraTotal),
+          },
+        },
+        {
+          key: 'voucher_count',
+          title: 'Vouchers posted',
+          amount: vouchers.length,
+          hint: 'Total posted vouchers in period',
+          tone: 'blue',
+          extra: null,
+          breakdown: {
+            columns: voucherDetailCols,
+            rows: voucherRows,
+            total: vouchers.length,
+          },
+        },
+      ],
+      tabs: [
+        {
+          id: 'by_type',
+          label: 'By type',
+          columns: [
+            { header: 'Type', key: 'voucher_type' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: byType,
+        },
+        {
+          id: 'by_day',
+          label: 'By day',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: byDay,
+        },
+        {
+          id: 'vouchers',
+          label: 'Vouchers',
+          columns: [
+            { header: 'Number', key: 'voucher_number' },
+            { header: 'Date', key: 'voucher_date' },
+            { header: 'Type', key: 'voucher_type' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: voucherRows,
+        },
+      ],
+      pdf: {
+        title: 'Accounting Summary Report',
+        sections: [
+          {
+            heading: 'Voucher totals',
+            rows: [
+              { label: 'Receipts in', value: moneyStr(receiptsIn) },
+              { label: 'Payments out', value: moneyStr(paymentsOut) },
+              { label: 'Journals', value: moneyStr(journalTotal) },
+              { label: 'Contra', value: moneyStr(contraTotal) },
+              { label: 'Voucher count', value: String(vouchers.length) },
+            ],
+          },
+        ],
+        tables: [
+          pdfTable(
+            'Vouchers',
+            [
+              { header: 'Number', key: 'voucher_number' },
+              { header: 'Date', key: 'voucher_date', render: (row) => dayKey(row.voucher_date) },
+              { header: 'Type', key: 'voucher_type' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            voucherRows,
+          ),
+        ],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('accountingSummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.employeesSummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const { fromDate, toDate } = rangeDates(from, to);
+
+    const empInclude = {
+      model: db.Employee,
+      attributes: ['id', 'name', 'branch_id', 'current_payable'],
+      ...(branchId ? { where: { branch_id: branchId } } : {}),
+    };
+
+    const txns = await db.EmployeeTransaction.findAll({
+      where: { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } },
+      include: [empInclude],
+      order: [['date', 'DESC']],
+    });
+
+    const empWhere = { shop_id: shopId, status: 'active' };
+    if (branchId) empWhere.branch_id = branchId;
+    const employees = await db.Employee.findAll({
+      where: empWhere,
+      attributes: ['id', 'name', 'phone', 'current_payable'],
+      order: [['name', 'ASC']],
+    });
+
+    let salaryPaid = 0;
+    let advancesLoansOut = 0;
+    let recoveriesIn = 0;
+    const byDayMap = new Map();
+    const txnRows = [];
+    const employeeDetailCols = [
+      { header: 'Date', key: 'date' },
+      { header: 'Employee', key: 'employee_name' },
+      { header: 'Amount', key: 'amount', money: true, align: 'right' },
+      { header: 'Method', key: 'method' },
+    ];
+
+    for (const t of txns) {
+      if (!t.Employee) continue;
+      const amt = round2(t.amount);
+      const day = dayKey(t.date) || from;
+      txnRows.push({
+        id: t.id,
+        date: t.date,
+        type: t.type,
+        employee_id: t.employee_id,
+        employee_name: t.Employee.name,
+        amount: amt,
+        method: t.method,
+        open: openLink('employee', t.employee_id),
+      });
+
+      if (t.type === 'payment_made') salaryPaid += amt;
+      else if (['advance_given', 'loan_given'].includes(t.type)) advancesLoansOut += amt;
+      else if (['loan_repayment', 'receivable_collected'].includes(t.type)) recoveriesIn += amt;
+
+      const out = ['payment_made', 'advance_given', 'loan_given'].includes(t.type) ? amt : 0;
+      const inn = ['loan_repayment', 'receivable_collected'].includes(t.type) ? amt : 0;
+      const dayRow = byDayMap.get(day) || { date: day, out: 0, in: 0 };
+      dayRow.out = round2(dayRow.out + out);
+      dayRow.in = round2(dayRow.in + inn);
+      byDayMap.set(day, dayRow);
+    }
+
+    const payablesList = employees
+      .filter(e => parseFloat(e.current_payable || 0) > 0.009)
+      .map(e => ({
+        employee_id: e.id,
+        employee_name: e.name,
+        phone: e.phone,
+        payable: round2(e.current_payable),
+        open: openLink('employee', e.id),
+      }))
+      .sort((a, b) => b.payable - a.payable);
+
+    const payablesTotal = round2(payablesList.reduce((s, p) => s + p.payable, 0));
+    const byDay = [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
+    const salaryRows = txnRows.filter(r => r.type === 'payment_made');
+    const advancesLoansRows = txnRows.filter(r => ['advance_given', 'loan_given'].includes(r.type));
+    const recoveryRows = txnRows.filter(r => ['loan_repayment', 'receivable_collected'].includes(r.type));
+
+    return res.json({
+      module: 'employees',
+      from,
+      to,
+      branch_id: branchId || null,
+      cards: [
+        {
+          key: 'salary_paid',
+          title: 'Salary paid',
+          amount: round2(salaryPaid),
+          hint: 'Employee payments made in period',
+          tone: 'red',
+          extra: null,
+          breakdown: {
+            columns: employeeDetailCols,
+            rows: salaryRows,
+            total: round2(salaryPaid),
+          },
+        },
+        {
+          key: 'advances_loans_out',
+          title: 'Advances & loans out',
+          amount: round2(advancesLoansOut),
+          hint: 'Advances and loans given to employees',
+          tone: 'amber',
+          extra: null,
+          breakdown: {
+            columns: employeeDetailCols,
+            rows: advancesLoansRows,
+            total: round2(advancesLoansOut),
+          },
+        },
+        {
+          key: 'recoveries_in',
+          title: 'Recoveries',
+          amount: round2(recoveriesIn),
+          hint: 'Loan repayments and receivables collected',
+          tone: 'green',
+          extra: null,
+          breakdown: {
+            columns: employeeDetailCols,
+            rows: recoveryRows,
+            total: round2(recoveriesIn),
+          },
+        },
+        {
+          key: 'employee_payables',
+          title: 'Employee payables',
+          amount: payablesTotal,
+          hint: 'Outstanding dues to employees (snapshot)',
+          tone: 'blue',
+          extra: `${payablesList.length} employee(s)`,
+          breakdown: {
+            columns: [
+              { header: 'Employee', key: 'employee_name' },
+              { header: 'Payable', key: 'payable', money: true, align: 'right' },
+            ],
+            rows: payablesList,
+            total: payablesTotal,
+          },
+        },
+      ],
+      tabs: [
+        {
+          id: 'by_day',
+          label: 'By day',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Out', key: 'out', money: true, align: 'right' },
+            { header: 'In', key: 'in', money: true, align: 'right' },
+          ],
+          rows: byDay,
+        },
+        {
+          id: 'transactions',
+          label: 'Transactions',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Type', key: 'type' },
+            { header: 'Employee', key: 'employee_name' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: txnRows,
+        },
+        {
+          id: 'payables',
+          label: 'Payables',
+          columns: [
+            { header: 'Employee', key: 'employee_name' },
+            { header: 'Phone', key: 'phone' },
+            { header: 'Payable', key: 'payable', money: true, align: 'right' },
+          ],
+          rows: payablesList,
+          totals: { __label: 'Total', payable: payablesTotal },
+        },
+      ],
+      pdf: {
+        title: 'Employees Summary Report',
+        sections: [
+          {
+            heading: 'Payroll flow',
+            rows: [
+              { label: 'Salary paid', value: moneyStr(salaryPaid) },
+              { label: 'Advances & loans out', value: moneyStr(advancesLoansOut) },
+              { label: 'Recoveries in', value: moneyStr(recoveriesIn) },
+              { label: 'Employee payables', value: moneyStr(payablesTotal) },
+            ],
+          },
+        ],
+        tables: [
+          pdfTable(
+            'Transactions',
+            [
+              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Type', key: 'type' },
+              { header: 'Employee', key: 'employee_name' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            txnRows,
+          ),
+        ],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('employeesSummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.boardSummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const { fromDate, toDate } = rangeDates(from, to);
+
+    const txns = await db.BoardMemberTransaction.findAll({
+      where: { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } },
+      include: [{ model: db.BoardMember, attributes: ['id', 'name', 'current_balance'] }],
+      order: [['date', 'DESC']],
+    });
+
+    const members = await db.BoardMember.findAll({
+      where: { shop_id: shopId },
+      attributes: ['id', 'name', 'phone', 'current_balance'],
+      order: [['name', 'ASC']],
+    });
+
+    let contributions = 0;
+    let withdrawals = 0;
+    const byMemberMap = new Map();
+    const txnRows = [];
+    const boardDetailCols = [
+      { header: 'Date', key: 'date' },
+      { header: 'Member', key: 'member_name' },
+      { header: 'Amount', key: 'amount', money: true, align: 'right' },
+      { header: 'Method', key: 'method' },
+    ];
+
+    for (const t of txns) {
+      const amt = round2(t.amount);
+      const memberName = t.BoardMember?.name || '—';
+      txnRows.push({
+        id: t.id,
+        date: t.date,
+        type: t.type,
+        board_member_id: t.board_member_id,
+        member_name: memberName,
+        amount: amt,
+        method: t.method,
+        open: openLink('board_member', t.board_member_id),
+      });
+
+      if (t.type === 'contribution') contributions += amt;
+      else if (t.type === 'withdrawal') withdrawals += amt;
+
+      const mid = t.board_member_id;
+      const mrow = byMemberMap.get(mid) || {
+        member_id: mid,
+        member_name: memberName,
+        contributions: 0,
+        withdrawals: 0,
+        net: 0,
+      };
+      if (t.type === 'contribution') mrow.contributions = round2(mrow.contributions + amt);
+      else if (t.type === 'withdrawal') mrow.withdrawals = round2(mrow.withdrawals + amt);
+      mrow.net = round2(mrow.contributions - mrow.withdrawals);
+      byMemberMap.set(mid, mrow);
+    }
+
+    const memberBalancesTotal = round2(
+      members.reduce((s, m) => s + parseFloat(m.current_balance || 0), 0),
+    );
+    const netCapital = round2(contributions - withdrawals);
+    const byMember = [...byMemberMap.values()]
+      .map(m => ({ ...m, board_member_id: m.member_id, open: openLink('board_member', m.member_id) }))
+      .sort((a, b) => b.net - a.net);
+    const balanceRows = members.map(m => ({
+      board_member_id: m.id,
+      member_name: m.name,
+      phone: m.phone,
+      balance: round2(m.current_balance),
+      open: openLink('board_member', m.id),
+    }));
+    const contributionRows = txnRows.filter(r => r.type === 'contribution');
+    const withdrawalRows = txnRows.filter(r => r.type === 'withdrawal');
+    const netCapitalRows = [
+      { label: 'Contributions', amount: round2(contributions) },
+      { label: 'Withdrawals', amount: round2(withdrawals) },
+    ];
+
+    return res.json({
+      module: 'board',
+      from,
+      to,
+      branch_id: branchId || null,
+      cards: [
+        {
+          key: 'contributions',
+          title: 'Contributions',
+          amount: round2(contributions),
+          hint: 'Capital contributed in this period',
+          tone: 'green',
+          extra: null,
+          breakdown: {
+            columns: boardDetailCols,
+            rows: contributionRows,
+            total: round2(contributions),
+          },
+        },
+        {
+          key: 'withdrawals',
+          title: 'Withdrawals',
+          amount: round2(withdrawals),
+          hint: 'Capital withdrawn in this period',
+          tone: 'red',
+          extra: null,
+          breakdown: {
+            columns: boardDetailCols,
+            rows: withdrawalRows,
+            total: round2(withdrawals),
+          },
+        },
+        {
+          key: 'net_capital',
+          title: 'Net capital flow',
+          amount: netCapital,
+          hint: 'Contributions minus withdrawals in period',
+          tone: 'blue',
+          extra: null,
+          breakdown: {
+            columns: [
+              { header: 'Item', key: 'label' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            rows: netCapitalRows,
+            total: netCapital,
+          },
+        },
+        {
+          key: 'member_balances_total',
+          title: 'Member balances',
+          amount: memberBalancesTotal,
+          hint: 'Total current board member balances',
+          tone: 'violet',
+          extra: `${members.length} member(s)`,
+          breakdown: {
+            columns: [
+              { header: 'Member', key: 'member_name' },
+              { header: 'Balance', key: 'balance', money: true, align: 'right' },
+            ],
+            rows: balanceRows,
+            total: memberBalancesTotal,
+          },
+        },
+      ],
+      tabs: [
+        {
+          id: 'transactions',
+          label: 'Transactions',
+          columns: [
+            { header: 'Date', key: 'date' },
+            { header: 'Type', key: 'type' },
+            { header: 'Member', key: 'member_name' },
+            { header: 'Amount', key: 'amount', money: true, align: 'right' },
+          ],
+          rows: txnRows,
+        },
+        {
+          id: 'by_member',
+          label: 'By member',
+          columns: [
+            { header: 'Member', key: 'member_name' },
+            { header: 'In', key: 'contributions', money: true, align: 'right' },
+            { header: 'Out', key: 'withdrawals', money: true, align: 'right' },
+            { header: 'Net', key: 'net', money: true, align: 'right' },
+          ],
+          rows: byMember,
+        },
+      ],
+      pdf: {
+        title: 'Board Summary Report',
+        sections: [
+          {
+            heading: 'Capital flow',
+            rows: [
+              { label: 'Contributions', value: moneyStr(contributions) },
+              { label: 'Withdrawals', value: moneyStr(withdrawals) },
+              { label: 'Net capital flow', value: moneyStr(netCapital) },
+              { label: 'Member balances total', value: moneyStr(memberBalancesTotal) },
+            ],
+          },
+        ],
+        tables: [
+          pdfTable(
+            'Transactions',
+            [
+              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Type', key: 'type' },
+              { header: 'Member', key: 'member_name' },
+              { header: 'Amount', key: 'amount', money: true, align: 'right' },
+            ],
+            txnRows,
+          ),
+        ],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('boardSummary report error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };

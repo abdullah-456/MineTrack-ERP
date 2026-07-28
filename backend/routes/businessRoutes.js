@@ -106,6 +106,7 @@ router.post(  '/customers/:id/payments', authorize('customers', 'update'), custo
 // Employees
 router.get(   '/employees',              authorize('employees', 'read'),   employeeController.list);
 router.get(   '/employees/latest-payslips', authorize('employees', 'read'), employeeLedgerController.getLatestPayslips);
+router.get(   '/employees/next-employment-id', authorize('employees', 'create'), employeeController.nextEmploymentId);
 router.get(   '/employees/:id',          authorize('employees', 'read'),   employeeController.get);
 router.post(  '/employees',              authorize('employees', 'create'), employeeController.create);
 router.put(   '/employees/:id',          authorize('employees', 'update'), employeeController.update);
@@ -162,6 +163,14 @@ router.get(   '/reports/balance-sheet',   authorize('reports', 'read'), financia
 router.get(   '/reports/equity-statement', authorize('reports', 'read'), financialReportsController.equityStatement);
 router.get(   '/reports/cash-flow',       authorize('reports', 'read'), financialReportsController.cashFlow);
 router.get(   '/reports/modules/sales/summary', authorize('sales', 'read'), moduleReportsController.salesSummary);
+router.get('/reports/modules/purchases/summary', authorize('purchases', 'read'), moduleReportsController.purchasesSummary);
+router.get('/reports/modules/inventory/summary', authorize('inventory', 'read'), moduleReportsController.inventorySummary);
+router.get('/reports/modules/customers/summary', authorize('customers', 'read'), moduleReportsController.customersSummary);
+router.get('/reports/modules/suppliers/summary', authorize('suppliers', 'read'), moduleReportsController.suppliersSummary);
+router.get('/reports/modules/expenses/summary', authorize('expenses', 'read'), moduleReportsController.expensesSummary);
+router.get('/reports/modules/accounting/summary', authorize('accounting', 'read'), moduleReportsController.accountingSummary);
+router.get('/reports/modules/employees/summary', authorize('employees', 'read'), moduleReportsController.employeesSummary);
+router.get('/reports/modules/board/summary', authorize('board_directors', 'read'), moduleReportsController.boardSummary);
 
 // Financial Setup (first-time wizard) & Cash Sessions
 router.post(  '/financial-setup',                 financialSetupController.completeSetup);
@@ -183,13 +192,29 @@ router.get(   '/admin/audit-log/modules', authorize('users', 'read'), auditLogCo
 
 // Board of Directors
 router.get(   '/board-members',     authorize('board_directors', 'read'),   boardMemberController.list);
+router.get(   '/board-members/payment-sources', (req, res, next) => {
+  if (!req.user) return res.status(401).json({ message: 'Authentication required' });
+  return next();
+}, async (req, res) => {
+  try {
+    const { requireShopId } = require('../utils/shopScope');
+    const { listPaymentSources } = require('../utils/bodAccounts');
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const sources = await listPaymentSources(shopId);
+    return res.json({ sources });
+  } catch (e) {
+    console.error('listBodPaymentSources error:', e);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+});
 router.get(   '/board-members/:id', authorize('board_directors', 'read'),   boardMemberController.get);
 router.post(  '/board-members',     authorize('board_directors', 'create'), boardMemberController.create);
 router.put(   '/board-members/:id', authorize('board_directors', 'update'), boardMemberController.update);
 router.delete('/board-members/:id', authorize('board_directors', 'delete'), boardMemberController.remove);
 router.get(   '/board-members/:id/ledger',  authorize('board_directors', 'read'),   boardMemberLedgerController.getLedger);
-router.post(  '/board-members/:id/receive', authorize('board_directors', 'update'), boardMemberLedgerController.recordReceive);
-router.post(  '/board-members/:id/send',    authorize('board_directors', 'update'), boardMemberLedgerController.recordSend);
+router.post(  '/board-members/:id/personal-deposit', authorize('board_directors', 'update'), boardMemberLedgerController.recordPersonalDeposit);
+router.post(  '/board-members/:id/transfer', authorize('board_directors', 'update'), boardMemberLedgerController.recordTransfer);
 
 // Expenses
 router.get(   '/expenses',     authorize('expenses', 'read'),   expenseController.list);

@@ -75,17 +75,19 @@ export function CompanyHeader({ company = {}, docTitle }) {
     .filter(Boolean).join('   |   ');
   return (
     <div style={{ marginBottom: 14 }}>
+      {/* Inset banner — detached from sheet edges (same treatment as other receipts) */}
       <div style={{
         position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        minHeight: 46, margin: '-16mm -15mm 0', padding: '14px 15mm',
+        minHeight: 46, margin: '0 0 14px', padding: '14px 16px',
         background: BRAND, borderBottom: `4px solid ${BRAND_ACCENT}`,
+        borderRadius: 8,
       }}>
         {company.logo_url && (
           <img
             src={company.logo_url}
             alt=""
             style={{
-              position: 'absolute', left: '15mm', top: '50%', transform: 'translateY(-50%)',
+              position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
               maxHeight: 52, maxWidth: 120, objectFit: 'contain',
               background: '#fff', borderRadius: 6, padding: 3,
             }}
@@ -104,7 +106,7 @@ export function CompanyHeader({ company = {}, docTitle }) {
       {docTitle && (
         <div style={{
           textAlign: 'center', fontSize: 15, fontWeight: 800, letterSpacing: 1.5,
-          textTransform: 'uppercase', padding: '12px 0 2px', color: '#312e81',
+          textTransform: 'uppercase', padding: '4px 0 2px', color: '#312e81',
         }}>
           {docTitle}
         </div>

@@ -424,6 +424,7 @@ export default function EmployeeLedger() {
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <PaymentAccountSelect
+                includeBod={false}
                 method={advanceForm.method}
                 bankAccountId={advanceForm.bank_account_id}
                 onChange={({ method, bank_account_id }) => setAdvanceForm(f => ({ ...f, method, bank_account_id }))}
@@ -455,6 +456,7 @@ export default function EmployeeLedger() {
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <PaymentAccountSelect
+                includeBod={false}
                 method={loanForm.method}
                 bankAccountId={loanForm.bank_account_id}
                 onChange={({ method, bank_account_id }) => setLoanForm(f => ({ ...f, method, bank_account_id }))}
@@ -496,6 +498,7 @@ export default function EmployeeLedger() {
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <PaymentAccountSelect
+                includeBod={false}
                 method={receivableForm.method}
                 bankAccountId={receivableForm.bank_account_id}
                 onChange={({ method, bank_account_id }) => setReceivableForm(f => ({ ...f, method, bank_account_id }))}

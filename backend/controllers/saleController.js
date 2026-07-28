@@ -152,7 +152,7 @@ exports.create = async (req, res) => {
 
     const {
       customer_id, branch_id, employee_id, sale_type, items, discount, tax, payment_method, payment_amount,
-      installment_plan, description, bank_account_id,
+      installment_plan, description, bank_account_id, board_member_id,
     } = req.body;
 
     // Credit sales require a registered customer
@@ -338,21 +338,30 @@ exports.create = async (req, res) => {
     if (payAmount > total) payAmount = total;
 
     const finalPaymentMethod = mapPaymentMethod(payment_method || sale_type || 'cash');
-    const isBankMethod = ['card', 'bank', 'mobile_wallet'].includes(finalPaymentMethod);
+    const isBodPay = payment_method === 'bod_cash' || payment_method === 'bod_bank'
+      || sale_type === 'bod_cash' || sale_type === 'bod_bank';
+    const bodMethod = isBodPay
+      ? (payment_method === 'bod_bank' || sale_type === 'bod_bank' ? 'bod_bank' : 'bod_cash')
+      : null;
+    const isBankMethod = !isBodPay && ['card', 'bank', 'mobile_wallet'].includes(finalPaymentMethod);
 
     let bankAcc = null;
-    if (payAmount > 0) {
+    if (payAmount > 0 && !isBodPay) {
       if (isBankMethod) {
         bankAcc = await creditBankAccount(shopId, payAmount, transaction, bank_account_id);
       } else if (bank_account_id) {
         bankAcc = await creditCashPayment(shopId, payAmount, transaction, bank_account_id);
       }
     }
+    if (payAmount > 0 && isBodPay && !board_member_id) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'board_member_id is required for BOD Current collection' });
+    }
 
     await db.Payment.create({
       sale_id: sale.id,
       amount: payAmount,
-      payment_method: finalPaymentMethod,
+      payment_method: isBodPay ? (bodMethod === 'bod_bank' ? 'bank' : 'cash') : finalPaymentMethod,
       payment_date: new Date(),
       bank_account_id: bankAcc?.id || null,
     }, { transaction });
@@ -412,9 +421,48 @@ exports.create = async (req, res) => {
 
     const arDebitAmount = Math.round((total - payAmount - advanceApplied) * 100) / 100;
     const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
-    const paymentLine = payAmount > 0
-      ? { accountCode: isBankMethod ? bankAccountCode(bankAcc) : paymentAccountCode('cash', bankAcc), debit: payAmount }
-      : null;
+
+    let paymentLine = null;
+    if (payAmount > 0 && isBodPay) {
+      const member = await db.BoardMember.findOne({
+        where: { id: board_member_id, shop_id: shopId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!member) {
+        await transaction.rollback();
+        return res.status(404).json({ message: 'Board member not found' });
+      }
+      const { ensureBodAccounts, currentBalanceField, bodWalletMethod } = require('../utils/bodAccounts');
+      await ensureBodAccounts(member, req.user.id, transaction);
+      const wallet = bodWalletMethod(bodMethod);
+      const field = currentBalanceField(wallet);
+      const amt = Math.round(payAmount * 100) / 100;
+      await member.update({
+        [field]: Math.round((parseFloat(member[field]) + amt) * 100) / 100,
+        due_from_balance: Math.round((parseFloat(member.due_from_balance) + amt) * 100) / 100,
+      }, { transaction });
+      const dueAcct = await db.ChartOfAccount.findByPk(member.due_from_coa_id, { transaction });
+      paymentLine = { accountCode: dueAcct.account_code, debit: payAmount };
+
+      await db.BoardMemberTransaction.create({
+        shop_id: shopId,
+        board_member_id: member.id,
+        date: sale.sale_date,
+        type: 'current_receipt',
+        amount: amt,
+        method: wallet,
+        notes: `Sale collection — ${customerName}`,
+        created_by: req.user.id,
+        account_bucket: wallet === 'bank' ? 'current_bank' : 'current_cash',
+        fund_origin: 'company',
+      }, { transaction });
+    } else if (payAmount > 0) {
+      paymentLine = {
+        accountCode: isBankMethod ? bankAccountCode(bankAcc) : paymentAccountCode('cash', bankAcc),
+        debit: payAmount,
+      };
+    }
 
     const advanceLine = advanceApplied > 0 ? { accountCode: '03-CUSTADV', debit: advanceApplied } : null;
 

@@ -25,7 +25,7 @@ export default function ReportActions({
     setBusy(mode);
     try {
       const company = await getCompany(shopParams());
-      const model = buildModel();
+      const model = await Promise.resolve(buildModel());
       if (!model || (!model.columns && !model.sections && !model.tables && !model.table)) {
         return;
       }

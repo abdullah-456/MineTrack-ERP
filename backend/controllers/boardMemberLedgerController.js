@@ -1,154 +1,101 @@
+'use strict';
+
 const db = require('../models');
 const { requireShopId } = require('../utils/shopScope');
-const { debitBankAccount, debitCashPayment, creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
-const { postVoucher } = require('../utils/postVoucher');
-
-// +1 = company owes this member more (contribution in, opening balance);
-// -1 = member has drawn against it (withdrawal out) — matches
-// BoardMember.current_balance's meaning (positive = company owes them).
-const SIGN_FOR = {
-  opening_balance: 1,
-  contribution: 1,
-  adjustment: 1,
-  withdrawal: -1,
-};
+const {
+  ensureBodAccounts,
+  personalDeposit,
+  transferToCapital,
+  transferFromCapital,
+  round2,
+} = require('../utils/bodAccounts');
 
 async function loadMember(req, shopId, transaction) {
   return db.BoardMember.findOne({
     where: { id: req.params.id, shop_id: shopId },
-    transaction, lock: transaction.LOCK.UPDATE,
+    transaction,
+    lock: transaction.LOCK.UPDATE,
   });
 }
 
-// ── POST /board-members/:id/receive ──────────────────────────────────────────
-// A capital contribution from the director/investor — money coming INTO the
-// business. Increases what the company owes them (current_balance) and
-// posts against their own dedicated ledger sub-account, not a shared bucket.
-exports.recordReceive = async (req, res) => {
+const INVESTMENT_TYPES = new Set(['opening_balance', 'contribution', 'withdrawal', 'adjustment', 'transfer_to_capital']);
+const CURRENT_TYPES = new Set([
+  'personal_deposit', 'transfer_to_capital', 'transfer_from_capital',
+  'current_payment', 'current_receipt',
+]);
+
+// ── POST /board-members/:id/personal-deposit ─────────────────────────────────
+exports.recordPersonalDeposit = async (req, res) => {
   const transaction = await db.sequelize.transaction();
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
     const member = await loadMember(req, shopId, transaction);
-    if (!member || !member.chart_of_account_id) {
+    if (!member) {
       await transaction.rollback();
       return res.status(404).json({ message: 'Board member not found' });
     }
 
-    const { amount, method, bank_account_id, date, notes } = req.body;
-    const amt = Math.round((parseFloat(amount) || 0) * 100) / 100;
-    if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
-    if (!['cash', 'bank'].includes(method)) {
-      await transaction.rollback();
-      return res.status(400).json({ message: 'method must be cash or bank' });
-    }
-
-    let bankAcc = null;
-    let cashAcc = null;
-    if (method === 'bank') {
-      bankAcc = await creditBankAccount(shopId, amt, transaction, bank_account_id);
-    } else if (bank_account_id) {
-      cashAcc = await creditCashPayment(shopId, amt, transaction, bank_account_id);
-    }
-
-    await member.update({
-      current_balance: Math.round((parseFloat(member.current_balance || 0) + amt) * 100) / 100,
-    }, { transaction });
-
-    const txn = await db.BoardMemberTransaction.create({
-      shop_id: shopId, board_member_id: member.id,
-      date: date ? new Date(date) : new Date(),
-      type: 'contribution', amount: amt, method, bank_account_id: bankAcc?.id || cashAcc?.id || null,
-      notes: notes?.trim() || null, created_by: req.user.id,
-    }, { transaction });
-
-    const memberAccountCode = (await db.ChartOfAccount.findByPk(member.chart_of_account_id, { transaction })).account_code;
-    await postVoucher(shopId, {
-      type: 'receipt',
-      date: date ? new Date(date) : new Date(),
-      narration: `Contribution received from ${member.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
-      createdBy: req.user.id,
-      branchId: null,
-      lines: [
-        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : paymentAccountCode('cash', cashAcc), debit: amt },
-        { accountCode: memberAccountCode, credit: amt },
-      ],
+    const { amount, method, date, notes } = req.body;
+    const result = await personalDeposit(shopId, member, {
+      amount, method, createdBy: req.user.id, date, notes,
     }, transaction);
 
     await transaction.commit();
     const fresh = await db.BoardMember.findByPk(member.id);
-    return res.status(201).json({ transaction: txn, member: fresh });
+    return res.status(201).json({ transaction: result.transaction, member: fresh });
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
-    console.error('recordBoardMemberReceive error:', error);
+    console.error('recordPersonalDeposit error:', error);
     return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 };
 
-// ── POST /board-members/:id/send ─────────────────────────────────────────────
-// A withdrawal/drawing paid OUT to the director/investor. Decreases what the
-// company owes them. No floor check against their own balance — a director
-// overdrawing is a business decision, not something the system blocks — but
-// the underlying cash/bank account still can't go negative.
-exports.recordSend = async (req, res) => {
+// ── POST /board-members/:id/transfer ─────────────────────────────────────────
+// direction: 'to_capital' | 'from_capital'
+exports.recordTransfer = async (req, res) => {
   const transaction = await db.sequelize.transaction();
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
     const member = await loadMember(req, shopId, transaction);
-    if (!member || !member.chart_of_account_id) {
+    if (!member) {
       await transaction.rollback();
       return res.status(404).json({ message: 'Board member not found' });
     }
 
-    const { amount, method, bank_account_id, date, notes } = req.body;
-    const amt = Math.round((parseFloat(amount) || 0) * 100) / 100;
-    if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
-    if (!['cash', 'bank'].includes(method)) {
-      await transaction.rollback();
-      return res.status(400).json({ message: 'method must be cash or bank' });
-    }
+    const {
+      direction, amount, current_method, capital_method, capital_bank_account_id, date, notes,
+    } = req.body;
 
-    let bankAcc = null;
-    let cashAcc = null;
-    if (method === 'bank') {
-      bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
-    } else {
-      cashAcc = await debitCashPayment(shopId, amt, transaction, bank_account_id);
-    }
-
-    await member.update({
-      current_balance: Math.round((parseFloat(member.current_balance || 0) - amt) * 100) / 100,
-    }, { transaction });
-
-    const txn = await db.BoardMemberTransaction.create({
-      shop_id: shopId, board_member_id: member.id,
-      date: date ? new Date(date) : new Date(),
-      type: 'withdrawal', amount: amt, method, bank_account_id: bankAcc?.id || cashAcc?.id || null,
-      notes: notes?.trim() || null, created_by: req.user.id,
-    }, { transaction });
-
-    const memberAccountCode = (await db.ChartOfAccount.findByPk(member.chart_of_account_id, { transaction })).account_code;
-    await postVoucher(shopId, {
-      type: 'payment',
-      date: date ? new Date(date) : new Date(),
-      narration: `Withdrawal paid to ${member.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
+    const args = {
+      amount,
+      currentMethod: current_method || 'cash',
+      capitalMethod: capital_method || 'cash',
+      capitalBankAccountId: capital_bank_account_id || null,
       createdBy: req.user.id,
-      branchId: null,
-      lines: [
-        { accountCode: memberAccountCode, debit: amt },
-        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : paymentAccountCode('cash', cashAcc), credit: amt },
-      ],
-    }, transaction);
+      date,
+      notes,
+    };
+
+    let result;
+    if (direction === 'to_capital') {
+      result = await transferToCapital(shopId, member, args, transaction);
+    } else if (direction === 'from_capital') {
+      result = await transferFromCapital(shopId, member, args, transaction);
+    } else {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'direction must be to_capital or from_capital' });
+    }
 
     await transaction.commit();
     const fresh = await db.BoardMember.findByPk(member.id);
-    return res.status(201).json({ transaction: txn, member: fresh });
+    return res.status(201).json({ transaction: result.transaction, member: fresh });
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
-    console.error('recordBoardMemberSend error:', error);
+    console.error('recordBoardMemberTransfer error:', error);
     return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 };
@@ -164,6 +111,10 @@ exports.getLedger = async (req, res) => {
     });
     if (!member) return res.status(404).json({ message: 'Board member not found' });
 
+    await ensureBodAccounts(member, null, null).catch(() => {});
+
+    const bucket = req.query.bucket || 'all'; // all | investment | current
+
     const txns = await db.BoardMemberTransaction.findAll({
       where: { board_member_id: member.id },
       include: [
@@ -173,20 +124,72 @@ exports.getLedger = async (req, res) => {
       order: [['date', 'ASC'], ['id', 'ASC']],
     });
 
-    let running = 0;
-    const history = txns.map(t => {
-      const delta = (SIGN_FOR[t.type] || 0) * parseFloat(t.amount || 0);
-      running = Math.round((running + delta) * 100) / 100;
+    const filtered = txns.filter(t => {
+      if (bucket === 'investment') {
+        return t.account_bucket === 'investment'
+          || (!t.account_bucket && INVESTMENT_TYPES.has(t.type));
+      }
+      if (bucket === 'current') {
+        return CURRENT_TYPES.has(t.type)
+          || (t.account_bucket && t.account_bucket.startsWith('current'));
+      }
+      return true;
+    });
+
+    let invRunning = 0;
+    let cashRunning = 0;
+    let bankRunning = 0;
+
+    const history = filtered.map(t => {
+      const amt = round2(t.amount);
+      const type = t.type;
+      let invDelta = 0;
+      let cashDelta = 0;
+      let bankDelta = 0;
+
+      if (type === 'opening_balance' || type === 'contribution' || type === 'adjustment') {
+        invDelta = amt;
+      } else if (type === 'withdrawal') {
+        invDelta = -amt;
+      } else if (type === 'transfer_to_capital') {
+        // Personal portion raises Investment; company portion does not.
+        // We don't store split on txn — approximate: if fund_origin personal/mixed, show note only.
+        // Running Investment uses member field as source of truth in summary.
+        if (t.fund_origin === 'personal') invDelta = amt;
+        // Current always decreases
+        if (t.method === 'bank') bankDelta = -amt;
+        else cashDelta = -amt;
+      } else if (type === 'transfer_from_capital') {
+        if (t.method === 'bank') bankDelta = amt;
+        else cashDelta = amt;
+      } else if (type === 'personal_deposit' || type === 'current_receipt') {
+        if (t.method === 'bank') bankDelta = amt;
+        else cashDelta = amt;
+      } else if (type === 'current_payment') {
+        if (t.method === 'bank') bankDelta = -amt;
+        else cashDelta = -amt;
+      }
+
+      invRunning = round2(invRunning + invDelta);
+      cashRunning = round2(cashRunning + cashDelta);
+      bankRunning = round2(bankRunning + bankDelta);
+
       return {
         id: t.id,
         date: t.date,
         type: t.type,
-        amount: parseFloat(t.amount || 0),
+        amount: amt,
         method: t.method,
         bank_account_name: t.BankAccount?.account_name || null,
         notes: t.notes,
         created_by: t.CreatedBy?.name || null,
-        running_balance: running,
+        account_bucket: t.account_bucket,
+        fund_origin: t.fund_origin,
+        counterpart_method: t.counterpart_method,
+        running_investment: invRunning,
+        running_current_cash: cashRunning,
+        running_current_bank: bankRunning,
+        running_balance: invRunning, // legacy
       };
     }).reverse();
 
@@ -203,11 +206,21 @@ exports.getLedger = async (req, res) => {
         name: member.name,
         phone: member.phone,
         cnic: member.cnic,
+        investment_balance: round2(member.investment_balance),
+        current_cash_balance: round2(member.current_cash_balance),
+        current_bank_balance: round2(member.current_bank_balance),
+        due_from_balance: round2(member.due_from_balance),
+        current_balance: round2(member.investment_balance),
       },
       summary: {
-        total_contributed: Math.round(totalContributed * 100) / 100,
-        total_withdrawn: Math.round(totalWithdrawn * 100) / 100,
-        current_balance: parseFloat(member.current_balance || 0),
+        total_contributed: round2(totalContributed),
+        total_withdrawn: round2(totalWithdrawn),
+        investment_balance: round2(member.investment_balance),
+        current_cash_balance: round2(member.current_cash_balance),
+        current_bank_balance: round2(member.current_bank_balance),
+        current_total: round2(parseFloat(member.current_cash_balance) + parseFloat(member.current_bank_balance)),
+        due_from_balance: round2(member.due_from_balance),
+        current_balance: round2(member.investment_balance),
       },
       transaction_history: history,
     });

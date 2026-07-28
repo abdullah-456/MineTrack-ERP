@@ -32,12 +32,17 @@ exports.recordPayment = async (req, res) => {
     });
     if (!customer) { await transaction.rollback(); return res.status(404).json({ message: 'Customer not found' }); }
 
-    const { amount, method, bank_account_id, date, notes } = req.body;
+    const { amount, method, bank_account_id, board_member_id, date, notes } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
-    if (!['cash', 'bank'].includes(method)) {
+    const isBod = method === 'bod_cash' || method === 'bod_bank';
+    if (!['cash', 'bank', 'bod_cash', 'bod_bank'].includes(method)) {
       await transaction.rollback();
-      return res.status(400).json({ message: 'method must be cash or bank' });
+      return res.status(400).json({ message: 'method must be cash, bank, or BOD Current' });
+    }
+    if (isBod && !board_member_id) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'board_member_id is required for BOD Current' });
     }
 
     const outstanding = Math.max(0, parseFloat(customer.current_balance || 0));
@@ -46,7 +51,40 @@ exports.recordPayment = async (req, res) => {
     const newBalance = Math.round((parseFloat(customer.current_balance || 0) - amt) * 100) / 100;
 
     let bankAcc = null;
-    if (method === 'bank') bankAcc = await creditBankAccount(shopId, amt, transaction, bank_account_id);
+    const storedMethod = isBod ? (method === 'bod_bank' ? 'bank' : 'cash') : method;
+    const creditLines = [
+      ...(appliedToAR > 0 ? [{ accountCode: '05-AR', credit: appliedToAR }] : []),
+      ...(advancePortion > 0 ? [{ accountCode: '03-CUSTADV', credit: advancePortion }] : []),
+    ];
+    const narration = advancePortion > 0
+      ? `Payment received from ${customer.name} including advance credit`
+      : `Payment received from ${customer.name}`;
+
+    if (isBod) {
+      const { postReceiveToBodCurrent } = require('../utils/bodAccounts');
+      await postReceiveToBodCurrent(shopId, {
+        amount: amt,
+        method,
+        boardMemberId: board_member_id,
+        creditLines,
+        narration,
+        createdBy: req.user.id,
+        date,
+        notes,
+      }, transaction);
+    } else {
+      if (method === 'bank') bankAcc = await creditBankAccount(shopId, amt, transaction, bank_account_id);
+      await postVoucher(shopId, {
+        type: 'receipt',
+        date: date ? new Date(date) : new Date(),
+        narration,
+        createdBy: req.user.id,
+        lines: [
+          { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: amt },
+          ...creditLines,
+        ],
+      }, transaction);
+    }
 
     await customer.update({ current_balance: newBalance }, { transaction });
 
@@ -58,23 +96,9 @@ exports.recordPayment = async (req, res) => {
     const txn = await db.CustomerTransaction.create({
       shop_id: shopId, customer_id: customer.id,
       date: date ? new Date(date) : new Date(),
-      type: 'payment_received', amount: amt, method,
+      type: 'payment_received', amount: amt, method: storedMethod,
       notes: finalNotes, created_by: req.user.id,
     }, { transaction });
-
-    await postVoucher(shopId, {
-      type: 'receipt',
-      date: date ? new Date(date) : new Date(),
-      narration: advancePortion > 0
-        ? `Payment received from ${customer.name} including advance credit`
-        : `Payment received from ${customer.name}`,
-      createdBy: req.user.id,
-      lines: [
-        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: amt },
-        ...(appliedToAR > 0 ? [{ accountCode: '05-AR', credit: appliedToAR }] : []),
-        ...(advancePortion > 0 ? [{ accountCode: '03-CUSTADV', credit: advancePortion }] : []),
-      ],
-    }, transaction);
 
     await transaction.commit();
     const fresh = await db.Customer.findByPk(customer.id);

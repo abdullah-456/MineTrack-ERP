@@ -6,6 +6,7 @@ module.exports = (sequelize, DataTypes) => {
       BoardMemberTransaction.belongsTo(models.Shop, { foreignKey: 'shop_id' });
       BoardMemberTransaction.belongsTo(models.BoardMember, { foreignKey: 'board_member_id' });
       BoardMemberTransaction.belongsTo(models.BankAccount, { foreignKey: 'bank_account_id' });
+      BoardMemberTransaction.belongsTo(models.Voucher, { foreignKey: 'voucher_id' });
       BoardMemberTransaction.belongsTo(models.User, { as: 'CreatedBy', foreignKey: 'created_by' });
     }
   }
@@ -13,49 +14,79 @@ module.exports = (sequelize, DataTypes) => {
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
-      autoIncrement: true
+      autoIncrement: true,
     },
     shop_id: {
       type: DataTypes.INTEGER,
-      allowNull: false
+      allowNull: false,
     },
     board_member_id: {
       type: DataTypes.INTEGER,
-      allowNull: false
+      allowNull: false,
     },
     date: {
       type: DataTypes.DATE,
-      allowNull: false
+      allowNull: false,
     },
     type: {
-      type: DataTypes.ENUM('opening_balance', 'contribution', 'withdrawal', 'adjustment'),
-      allowNull: false
+      type: DataTypes.ENUM(
+        'opening_balance',
+        'contribution',
+        'withdrawal',
+        'adjustment',
+        'personal_deposit',
+        'transfer_to_capital',
+        'transfer_from_capital',
+        'current_payment',
+        'current_receipt',
+      ),
+      allowNull: false,
     },
     amount: {
       type: DataTypes.DECIMAL(15, 2),
-      defaultValue: 0.00
+      defaultValue: 0.00,
     },
     method: {
       type: DataTypes.ENUM('cash', 'bank'),
-      allowNull: true
+      allowNull: true,
     },
     bank_account_id: {
       type: DataTypes.INTEGER,
-      allowNull: true
+      allowNull: true,
     },
     notes: {
       type: DataTypes.TEXT,
-      allowNull: true
+      allowNull: true,
     },
     created_by: {
       type: DataTypes.INTEGER,
-      allowNull: false
-    }
+      allowNull: false,
+    },
+    voucher_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    account_bucket: {
+      type: DataTypes.STRING(32),
+      allowNull: true,
+    },
+    fund_origin: {
+      type: DataTypes.STRING(16),
+      allowNull: true,
+    },
+    counterpart_method: {
+      type: DataTypes.STRING(16),
+      allowNull: true,
+    },
+    counterpart_bank_account_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
   }, {
     sequelize,
     modelName: 'BoardMemberTransaction',
     tableName: 'board_member_transactions',
-    underscored: true
+    underscored: true,
   });
   return BoardMemberTransaction;
 };

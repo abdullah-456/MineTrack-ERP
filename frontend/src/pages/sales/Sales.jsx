@@ -44,7 +44,7 @@ export default function Sales() {
     customer_id: '', location_type: 'branch', branch_id: '', godown_id: null,
     employee_id: '', sale_type: 'cash',
     items: [{ product_id: '', quantity: 1, unit_price: '' }],
-    discount: '0', tax: '0', payment_amount: '', payment_method: 'cash', bank_account_id: null, description: '', sale_date: '',
+    discount: '0', tax: '0', payment_amount: '', payment_method: 'cash', bank_account_id: null, board_member_id: null, description: '', sale_date: '',
   });
   const [reportFilters, setReportFilters] = useState({ from: '', to: '', sale_type: '', customer_id: '', product_id: '', employee_id: '' });
   const [locationFilter, setLocationFilter] = useState({ location_type: 'branch', branch_id: '', godown_id: null });
@@ -145,9 +145,15 @@ export default function Sales() {
         items,
         discount: parseFloat(form.discount) || 0,
         tax: parseFloat(form.tax) || 0,
-        payment_method: form.payment_method,
+        payment_method: form.board_member_id
+          ? ((form.sale_type === 'bank' || form.payment_method === 'bank' || form.payment_method === 'bod_bank') ? 'bod_bank' : 'bod_cash')
+          : form.payment_method,
         payment_amount: form.sale_type === 'credit' && form.payment_amount !== '' ? parseFloat(form.payment_amount) : undefined,
-        bank_account_id: (form.sale_type === 'bank' || (form.sale_type === 'credit' && parseFloat(form.payment_amount) > 0)) ? form.bank_account_id : null,
+        bank_account_id: form.board_member_id ? null : (
+          (form.sale_type === 'bank' || form.sale_type === 'cash' || (form.sale_type === 'credit' && parseFloat(form.payment_amount) > 0))
+            ? form.bank_account_id : null
+        ),
+        board_member_id: form.board_member_id || undefined,
         description: form.description?.trim() || null,
         sale_date: form.sale_date || undefined,
         ...shopParams(),
@@ -321,7 +327,7 @@ export default function Sales() {
             <button
               type="button"
               onClick={() => {
-                setForm({ customer_id: '', ...defaultLocation(branches), employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_amount: '', payment_method: 'cash', bank_account_id: null, description: '' });
+                setForm({ customer_id: '', ...defaultLocation(branches), employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_amount: '', payment_method: 'cash', bank_account_id: null, board_member_id: null, description: '' });
                 setModal('create');
               }}
               className="btn-primary flex items-center gap-2"
@@ -501,7 +507,7 @@ export default function Sales() {
                     <button
                       key={type}
                       type="button"
-                      onClick={() => setForm(f => ({ ...f, sale_type: type, payment_method: type, bank_account_id: null }))}
+                      onClick={() => setForm(f => ({ ...f, sale_type: type, payment_method: type, bank_account_id: null, board_member_id: null }))}
                       className={`py-2 rounded-lg text-sm font-medium border transition-all ${
                         form.sale_type === type
                           ? type === 'credit' ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-400'
@@ -521,7 +527,11 @@ export default function Sales() {
                   <FormLabel>{t('cashAccount') || 'Cash Account'}</FormLabel>
                   <CashAccountPicker
                     value={form.bank_account_id}
-                    onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                    boardMemberId={form.board_member_id}
+                    onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id, board_member_id: null }))}
+                    onBodChange={board_member_id => setForm(f => ({
+                      ...f, board_member_id, bank_account_id: null, payment_method: 'bod_cash',
+                    }))}
                   />
                 </div>
               )}
@@ -531,7 +541,11 @@ export default function Sales() {
                   <BankAccountPicker
                     required
                     value={form.bank_account_id}
-                    onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                    boardMemberId={form.board_member_id}
+                    onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id, board_member_id: null }))}
+                    onBodChange={board_member_id => setForm(f => ({
+                      ...f, board_member_id, bank_account_id: null, payment_method: 'bod_bank',
+                    }))}
                   />
                 </div>
               )}
@@ -639,7 +653,7 @@ export default function Sales() {
                             <button
                               key={pm}
                               type="button"
-                              onClick={() => setForm(f => ({ ...f, payment_method: pm, bank_account_id: null }))}
+                              onClick={() => setForm(f => ({ ...f, payment_method: pm, bank_account_id: null, board_member_id: null }))}
                               className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                                 (form.payment_method || 'cash') === pm
                                   ? pm === 'bank' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
@@ -658,7 +672,11 @@ export default function Sales() {
                           <FormLabel>{t('cashAccount') || 'Cash Account'}</FormLabel>
                           <CashAccountPicker
                             value={form.bank_account_id}
-                            onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                            boardMemberId={form.board_member_id}
+                            onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id, board_member_id: null }))}
+                            onBodChange={board_member_id => setForm(f => ({
+                              ...f, board_member_id, bank_account_id: null, payment_method: 'bod_cash',
+                            }))}
                           />
                         </div>
                       ) : (
@@ -667,7 +685,11 @@ export default function Sales() {
                           <BankAccountPicker
                             required
                             value={form.bank_account_id}
-                            onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id }))}
+                            boardMemberId={form.board_member_id}
+                            onChange={bank_account_id => setForm(f => ({ ...f, bank_account_id, board_member_id: null }))}
+                            onBodChange={board_member_id => setForm(f => ({
+                              ...f, board_member_id, bank_account_id: null, payment_method: 'bod_bank',
+                            }))}
                           />
                         </div>
                       )}

@@ -4,9 +4,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import {
   Users, Plus, Edit, Slash, RefreshCw, Search,
-  Eye, EyeOff, X, Loader2, KeyRound, Trash2, UserCheck
+  Eye, EyeOff, Loader2, KeyRound, Trash2, UserCheck
 } from 'lucide-react';
 import ReportActions from '../../components/ui/ReportActions';
+import Modal from '../../components/ui/Modal';
 import api from '../../api/axios';
 import FormLabel from '../../components/ui/FormLabel';
 import LocationPicker from '../../components/ui/LocationPicker';
@@ -19,24 +20,6 @@ const ROLE_COLORS = {
 };
 
 const BRANCH_REQUIRED_ROLES = ['accountant', 'user'];
-
-function Modal({ title, onClose, children }) {
-  return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-4"
-        style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{title}</h2>
-          <button onClick={onClose} className="icon-btn"><X className="w-4 h-4" /></button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
 
 export default function UserManagement() {
   const { t, lang } = useTheme();

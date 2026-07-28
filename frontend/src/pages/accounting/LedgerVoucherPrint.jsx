@@ -1,10 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   PrintStyles, PrintActionBar, CompanyHeader,
   AmountWords, DocClose,
   INK, INK_SOFT,
 } from '../../components/print/PrintKit';
+import { getCompany } from '../../utils/reportExport';
+import { useShopApi } from '../../hooks/useShopApi';
+import { useAuth } from '../../context/AuthContext';
 
 // ─── number formatter ────────────────────────────────────────────────────────
 const fmt = (n) => {
@@ -96,6 +99,9 @@ function resolvePartyLine(txnType, entityName) {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function LedgerVoucherPrint() {
   const [sp] = useSearchParams();
+  const { shopParams } = useShopApi();
+  const { shopName: authShopName } = useAuth();
+  const [company, setCompany] = useState({ name: sp.get('shopName') || authShopName || '' });
 
   const module     = sp.get('module')     || 'customer';
   const txnType    = sp.get('txnType')    || '';
@@ -105,15 +111,33 @@ export default function LedgerVoucherPrint() {
   const method     = sp.get('method')     || '';
   const notes      = sp.get('notes')      || '';
   const voucherNo  = sp.get('voucherNo')  || '-';
-  const shopName   = sp.get('shopName')   || '';
   const autoPrint  = sp.get('auto')       === '1';
+
+  useEffect(() => {
+    let cancelled = false;
+    getCompany(shopParams()).then((c) => {
+      if (cancelled) return;
+      if (c?.name || c?.shop_name) {
+        setCompany({
+          name: c.name || c.shop_name || '',
+          address: c.address || '',
+          phone: c.phone || '',
+          email: c.email || '',
+          owner_name: c.owner_name || '',
+          logo_url: c.logo_url || '',
+        });
+      } else if (authShopName) {
+        setCompany(prev => ({ ...prev, name: prev.name || authShopName }));
+      }
+    });
+    return () => { cancelled = true; };
+  }, [shopParams, authShopName]);
 
   const lines       = buildLines(module, txnType, entityName, amount, method);
   const totalDebit  = lines.filter(l => l.side === 'Dr').reduce((s, l) => s + l.val, 0);
   const totalCredit = lines.filter(l => l.side === 'Cr').reduce((s, l) => s + l.val, 0);
   const docTitle    = resolveTitle(txnType);
   const partyLine   = resolvePartyLine(txnType, entityName);
-  const company     = { name: shopName };
 
   useEffect(() => {
     if (autoPrint) {

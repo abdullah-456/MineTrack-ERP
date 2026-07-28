@@ -505,6 +505,19 @@ exports.getLiveBalances = async (req, res) => {
       })),
       opening_cash:       openingCash,
       session_exists:     hasBaseline,
+      // BOD Current is director-held — not included in Capital cash/bank above.
+      bod_due_from: await (async () => {
+        const rows = await db.BoardMember.findAll({
+          where: { shop_id: shopId },
+          attributes: ['due_from_balance', 'current_cash_balance', 'current_bank_balance', 'investment_balance'],
+        });
+        return {
+          due_from_total: Math.round(rows.reduce((s, m) => s + parseFloat(m.due_from_balance || 0), 0) * 100) / 100,
+          current_cash_total: Math.round(rows.reduce((s, m) => s + parseFloat(m.current_cash_balance || 0), 0) * 100) / 100,
+          current_bank_total: Math.round(rows.reduce((s, m) => s + parseFloat(m.current_bank_balance || 0), 0) * 100) / 100,
+          investment_total: Math.round(rows.reduce((s, m) => s + parseFloat(m.investment_balance || 0), 0) * 100) / 100,
+        };
+      })(),
       as_of:              new Date().toISOString(),
     });
   } catch (error) {

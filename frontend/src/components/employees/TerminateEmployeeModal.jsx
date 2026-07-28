@@ -40,6 +40,7 @@ function SettlementSection({ title, balance, balanceLabel, form, onChange, t, la
         <div>
           <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('method') || 'Method'}</label>
           <PaymentAccountSelect
+            includeBod={false}
             method={form.method}
             bankAccountId={form.bank_account_id}
             onChange={({ method, bank_account_id }) => onChange({ ...form, method, bank_account_id })}

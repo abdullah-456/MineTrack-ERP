@@ -98,13 +98,21 @@ exports.create = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
-    const { category, description, amount, expense_date, paid_via, bank_account_id, expense_account_id } = req.body;
+    const { category, description, amount, expense_date, paid_via, bank_account_id, board_member_id, expense_account_id } = req.body;
     const branchId = req.body.branch_id ? parseInt(req.body.branch_id, 10) : resolveBranchId(req);
 
     if (!category) { await transaction.rollback(); return res.status(400).json({ message: 'Category is required' }); }
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { await transaction.rollback(); return res.status(400).json({ message: 'Amount must be greater than zero' }); }
-    if (!['cash', 'bank'].includes(paid_via)) { await transaction.rollback(); return res.status(400).json({ message: 'paid_via must be cash or bank' }); }
+    const isBod = paid_via === 'bod_cash' || paid_via === 'bod_bank';
+    if (!['cash', 'bank', 'bod_cash', 'bod_bank'].includes(paid_via)) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'paid_via must be cash, bank, or BOD Current' });
+    }
+    if (isBod && !board_member_id) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'board_member_id is required for BOD Current payment' });
+    }
     if (!branchId) { await transaction.rollback(); return res.status(400).json({ message: 'Branch is required' }); }
 
     const branch = await db.Branch.findOne({ where: { id: branchId, shop_id: shopId }, transaction });
@@ -115,10 +123,39 @@ exports.create = async (req, res) => {
     const date = expense_date ? new Date(expense_date) : new Date();
 
     let bankAcc = null;
-    if (paid_via === 'cash') {
-      bankAcc = await debitCashPayment(shopId, amt, transaction, bank_account_id);
+    let voucher;
+    const storedVia = isBod ? (paid_via === 'bod_bank' ? 'bank' : 'cash') : paid_via;
+
+    if (isBod) {
+      const { postPayFromBodCurrent } = require('../utils/bodAccounts');
+      const result = await postPayFromBodCurrent(shopId, {
+        amount: amt,
+        method: paid_via,
+        boardMemberId: board_member_id,
+        debitAccountCode: expenseAccount.account_code,
+        narration: narrationFor(category, description),
+        createdBy: req.user.id,
+        date,
+        branchId,
+      }, transaction);
+      voucher = result.voucher;
     } else {
-      bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
+      if (paid_via === 'cash') {
+        bankAcc = await debitCashPayment(shopId, amt, transaction, bank_account_id);
+      } else {
+        bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
+      }
+      voucher = await postVoucher(shopId, {
+        type: 'payment',
+        date,
+        narration: narrationFor(category, description),
+        createdBy: req.user.id,
+        branchId,
+        lines: [
+          { accountCode: expenseAccount.account_code, debit: amt },
+          { accountCode: paymentAccountCode(paid_via, bankAcc), credit: amt },
+        ],
+      }, transaction);
     }
 
     const expense = await db.Expense.create({
@@ -128,27 +165,13 @@ exports.create = async (req, res) => {
       description: description || null,
       amount: amt,
       expense_date: date,
-      paid_via,
+      paid_via: storedVia,
       bank_account_id: bankAcc?.id || null,
       expense_account_id: expenseAccount.id,
       created_by: req.user.id,
       status: 'posted',
+      voucher_id: voucher.id,
     }, { transaction });
-
-    const voucher = await postVoucher(shopId, {
-      type: 'payment',
-      date,
-      narration: narrationFor(category, description),
-      createdBy: req.user.id,
-      branchId,
-      lines: [
-        { accountCode: expenseAccount.account_code, debit: amt },
-        { accountCode: paymentAccountCode(paid_via, bankAcc), credit: amt },
-      ],
-    }, transaction);
-
-    expense.voucher_id = voucher.id;
-    await expense.save({ transaction });
 
     await transaction.commit();
     return res.status(201).json({ expense });

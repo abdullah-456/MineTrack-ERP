@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Wallet, Loader2, CheckCircle2, AlertCircle, Banknote, Clock } from 'lucide-react';
 import api from '../../api/axios';
 
+/** Legacy overlay — new dismissible overlays should use shared Modal (useHistoryModal). */
 export default function CashCheckinModal({ shopName, onComplete }) {
   const [cash, setCash] = useState('');
   const [notes, setNotes] = useState('');

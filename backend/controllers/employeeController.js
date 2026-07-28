@@ -3,11 +3,182 @@ const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { applyTerminationSettlements, loadTerminationPreview } = require('../utils/employeeTermination');
-const { assertCnicAvailable } = require('../utils/cnic');
+const { assertCnicAvailable, normalizeCnic } = require('../utils/cnic');
 
 const employeeIncludes = [
   { model: db.Branch, attributes: ['id', 'name', 'godown_id'], include: [{ model: db.Godown, attributes: ['id', 'name'] }] },
 ];
+
+const PROFILE_FIELDS = [
+  'father_name', 'gender', 'city', 'cnic_expiry', 'date_of_birth', 'age',
+  'place_of_birth', 'marital_status', 'religion', 'language', 'home_tel',
+  'emergency_name', 'emergency_relation', 'emergency_cell', 'emergency_residence',
+  'education_institute', 'education_degree', 'education_specialization',
+  'education_grade', 'education_year', 'experience', 'dependants',
+  'remarks', 'hr_remarks',
+];
+
+function err(statusCode, message) {
+  const e = new Error(message);
+  e.statusCode = statusCode;
+  return e;
+}
+
+function digitsOnly(v) {
+  return String(v || '').replace(/\D/g, '');
+}
+
+function ageFromDob(dob) {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age -= 1;
+  return age >= 0 ? age : null;
+}
+
+function validatePhone(label, value, { required = false } = {}) {
+  if (value == null || !String(value).trim()) {
+    if (required) throw err(400, `${label} is required`);
+    return null;
+  }
+  const digits = digitsOnly(value);
+  if (digits.length < 10 || digits.length > 15) {
+    throw err(400, `${label} must be a valid phone number`);
+  }
+  return String(value).trim();
+}
+
+async function validateEmployeePayload(shopId, body, { isCreate }) {
+  const name = (body.name || '').trim();
+  const father_name = (body.father_name || '').trim();
+  const gender = (body.gender || '').trim();
+  const designation = (body.designation || '').trim();
+  const address = (body.address || '').trim();
+  const city = (body.city || '').trim();
+  const basic_salary = parseFloat(body.basic_salary);
+  const branch_id = body.branch_id ? parseInt(body.branch_id, 10) : null;
+  const hire_date = body.hire_date || null;
+
+  if (!name) throw err(400, 'Full name is required');
+  if (isCreate || body.father_name !== undefined) {
+    if (!father_name) throw err(400, 'Father name is required');
+  }
+  if (isCreate || body.gender !== undefined) {
+    if (!['male', 'female', 'other'].includes(gender.toLowerCase())) {
+      throw err(400, 'Gender is required (male / female / other)');
+    }
+  }
+  if (isCreate || body.designation !== undefined) {
+    if (!designation) throw err(400, 'Designation is required');
+  }
+  if (!(basic_salary >= 0) || Number.isNaN(basic_salary)) {
+    throw err(400, 'Salary is required');
+  }
+  if (!branch_id) throw err(400, 'Location / branch is required');
+  if (isCreate && !hire_date) throw err(400, 'Date of joining is required');
+  if (isCreate || body.address !== undefined) {
+    if (!address) throw err(400, 'Address is required');
+  }
+  if (isCreate || body.city !== undefined) {
+    if (!city) throw err(400, 'City / location is required');
+  }
+
+  const branch = await db.Branch.findOne({ where: { id: branch_id, shop_id: shopId } });
+  if (!branch) throw err(400, 'Invalid branch');
+
+  const phone = validatePhone('Cell No', body.phone, { required: isCreate || body.phone !== undefined });
+
+  let preparedCnic = { cnic: null, cnic_normalized: null };
+  if (isCreate || body.cnic !== undefined) {
+    const norm = normalizeCnic(body.cnic);
+    if (!norm || norm.length !== 13) throw err(400, 'CNIC No must be 13 digits');
+    preparedCnic = await assertCnicAvailable(shopId, body.cnic, body._cnicExclude || {});
+  }
+
+  if (body.cnic_expiry) {
+    const exp = new Date(body.cnic_expiry);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (Number.isNaN(exp.getTime()) || exp < today) {
+      throw err(400, 'CNIC expiry date must be a future date');
+    }
+  }
+
+  let experience = body.experience;
+  if (experience !== undefined) {
+    if (!Array.isArray(experience)) throw err(400, 'Experience must be a list');
+    experience = experience.filter(r => r && (r.organization || r.designation));
+  }
+  let dependants = body.dependants;
+  if (dependants !== undefined) {
+    if (!Array.isArray(dependants)) throw err(400, 'Dependants must be a list');
+    dependants = dependants.filter(r => r && r.name);
+  }
+
+  let age = body.age !== undefined && body.age !== '' ? parseInt(body.age, 10) : null;
+  if ((age == null || Number.isNaN(age)) && body.date_of_birth) {
+    age = ageFromDob(body.date_of_birth);
+  }
+
+  return {
+    name,
+    father_name: father_name || null,
+    gender: gender ? gender.toLowerCase() : null,
+    designation: designation || null,
+    phone,
+    address: address || null,
+    city: city || null,
+    basic_salary,
+    hire_date: hire_date || new Date(),
+    branch_id,
+    status: body.status || 'active',
+    cnic: preparedCnic.cnic,
+    cnic_normalized: preparedCnic.cnic_normalized,
+    cnic_expiry: body.cnic_expiry || null,
+    date_of_birth: body.date_of_birth || null,
+    age: Number.isNaN(age) ? null : age,
+    place_of_birth: (body.place_of_birth || '').trim() || null,
+    marital_status: (body.marital_status || '').trim() || null,
+    religion: (body.religion || '').trim() || null,
+    language: (body.language || '').trim() || null,
+    home_tel: body.home_tel != null && String(body.home_tel).trim()
+      ? validatePhone('Home Tel No', body.home_tel) : null,
+    emergency_name: (body.emergency_name || '').trim() || null,
+    emergency_relation: (body.emergency_relation || '').trim() || null,
+    emergency_cell: body.emergency_cell != null && String(body.emergency_cell).trim()
+      ? validatePhone('Emergency Cell No', body.emergency_cell) : null,
+    emergency_residence: (body.emergency_residence || '').trim() || null,
+    education_institute: (body.education_institute || '').trim() || null,
+    education_degree: (body.education_degree || '').trim() || null,
+    education_specialization: (body.education_specialization || '').trim() || null,
+    education_grade: (body.education_grade || '').trim() || null,
+    education_year: (body.education_year || '').trim() || null,
+    experience: experience !== undefined ? experience : undefined,
+    dependants: dependants !== undefined ? dependants : undefined,
+    remarks: (body.remarks || '').trim() || null,
+    hr_remarks: (body.hr_remarks || '').trim() || null,
+  };
+}
+
+async function nextEmploymentId(shopId, transaction) {
+  const count = await db.Employee.count({ where: { shop_id: shopId }, transaction });
+  let seq = count + 1;
+  let code;
+  do {
+    code = `EMP-${shopId}-${String(seq).padStart(4, '0')}`;
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await db.Employee.findOne({
+      where: { shop_id: shopId, employment_id: code },
+      transaction,
+    });
+    if (!exists) return code;
+    seq += 1;
+  } while (seq < count + 1000);
+  return `EMP-${shopId}-${Date.now()}`;
+}
 
 exports.list = async (req, res) => {
   try {
@@ -23,6 +194,8 @@ exports.list = async (req, res) => {
         { designation: { [Op.iLike]: `%${req.query.search}%` } },
         { phone: { [Op.iLike]: `%${req.query.search}%` } },
         { cnic: { [Op.iLike]: `%${req.query.search}%` } },
+        { employment_id: { [Op.iLike]: `%${req.query.search}%` } },
+        { father_name: { [Op.iLike]: `%${req.query.search}%` } },
       ];
     }
 
@@ -56,42 +229,44 @@ exports.get = async (req, res) => {
   }
 };
 
-exports.create = async (req, res) => {
+exports.nextEmploymentId = async (req, res) => {
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
+    const employment_id = await nextEmploymentId(shopId);
+    return res.json({ employment_id });
+  } catch (error) {
+    console.error('nextEmploymentId error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
 
-    const { name, designation, cnic, phone, address, basic_salary, hire_date, branch_id, status } = req.body;
-    if (!name || !basic_salary || !branch_id) {
-      return res.status(400).json({ message: 'Name, salary and branch are required' });
-    }
+exports.create = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) { await transaction.rollback(); return; }
 
-    const branch = await db.Branch.findOne({ where: { id: branch_id, shop_id: shopId } });
-    if (!branch) return res.status(400).json({ message: 'Invalid branch' });
-
-    const preparedCnic = await assertCnicAvailable(shopId, cnic);
+    const data = await validateEmployeePayload(shopId, req.body, { isCreate: true });
+    const employment_id = await nextEmploymentId(shopId, transaction);
 
     const employee = await db.Employee.create({
       shop_id: shopId,
-      name,
-      designation,
-      cnic: preparedCnic.cnic,
-      cnic_normalized: preparedCnic.cnic_normalized,
-      phone,
-      address,
-      basic_salary,
-      hire_date: hire_date || new Date(),
-      branch_id,
-      status: status || 'active',
-    });
+      employment_id,
+      ...data,
+      experience: data.experience || [],
+      dependants: data.dependants || [],
+    }, { transaction });
 
+    await transaction.commit();
     const full = await db.Employee.findByPk(employee.id, { include: employeeIncludes });
     return res.status(201).json({ employee: full });
   } catch (error) {
+    if (!transaction.finished) await transaction.rollback();
     console.error('createEmployee error:', error);
-    if (error.statusCode === 409) return res.status(409).json({ message: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     if (error.name === 'SequelizeUniqueConstraintError') {
-      return res.status(409).json({ message: 'CNIC already registered for another person' });
+      return res.status(409).json({ message: 'CNIC or Employment ID already registered' });
     }
     return res.status(500).json({ message: 'Internal server error' });
   }
@@ -106,13 +281,39 @@ exports.update = async (req, res) => {
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
 
     const wasTerminated = employee.status === 'terminated';
-    const fields = ['name', 'designation', 'phone', 'address', 'basic_salary', 'hire_date', 'branch_id', 'status', 'termination_notes'];
-    fields.forEach(f => { if (req.body[f] !== undefined) employee[f] = req.body[f]; });
+    const data = await validateEmployeePayload(shopId, {
+      ...employee.toJSON(),
+      ...req.body,
+      _cnicExclude: { employeeId: employee.id },
+      // When updating, only re-validate fields present in body for optional groups —
+      // merge so required checks still see existing values.
+      name: req.body.name !== undefined ? req.body.name : employee.name,
+      father_name: req.body.father_name !== undefined ? req.body.father_name : employee.father_name,
+      gender: req.body.gender !== undefined ? req.body.gender : employee.gender,
+      designation: req.body.designation !== undefined ? req.body.designation : employee.designation,
+      phone: req.body.phone !== undefined ? req.body.phone : employee.phone,
+      address: req.body.address !== undefined ? req.body.address : employee.address,
+      city: req.body.city !== undefined ? req.body.city : employee.city,
+      basic_salary: req.body.basic_salary !== undefined ? req.body.basic_salary : employee.basic_salary,
+      branch_id: req.body.branch_id !== undefined ? req.body.branch_id : employee.branch_id,
+      hire_date: req.body.hire_date !== undefined ? req.body.hire_date : employee.hire_date,
+      cnic: req.body.cnic !== undefined ? req.body.cnic : employee.cnic,
+    }, { isCreate: false });
 
+    const assign = [
+      'name', 'father_name', 'gender', 'designation', 'phone', 'address', 'city',
+      'basic_salary', 'hire_date', 'branch_id', 'status',
+      ...PROFILE_FIELDS,
+    ];
+    assign.forEach((f) => {
+      if (data[f] !== undefined) employee[f] = data[f];
+    });
     if (req.body.cnic !== undefined) {
-      const preparedCnic = await assertCnicAvailable(shopId, req.body.cnic, { employeeId: employee.id });
-      employee.cnic = preparedCnic.cnic;
-      employee.cnic_normalized = preparedCnic.cnic_normalized;
+      employee.cnic = data.cnic;
+      employee.cnic_normalized = data.cnic_normalized;
+    }
+    if (req.body.termination_notes !== undefined) {
+      employee.termination_notes = req.body.termination_notes;
     }
 
     if (req.body.status === 'terminated' && !wasTerminated) {
@@ -124,7 +325,7 @@ exports.update = async (req, res) => {
     return res.json({ employee: full });
   } catch (error) {
     console.error('updateEmployee error:', error);
-    if (error.statusCode === 409) return res.status(409).json({ message: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'CNIC already registered for another person' });
     }

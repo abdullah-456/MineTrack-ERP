@@ -341,6 +341,7 @@ export default function Payroll() {
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <PaymentAccountSelect
+                includeBod={false}
                 required
                 method={salaryForm.method}
                 bankAccountId={salaryForm.bank_account_id}

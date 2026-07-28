@@ -3,9 +3,8 @@ const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { createAccount, getOrCreateDirectorsParent } = require('../utils/chartOfAccounts');
-const { postVoucher } = require('../utils/postVoucher');
-const { creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
 const { assertCnicAvailable } = require('../utils/cnic');
+const { ensureBodAccounts } = require('../utils/bodAccounts');
 
 exports.list = async (req, res) => {
   try {
@@ -49,24 +48,27 @@ exports.get = async (req, res) => {
 };
 
 // Board of Directors are business-wide (shop-level) entities.
-// Every board member gets a liability sub-account under the global
-// "03-BOD" ("Directors & Investors") parent in the COA.
+// Create asks for Investment (single memo claim — no Cash/Bank movement) and
+// Current Cash / Current Bank (director wallets — also no Capital cash movement).
 exports.create = async (req, res) => {
   const shopId = requireShopId(req, res);
   if (!shopId) return;
 
   const {
     name, phone, cnic, address,
-    opening_cash_amount, opening_bank_amount, opening_bank_account_id, opening_cash_account_id,
+    investment_amount, current_cash_amount, current_bank_amount,
+    current_cash_name, current_bank_name,
   } = req.body;
   if (!name?.trim()) return res.status(400).json({ message: 'Name is required' });
 
-  const cashAmt = Math.round((parseFloat(opening_cash_amount) || 0) * 100) / 100;
-  const bankAmt = Math.round((parseFloat(opening_bank_amount) || 0) * 100) / 100;
-  if (cashAmt < 0 || bankAmt < 0) return res.status(400).json({ message: 'Opening balance amounts cannot be negative' });
-  if (bankAmt > 0 && !opening_bank_account_id) {
-    return res.status(400).json({ message: 'Select which bank account received the bank portion of the opening balance' });
+  const invAmt = Math.round((parseFloat(investment_amount) || 0) * 100) / 100;
+  const curCash = Math.round((parseFloat(current_cash_amount) || 0) * 100) / 100;
+  const curBank = Math.round((parseFloat(current_bank_amount) || 0) * 100) / 100;
+  if (invAmt < 0 || curCash < 0 || curBank < 0) {
+    return res.status(400).json({ message: 'Opening amounts cannot be negative' });
   }
+  const cashName = (current_cash_name || '').trim() || null;
+  const bankName = (current_bank_name || '').trim() || null;
 
   const transaction = await db.sequelize.transaction();
   try {
@@ -74,66 +76,77 @@ exports.create = async (req, res) => {
     const parent = await getOrCreateDirectorsParent(shopId, req.user.id, transaction);
     const account = await createAccount({
       shopId,
-      accountName: `${name.trim()} — Director Account`,
+      accountName: `${name.trim()} — Investment`,
       accountType: 'liability',
       parent,
       createdBy: req.user.id,
     }, transaction);
 
-    const totalOpening = Math.round((cashAmt + bankAmt) * 100) / 100;
-
-    const member = await db.BoardMember.create({
+    let member = await db.BoardMember.create({
       shop_id: shopId,
       name: name.trim(),
       phone: phone || null,
       cnic: preparedCnic.cnic,
       cnic_normalized: preparedCnic.cnic_normalized,
       address: address || null,
-      opening_balance: totalOpening,
-      current_balance: totalOpening,
+      opening_balance: invAmt,
+      investment_balance: invAmt,
+      current_balance: invAmt,
+      current_cash_balance: curCash,
+      current_bank_balance: curBank,
+      current_cash_name: cashName,
+      current_bank_name: bankName,
+      due_from_balance: 0,
       chart_of_account_id: account.id,
     }, { transaction });
 
-    if (totalOpening > 0) {
-      let bankAcc = null;
-      let cashAcc = null;
-      if (bankAmt > 0) {
-        bankAcc = await creditBankAccount(shopId, bankAmt, transaction, opening_bank_account_id);
-      }
-      if (cashAmt > 0 && opening_cash_account_id) {
-        cashAcc = await creditCashPayment(shopId, cashAmt, transaction, opening_cash_account_id);
-      }
+    member = await ensureBodAccounts(member, req.user.id, transaction);
 
-      const lines = [];
-      if (cashAmt > 0) lines.push({ accountCode: paymentAccountCode('cash', cashAcc), debit: cashAmt });
-      if (bankAmt > 0) lines.push({ accountCode: bankAccountCode(bankAcc), debit: bankAmt });
-      lines.push({ accountCode: account.account_code, credit: totalOpening });
-
-      await postVoucher(shopId, {
-        type: 'receipt',
+    // Investment opening: simple log only — does NOT touch Cash in Hand / Bank.
+    // Investment liability on the books grows when money actually enters Capital
+    // (manual receive, or Current → Capital transfer of personal funds).
+    if (invAmt > 0) {
+      await db.BoardMemberTransaction.create({
+        shop_id: shopId,
+        board_member_id: member.id,
         date: new Date(),
-        narration: `Opening balance received from ${member.name}`,
-        createdBy: req.user.id,
-        branchId: null,
-        lines,
-      }, transaction);
+        type: 'opening_balance',
+        amount: invAmt,
+        method: null,
+        notes: 'Opening Investment (memo — no Cash/Bank movement)',
+        created_by: req.user.id,
+        account_bucket: 'investment',
+      }, { transaction });
+    }
 
-      if (cashAmt > 0) {
-        await db.BoardMemberTransaction.create({
-          shop_id: shopId, board_member_id: member.id, date: new Date(),
-          type: 'opening_balance', amount: cashAmt, method: 'cash',
-          bank_account_id: cashAcc?.id || null,
-          notes: cashAcc ? `Opening balance — ${cashAcc.account_name}` : 'Opening balance — Cash in Hand',
-          created_by: req.user.id,
-        }, { transaction });
-      }
-      if (bankAmt > 0) {
-        await db.BoardMemberTransaction.create({
-          shop_id: shopId, board_member_id: member.id, date: new Date(),
-          type: 'opening_balance', amount: bankAmt, method: 'bank', bank_account_id: bankAcc?.id || null,
-          notes: `Opening balance — ${bankAcc?.account_name || 'bank'}`, created_by: req.user.id,
-        }, { transaction });
-      }
+    // Current wallets opening: director-held only — no Capital cash, no Due-from.
+    if (curCash > 0) {
+      await db.BoardMemberTransaction.create({
+        shop_id: shopId,
+        board_member_id: member.id,
+        date: new Date(),
+        type: 'personal_deposit',
+        amount: curCash,
+        method: 'cash',
+        notes: 'Opening Current Cash',
+        created_by: req.user.id,
+        account_bucket: 'current_cash',
+        fund_origin: 'personal',
+      }, { transaction });
+    }
+    if (curBank > 0) {
+      await db.BoardMemberTransaction.create({
+        shop_id: shopId,
+        board_member_id: member.id,
+        date: new Date(),
+        type: 'personal_deposit',
+        amount: curBank,
+        method: 'bank',
+        notes: 'Opening Current Bank',
+        created_by: req.user.id,
+        account_bucket: 'current_bank',
+        fund_origin: 'personal',
+      }, { transaction });
     }
 
     await transaction.commit();
@@ -165,8 +178,15 @@ exports.update = async (req, res) => {
       return res.status(404).json({ message: 'Board member not found' });
     }
 
-    const fields = ['name', 'phone', 'address'];
-    fields.forEach(f => { if (req.body[f] !== undefined) member[f] = req.body[f]; });
+    const fields = ['name', 'phone', 'address', 'current_cash_name', 'current_bank_name'];
+    fields.forEach(f => {
+      if (req.body[f] === undefined) return;
+      if (f === 'current_cash_name' || f === 'current_bank_name') {
+        member[f] = (req.body[f] || '').trim() || null;
+      } else {
+        member[f] = req.body[f];
+      }
+    });
 
     if (req.body.cnic !== undefined) {
       const preparedCnic = await assertCnicAvailable(shopId, req.body.cnic, { boardMemberId: member.id }, transaction);
@@ -176,11 +196,12 @@ exports.update = async (req, res) => {
 
     await member.save({ transaction });
 
-    if (req.body.name !== undefined && member.chart_of_account_id) {
-      await db.ChartOfAccount.update(
-        { account_name: `${member.name} — Director Account` },
-        { where: { id: member.chart_of_account_id }, transaction },
-      );
+    if (
+      req.body.name !== undefined
+      || req.body.current_cash_name !== undefined
+      || req.body.current_bank_name !== undefined
+    ) {
+      await ensureBodAccounts(member, req.user.id, transaction);
     }
 
     await transaction.commit();
@@ -210,15 +231,39 @@ exports.remove = async (req, res) => {
     });
     if (pending) return;
 
-    await member.destroy();
+    const transaction = await db.sequelize.transaction();
+    try {
+      // Child rows block DELETE via FK — remove ledger history first.
+      await db.BoardMemberTransaction.destroy({
+        where: { board_member_id: member.id, shop_id: shopId },
+        transaction,
+      });
 
-    if (member.chart_of_account_id) {
-      await db.ChartOfAccount.update({ is_active: false }, { where: { id: member.chart_of_account_id } });
+      const coaIds = [
+        member.chart_of_account_id,
+        member.due_from_coa_id,
+        member.current_cash_coa_id,
+        member.current_bank_coa_id,
+      ].filter(Boolean);
+
+      await member.destroy({ transaction });
+
+      if (coaIds.length) {
+        await db.ChartOfAccount.update(
+          { is_active: false },
+          { where: { id: { [Op.in]: coaIds } }, transaction },
+        );
+      }
+
+      await transaction.commit();
+    } catch (inner) {
+      if (!transaction.finished) await transaction.rollback();
+      throw inner;
     }
 
     return res.json({ message: 'Board member removed' });
   } catch (error) {
     console.error('removeBoardMember error:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return res.status(500).json({ message: error.message || 'Internal server error' });
   }
 };

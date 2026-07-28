@@ -20,19 +20,27 @@ exports.recordPayment = async (req, res) => {
     });
     if (!supplier) { await transaction.rollback(); return res.status(404).json({ message: 'Supplier not found' }); }
 
-    const { amount, method, bank_account_id, date, notes } = req.body;
+    const { amount, method, bank_account_id, board_member_id, date, notes } = req.body;
     const amt = parseFloat(amount);
     if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
-    if (!['cash', 'bank'].includes(method)) {
+    const isBod = method === 'bod_cash' || method === 'bod_bank';
+    if (!['cash', 'bank', 'bod_cash', 'bod_bank'].includes(method)) {
       await transaction.rollback();
-      return res.status(400).json({ message: 'method must be cash or bank' });
+      return res.status(400).json({ message: 'method must be cash, bank, or BOD Current' });
+    }
+    if (isBod && !board_member_id) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'board_member_id is required for BOD Current' });
     }
 
     let bankAcc = null;
-    if (method === 'cash') {
-      await assertCashAvailable(shopId, amt, transaction);
-    } else {
-      bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
+    const storedMethod = isBod ? (method === 'bod_bank' ? 'bank' : 'cash') : method;
+    if (!isBod) {
+      if (method === 'cash') {
+        await assertCashAvailable(shopId, amt, transaction);
+      } else {
+        bankAcc = await debitBankAccount(shopId, amt, transaction, bank_account_id);
+      }
     }
 
     const currentPayable = parseFloat(supplier.current_payable || 0);
@@ -82,7 +90,7 @@ exports.recordPayment = async (req, res) => {
           shop_id: shopId, supplier_id: supplier.id,
           date: date ? new Date(date) : new Date(),
           type: 'payment_made', total_amount: applied, paid_amount: applied, remaining_amount: 0,
-          method, stock_batch_id: inv.id, notes: notes?.trim() || `Payment made to ${supplier.company_name}`, created_by: req.user.id,
+          method: storedMethod, stock_batch_id: inv.id, notes: notes?.trim() || `Payment made to ${supplier.company_name}`, created_by: req.user.id,
         }, { transaction }));
       }
     }
@@ -95,22 +103,39 @@ exports.recordPayment = async (req, res) => {
         shop_id: shopId, supplier_id: supplier.id,
         date: date ? new Date(date) : new Date(),
         type: 'payment_made', total_amount: unallocated, paid_amount: unallocated, remaining_amount: 0,
-        method, stock_batch_id: null, notes: notes?.trim() || `Payment made to ${supplier.company_name}`, created_by: req.user.id,
+        method: storedMethod, stock_batch_id: null, notes: notes?.trim() || `Payment made to ${supplier.company_name}`, created_by: req.user.id,
       }, { transaction }));
     }
 
     const excessAmt = Math.round((amt - allocatable) * 100) / 100;
-    await postVoucher(shopId, {
-      type: 'payment',
-      date: date ? new Date(date) : new Date(),
-      narration: `Payment made to ${supplier.company_name}`,
-      createdBy: req.user.id,
-      lines: [
-        ...(allocatable > 0 ? [{ accountCode: '03-AP', debit: allocatable }] : []),
-        ...(excessAmt > 0 ? [{ accountCode: '05-SUPCREDIT', debit: excessAmt }] : []),
-        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: amt },
-      ],
-    }, transaction);
+    const debitLines = [
+      ...(allocatable > 0 ? [{ accountCode: '03-AP', debit: allocatable }] : []),
+      ...(excessAmt > 0 ? [{ accountCode: '05-SUPCREDIT', debit: excessAmt }] : []),
+    ];
+    if (isBod) {
+      const { postPayFromBodCurrent } = require('../utils/bodAccounts');
+      await postPayFromBodCurrent(shopId, {
+        amount: amt,
+        method,
+        boardMemberId: board_member_id,
+        debitLines,
+        narration: `Payment made to ${supplier.company_name}`,
+        createdBy: req.user.id,
+        date,
+        notes,
+      }, transaction);
+    } else {
+      await postVoucher(shopId, {
+        type: 'payment',
+        date: date ? new Date(date) : new Date(),
+        narration: `Payment made to ${supplier.company_name}`,
+        createdBy: req.user.id,
+        lines: [
+          ...debitLines,
+          { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: amt },
+        ],
+      }, transaction);
+    }
 
     await transaction.commit();
     const fresh = await db.Supplier.findByPk(supplier.id);

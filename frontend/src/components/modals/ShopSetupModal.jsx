@@ -6,6 +6,10 @@ import {
 } from 'lucide-react';
 import api from '../../api/axios';
 import FormLabel from '../ui/FormLabel';
+import { useHistoryModal } from '../../hooks/useHistoryModal';
+import { useWizardSteps } from '../../hooks/useWizardSteps';
+
+const SETUP_STEPS = ['1', '2', '3', '4'];
 
 /* ── Step Indicator ──────────────────────────────────────────────────────────── */
 function StepDot({ step, current, label, icon: Icon }) {
@@ -115,7 +119,6 @@ export default function ShopSetupModal({
   focusMode = null, // null | 'bank' | 'cash'
   dismissible = false,
 }) {
-  const [step, setStep] = useState(initialStep);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -127,6 +130,17 @@ export default function ShopSetupModal({
     { account_name: '', bank_name: '', account_number: '', opening_balance: '' }
   ]);
   const [openingCash, setOpeningCash] = useState('');
+
+  const { step: stepKey, goTo, goPrev, clearStepParam } = useWizardSteps(SETUP_STEPS, {
+    paramName: 'setupStep',
+    enabled: !isPartial,
+  });
+  const step = isPartial ? initialStep : parseInt(stepKey, 10) || 1;
+
+  const requestClose = useHistoryModal(
+    dismissible && onClose ? () => { clearStepParam(); onClose(); } : () => {},
+    { enabled: Boolean(dismissible && onClose) },
+  );
 
   const addAccount = () => setBankAccounts(prev => [
     ...prev,
@@ -160,6 +174,7 @@ export default function ShopSetupModal({
           opening_cash: parseFloat(openingCash) || 0,
         });
       }
+      clearStepParam();
       onComplete();
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong. Please try again.');
@@ -173,6 +188,7 @@ export default function ShopSetupModal({
     setError('');
     try {
       await api.post('/financial-setup/skip');
+      clearStepParam();
       onComplete();
     } catch (err) {
       setError(err.response?.data?.message || 'Something went wrong. Please try again.');
@@ -220,7 +236,7 @@ export default function ShopSetupModal({
             {dismissible && onClose && (
               <button
                 type="button"
-                onClick={onClose}
+                onClick={requestClose}
                 className="ms-auto topbar-btn text-xs"
                 disabled={loading}
               >
@@ -289,7 +305,7 @@ export default function ShopSetupModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStep(2)}
+                  onClick={() => goTo('2')}
                   className="btn-primary flex-1 flex items-center justify-center gap-2"
                 >
                   Get Started <ArrowRight className="w-4 h-4" />
@@ -334,7 +350,7 @@ export default function ShopSetupModal({
 
               <div className="flex gap-3 mt-5">
                 {!isBankOnly && (
-                  <button type="button" onClick={() => setStep(1)}
+                  <button type="button" onClick={goPrev}
                     className="topbar-btn flex items-center gap-1.5 flex-shrink-0">
                     <ChevronLeft className="w-4 h-4" /> Back
                   </button>
@@ -342,7 +358,7 @@ export default function ShopSetupModal({
                 {isBankOnly ? (
                   <>
                     {dismissible && onClose && (
-                      <button type="button" onClick={onClose} className="topbar-btn flex-shrink-0" disabled={loading}>
+                      <button type="button" onClick={requestClose} className="topbar-btn flex-shrink-0" disabled={loading}>
                         Cancel
                       </button>
                     )}
@@ -360,7 +376,7 @@ export default function ShopSetupModal({
                     </button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setStep(3)}
+                  <button type="button" onClick={() => goTo('3')}
                     className="btn-primary flex-1 flex items-center justify-center gap-2">
                     Continue <ChevronRight className="w-4 h-4" />
                   </button>
@@ -418,7 +434,7 @@ export default function ShopSetupModal({
 
               <div className="flex gap-3">
                 {!isCashOnly && (
-                  <button type="button" onClick={() => setStep(2)}
+                  <button type="button" onClick={goPrev}
                     className="topbar-btn flex items-center gap-1.5 flex-shrink-0">
                     <ChevronLeft className="w-4 h-4" /> Back
                   </button>
@@ -426,7 +442,7 @@ export default function ShopSetupModal({
                 {isCashOnly ? (
                   <>
                     {dismissible && onClose && (
-                      <button type="button" onClick={onClose} className="topbar-btn flex-shrink-0" disabled={loading}>
+                      <button type="button" onClick={requestClose} className="topbar-btn flex-shrink-0" disabled={loading}>
                         Cancel
                       </button>
                     )}
@@ -444,7 +460,7 @@ export default function ShopSetupModal({
                     </button>
                   </>
                 ) : (
-                  <button type="button" onClick={() => setStep(4)}
+                  <button type="button" onClick={() => goTo('4')}
                     className="btn-primary flex-1 flex items-center justify-center gap-2">
                     Review Summary <ChevronRight className="w-4 h-4" />
                   </button>
@@ -541,7 +557,7 @@ export default function ShopSetupModal({
               )}
 
               <div className="flex gap-3">
-                <button type="button" onClick={() => setStep(3)}
+                <button type="button" onClick={goPrev}
                   className="topbar-btn flex items-center gap-1.5 flex-shrink-0" disabled={loading}>
                   <ChevronLeft className="w-4 h-4" /> Back
                 </button>

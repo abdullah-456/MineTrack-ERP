@@ -24,7 +24,7 @@ function toDatetimeLocal(d) {
 const emptyForm = (branches) => ({
   category: '', expense_account_id: null, description: '', amount: '',
   expense_date: toDatetimeLocal(new Date()),
-  paid_via: 'cash', bank_account_id: null,
+  paid_via: 'cash', bank_account_id: null, board_member_id: null,
   location_type: 'branch', branch_id: branches?.[0]?.id || '', godown_id: null,
 });
 
@@ -75,7 +75,7 @@ export default function Expenses() {
       description: exp.description || '',
       amount: exp.amount,
       expense_date: toDatetimeLocal(exp.expense_date),
-      paid_via: exp.paid_via, bank_account_id: exp.bank_account_id || null,
+      paid_via: exp.paid_via, bank_account_id: exp.bank_account_id || null, board_member_id: null,
       location_type: exp.Branch?.godown_id ? 'godown' : 'branch',
       branch_id: exp.branch_id,
       godown_id: exp.Branch?.godown_id || null,
@@ -288,7 +288,10 @@ export default function Expenses() {
                   required
                   method={form.paid_via}
                   bankAccountId={form.bank_account_id}
-                  onChange={({ method, bank_account_id }) => setForm(f => ({ ...f, paid_via: method, bank_account_id }))}
+                  boardMemberId={form.board_member_id}
+                  onChange={({ method, bank_account_id, board_member_id }) => setForm(f => ({
+                    ...f, paid_via: method, bank_account_id, board_member_id: board_member_id || null,
+                  }))}
                 />
               </div>
               <div className="sm:col-span-2">

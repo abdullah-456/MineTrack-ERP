@@ -35,7 +35,7 @@ export default function CustomerLedger() {
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
+  const [paymentForm, setPaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, board_member_id: null, date: '', notes: '' });
 
   // Open a printable voucher in a new tab for a single transaction
   const openVoucher = (txn) => {
@@ -75,13 +75,14 @@ export default function CustomerLedger() {
         amount: parseFloat(paymentForm.amount),
         method: paymentForm.method,
         bank_account_id: paymentForm.bank_account_id,
+        board_member_id: paymentForm.board_member_id || undefined,
         date: paymentForm.date || undefined,
         notes: paymentForm.notes || undefined,
         ...shopParams(),
       });
       success(t('paymentRecorded') || 'Payment recorded');
       setModal(null);
-      setPaymentForm({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
+      setPaymentForm({ amount: '', method: 'cash', bank_account_id: null, board_member_id: null, date: '', notes: '' });
       fetchData();
       if (data?.transaction) {
         openVoucher(data.transaction);
@@ -352,7 +353,10 @@ export default function CustomerLedger() {
                 required
                 method={paymentForm.method}
                 bankAccountId={paymentForm.bank_account_id}
-                onChange={({ method, bank_account_id }) => setPaymentForm(f => ({ ...f, method, bank_account_id }))}
+                boardMemberId={paymentForm.board_member_id}
+                onChange={({ method, bank_account_id, board_member_id }) => setPaymentForm(f => ({
+                  ...f, method, bank_account_id, board_member_id: board_member_id || null,
+                }))}
               />
             </div>
             <div>

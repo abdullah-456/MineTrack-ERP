@@ -85,9 +85,11 @@ export default function FinancialReportFilters({
           </select>
         </div>
       )}
-      <button type="button" onClick={onRefresh} className="btn-secondary flex items-center gap-2">
-        <RefreshCw className="w-4 h-4" />{t('refresh') || 'Refresh'}
-      </button>
+      {onRefresh && (
+        <button type="button" onClick={onRefresh} className="btn-secondary flex items-center gap-2">
+          <RefreshCw className="w-4 h-4" />{t('refresh') || 'Refresh'}
+        </button>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
 import { useHighlightRow } from '../../hooks/useHighlightRow';
+import { useWizardSteps } from '../../hooks/useWizardSteps';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import StatusBadge from '../../components/ui/StatusBadge';
@@ -16,6 +17,8 @@ import ReportActions from '../../components/ui/ReportActions';
 import { BankAccountPicker } from '../../components/ui/PaymentAccountSelect';
 import { money } from '../../utils/reportExport';
 import api from '../../api/axios';
+
+const RETURN_WIZARD_STEPS = ['sale', 'details'];
 
 // ----- ProductDropdown: live-search dropdown for replacement products --------
 function ProductDropdown({ onSelect, shopParams, error: showError, lang }) {
@@ -164,6 +167,10 @@ export default function SalesReturns() {
 
   // Wizard state
   const [wizard, setWizard] = useState(false);
+  const { step: wizardStep, goTo: goWizardStep, goPrev: goWizardPrev, clearStepParam: clearReturnStep } = useWizardSteps(
+    RETURN_WIZARD_STEPS,
+    { paramName: 'returnStep', enabled: wizard },
+  );
 
   // Step 1 — sale selection
   const [saleSearch, setSaleSearch] = useState('');
@@ -234,10 +241,21 @@ export default function SalesReturns() {
       const { data } = await api.get(`/sales/${saleId}/returnable`, { params: shopParams() });
       setReturnable(data);
       setPicked({});
+      goWizardStep('details');
     } catch (e) {
       error(e.response?.data?.message || 'Could not load sale items');
     }
   };
+
+  // Browser Back from details → sale step: clear selected sale
+  useEffect(() => {
+    if (!wizard) return;
+    if (wizardStep === 'sale' && returnable) {
+      setReturnable(null);
+      setPicked({});
+      setExchangeItems([]);
+    }
+  }, [wizard, wizardStep, returnable]);
 
   const setQty = (item, qty) => {
     const q = Math.max(0, Math.min(parseFloat(qty || 0), item.returnable_qty));
@@ -278,6 +296,7 @@ export default function SalesReturns() {
 
   // ── Reset wizard ────────────────────────────────────────────────────────────
   const resetWizard = () => {
+    clearReturnStep();
     setWizard(false);
     setSaleSearch('');
     setAllSales([]);
@@ -532,7 +551,7 @@ export default function SalesReturns() {
         <Modal title="New Sales Return" onClose={resetWizard} wide>
 
           {/* Step 1: Choose a sale */}
-          {!returnable && (
+          {wizardStep === 'sale' && (
             <div className="space-y-4">
               <div>
                 <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
@@ -688,7 +707,7 @@ export default function SalesReturns() {
           )}
 
           {/* Step 2: pick items + mode */}
-          {returnable && (
+          {wizardStep === 'details' && returnable && (
             <div className="space-y-4">
               {/* Sale header */}
               <div
@@ -932,10 +951,7 @@ export default function SalesReturns() {
               <div className="flex gap-2 justify-end pt-2">
                 <button
                   className="btn-secondary"
-                  onClick={() => {
-                    setReturnable(null);
-                    setPicked({});
-                  }}
+                  onClick={goWizardPrev}
                 >
                   ← Back to Sales
                 </button>

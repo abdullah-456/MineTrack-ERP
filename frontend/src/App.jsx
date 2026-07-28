@@ -47,11 +47,13 @@ import EquityStatement from './pages/reports/EquityStatement';
 import CashFlowStatement from './pages/reports/CashFlowStatement';
 import ReportsHub from './pages/reports/ReportsHub';
 import SalesReport from './pages/reports/SalesReport';
+import ModuleReport from './pages/reports/ModuleReport';
 import Products   from './pages/products/Products';
 import Categories from './pages/products/Categories';
 import Inventory  from './pages/inventory/Inventory';
 import Godowns    from './pages/inventory/Godowns';
 import Customers  from './pages/customers/Customers';
+import EmployeeFormPage from './pages/employees/EmployeeFormPage';
 import Employees  from './pages/employees/Employees';
 import Sales      from './pages/sales/Sales';
 import SalesReturns from './pages/returns/SalesReturns';
@@ -195,6 +197,10 @@ function App() {
               {/* HR */}
               <Route path="/employees"
                 element={<ProtectedRoute module="employees" action="read"><Employees /></ProtectedRoute>} />
+              <Route path="/employees/create"
+                element={<ProtectedRoute module="employees" action="create"><EmployeeFormPage /></ProtectedRoute>} />
+              <Route path="/employees/:id/edit"
+                element={<ProtectedRoute module="employees" action="update"><EmployeeFormPage /></ProtectedRoute>} />
               <Route path="/employees/:id"
                 element={<ProtectedRoute module="employees" action="read"><EmployeeLedger /></ProtectedRoute>} />
               <Route path="/payroll"
@@ -215,6 +221,22 @@ function App() {
                 element={<ProtectedRoute module="reports" action="read"><ReportsHub /></ProtectedRoute>} />
               <Route path="/reports/sales"
                 element={<ProtectedRoute module="sales" action="read"><SalesReport /></ProtectedRoute>} />
+              <Route path="/reports/purchases"
+                element={<ProtectedRoute module="purchases" action="read"><ModuleReport moduleKey="purchases" /></ProtectedRoute>} />
+              <Route path="/reports/inventory"
+                element={<ProtectedRoute module="inventory" action="read"><ModuleReport moduleKey="inventory" /></ProtectedRoute>} />
+              <Route path="/reports/customers"
+                element={<ProtectedRoute module="customers" action="read"><ModuleReport moduleKey="customers" /></ProtectedRoute>} />
+              <Route path="/reports/suppliers"
+                element={<ProtectedRoute module="suppliers" action="read"><ModuleReport moduleKey="suppliers" /></ProtectedRoute>} />
+              <Route path="/reports/expenses"
+                element={<ProtectedRoute module="expenses" action="read"><ModuleReport moduleKey="expenses" /></ProtectedRoute>} />
+              <Route path="/reports/accounting"
+                element={<ProtectedRoute module="accounting" action="read"><ModuleReport moduleKey="accounting" /></ProtectedRoute>} />
+              <Route path="/reports/employees"
+                element={<ProtectedRoute module="employees" action="read"><ModuleReport moduleKey="employees" /></ProtectedRoute>} />
+              <Route path="/reports/board"
+                element={<ProtectedRoute module="board_directors" action="read"><ModuleReport moduleKey="board" /></ProtectedRoute>} />
               <Route path="/reports/trial-balance"
                 element={<ProtectedRoute module="reports" action="read"><TrialBalance /></ProtectedRoute>} />
               <Route path="/reports/profit-and-loss"

@@ -82,6 +82,55 @@ async function getOrCreateDirectorsParent(shopId, createdBy, transaction) {
   }, transaction);
 }
 
+// Asset parent: company money held by directors in their Current wallets.
+async function getOrCreateDueFromBodParent(shopId, createdBy, transaction) {
+  const existing = await db.ChartOfAccount.findOne({
+    where: { shop_id: shopId, account_code: '05-BOD-DUE' },
+    transaction,
+  });
+  if (existing) return existing;
+
+  const currentAssets = await db.ChartOfAccount.findOne({
+    where: { account_code: '05-CUR-ASSET' },
+    transaction,
+  });
+
+  return createAccount({
+    shopId,
+    accountName: 'Due from Directors (Current held)',
+    accountType: 'asset',
+    parent: currentAssets || null,
+    accountCode: '05-BOD-DUE',
+    createdBy,
+  }, transaction);
+}
+
+// Memo/off-capital wallets for BOD Current Cash / Bank (asset tracking of
+// director-held funds — excluded from Capital cash dashboards).
+async function getOrCreateBodCurrentParent(shopId, kind, createdBy, transaction) {
+  const code = kind === 'bank' ? '05-BOD-CUR-BANK' : '05-BOD-CUR-CASH';
+  const name = kind === 'bank' ? 'BOD Current Bank' : 'BOD Current Cash';
+  const existing = await db.ChartOfAccount.findOne({
+    where: { shop_id: shopId, account_code: code },
+    transaction,
+  });
+  if (existing) return existing;
+
+  const currentAssets = await db.ChartOfAccount.findOne({
+    where: { account_code: '05-CUR-ASSET' },
+    transaction,
+  });
+
+  return createAccount({
+    shopId,
+    accountName: name,
+    accountType: 'asset',
+    parent: currentAssets || null,
+    accountCode: code,
+    createdBy,
+  }, transaction);
+}
+
 function isFundParent(parent) {
   return !!(parent && FUND_PARENT_CODES.has(parent.account_code));
 }
@@ -90,8 +139,6 @@ function fundKindFromParent(parent) {
   return parent.account_code === '05-CASH' ? 'cash' : 'bank';
 }
 
-// Creates a COA sub-account under 05-BANK or 05-CASH plus the linked
-// bank_accounts row that makes it selectable as a payment method everywhere.
 async function createFundAccount({
   shopId, accountName, parent, bank_name, account_number, opening_balance, accountCode, createdBy,
 }, transaction) {
@@ -146,4 +193,6 @@ module.exports = {
   hasPostings,
   wouldCreateCycle,
   getOrCreateDirectorsParent,
+  getOrCreateDueFromBodParent,
+  getOrCreateBodCurrentParent,
 };

@@ -9,13 +9,15 @@ import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
-import FundAccountSelect from '../../components/ui/FundAccountSelect';
 import api from '../../api/axios';
 
 const EMPTY = {
   name: '', phone: '', cnic: '', address: '',
-  opening_cash_amount: '', opening_cash_account_id: null,
-  opening_bank_amount: '', opening_bank_account_id: null,
+  investment_amount: '',
+  current_cash_name: '',
+  current_bank_name: '',
+  current_cash_amount: '',
+  current_bank_amount: '',
 };
 
 export default function BoardOfDirectors() {
@@ -68,6 +70,8 @@ export default function BoardOfDirectors() {
           phone: form.phone,
           cnic: form.cnic,
           address: form.address,
+          current_cash_name: form.current_cash_name,
+          current_bank_name: form.current_bank_name,
           ...shopParams(),
         });
         success(t('boardMemberUpdated'));
@@ -82,7 +86,12 @@ export default function BoardOfDirectors() {
   };
 
   const handleDelete = async (m) => {
-    const ok = await confirm({ title: t('delete'), message: t('confirmDeleteBoardMember'), confirmLabel: t('delete'), cancelLabel: t('cancel') });
+    const ok = await confirm({
+      title: t('deleteBoardMember') || 'Delete board member',
+      message: `${t('confirmDeleteBoardMember')} (${m.name})`,
+      confirmLabel: t('delete') || 'Delete',
+      cancelLabel: t('cancel') || 'Cancel',
+    });
     if (!ok) return;
     try {
       const res = await api.delete(`/board-members/${m.id}`, { params: shopParams() });
@@ -110,6 +119,9 @@ export default function BoardOfDirectors() {
                 { header: t('cnic') || 'CNIC', render: m => m.cnic || '', width: 1.3 },
                 { header: t('address') || 'Address', render: m => m.address || '', width: 2.5 },
                 { header: t('boardMemberOpeningBalance') || 'Opening Balance', render: m => m.opening_balance != null ? Number(m.opening_balance).toLocaleString() : '0', width: 1.2 },
+                { header: t('investmentBalance') || 'Investment', render: m => Number(m.investment_balance ?? m.current_balance ?? 0).toLocaleString(), width: 1.1 },
+                { header: t('currentCash') || 'Current Cash', render: m => Number(m.current_cash_balance || 0).toLocaleString(), width: 1.1 },
+                { header: t('currentBank') || 'Current Bank', render: m => Number(m.current_bank_balance || 0).toLocaleString(), width: 1.1 },
               ]}
               rows={members}
               filename="board-of-directors.pdf"
@@ -140,7 +152,9 @@ export default function BoardOfDirectors() {
                 <th className="text-start p-4 font-medium">{t('cnic')}</th>
                 <th className="text-start p-4 font-medium">{t('address')}</th>
                 <th className="text-start p-4 font-medium">{t('boardMemberOpeningBalance') || 'Opening Balance'}</th>
-                <th className="text-end p-4 font-medium">{t('currentBalance')}</th>
+                <th className="text-end p-4 font-medium">{t('investmentBalance') || 'Investment'}</th>
+                <th className="text-end p-4 font-medium">{t('currentCash') || 'Current Cash'}</th>
+                <th className="text-end p-4 font-medium">{t('currentBank') || 'Current Bank'}</th>
                 <th className="text-end p-4 font-medium">{t('actions')}</th>
               </tr>
             </thead>
@@ -148,7 +162,7 @@ export default function BoardOfDirectors() {
               {members
                 .filter(m => !search.trim() || [
                   m.name, m.phone, m.cnic, m.address, m.email, m.status,
-                  String(m.opening_balance), String(m.current_balance)
+                  String(m.opening_balance), String(m.investment_balance), String(m.current_cash_balance), String(m.current_bank_balance), String(m.current_balance)
                 ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
                 .map(m => (
                 <tr
@@ -167,7 +181,9 @@ export default function BoardOfDirectors() {
                   <td className="p-4 font-mono" style={{ color: 'var(--text-secondary)' }}>{m.cnic || '—'}</td>
                   <td className="p-4 max-w-xs truncate" style={{ color: 'var(--text-secondary)' }}>{m.address || '—'}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{m.opening_balance != null ? Number(m.opening_balance).toLocaleString() : '0'}</td>
-                  <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(m.current_balance, lang)}</td>
+                  <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(m.investment_balance ?? m.current_balance, lang)}</td>
+                  <td className="p-4 text-end" style={{ color: 'var(--text-secondary)' }}>{formatPKR(m.current_cash_balance || 0, lang)}</td>
+                  <td className="p-4 text-end" style={{ color: 'var(--text-secondary)' }}>{formatPKR(m.current_bank_balance || 0, lang)}</td>
                   <td className="p-4">
                     <div className="flex justify-end gap-2">
                       <button type="button" onClick={() => navigate(`/admin/board-of-directors/${m.id}/ledger`)} title={t('viewLedger')} className="icon-btn">
@@ -179,6 +195,9 @@ export default function BoardOfDirectors() {
                           setSelected(m);
                           setForm({
                             name: m.name, phone: m.phone || '', cnic: m.cnic || '', address: m.address || '',
+                            current_cash_name: m.current_cash_name || '',
+                            current_bank_name: m.current_bank_name || '',
+                            investment_amount: '', current_cash_amount: '', current_bank_amount: '',
                           });
                           setModal('edit');
                         }}
@@ -192,7 +211,7 @@ export default function BoardOfDirectors() {
                 </tr>
               ))}
               {members.length === 0 && (
-                <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noBoardMembers')}</td></tr>
+                <tr><td colSpan={9} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noBoardMembers')}</td></tr>
               )}
             </tbody>
           </table>
@@ -223,50 +242,82 @@ export default function BoardOfDirectors() {
             {modal === 'create' && (
               <div className="space-y-3 rounded-lg p-4" style={{ border: '1px solid var(--border-subtle)' }}>
                 <div>
-                  <FormLabel>{t('boardMemberOpeningBalance') || 'Opening Balance'}</FormLabel>
+                  <FormLabel>{t('openingAccounts') || 'Opening accounts'}</FormLabel>
                   <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                    {t('boardMemberOpeningBalanceHint2') || 'Split across cash and bank — pick or create the fund account that received each portion.'}
+                    {t('bodOpeningHint') || 'Investment is a memo claim (does not change Cash in Hand / Bank). Name the Current Cash & Bank wallets — those names appear in payment pickers everywhere. Capital cash only moves on Deposit or Transfer.'}
                   </p>
+                </div>
+                <div className="space-y-2 rounded-lg p-3" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                  <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>
+                    {t('investmentAccount') || 'Investment Account (amount)'}
+                  </label>
+                  <input
+                    className="input" type="number" min="0" step="0.01" placeholder="0.00"
+                    value={form.investment_amount}
+                    onChange={setF('investment_amount')}
+                  />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2 rounded-lg p-3 h-full" style={{ backgroundColor: 'var(--bg-elevated)' }}>
-                    <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>{t('viaCash') || 'Via Cash'}</label>
+                    <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>
+                      {t('currentCashAccountName') || 'Current Cash — account name'}
+                    </label>
+                    <input
+                      className="input" required
+                      placeholder={form.name ? `${form.name} — Current Cash` : 'e.g. Director Petty Cash'}
+                      value={form.current_cash_name}
+                      onChange={setF('current_cash_name')}
+                    />
+                    <label className="text-xs font-semibold block mt-2" style={{ color: 'var(--text-secondary)' }}>
+                      {t('openingAmount') || 'Opening amount'}
+                    </label>
                     <input
                       className="input" type="number" min="0" step="0.01" placeholder="0.00"
-                      value={form.opening_cash_amount}
-                      onChange={setF('opening_cash_amount')}
+                      value={form.current_cash_amount}
+                      onChange={setF('current_cash_amount')}
                     />
-                    {parseFloat(form.opening_cash_amount || 0) > 0 && (
-                      <div>
-                        <FormLabel>{t('whichCashAccount') || 'Which cash account?'}</FormLabel>
-                        <FundAccountSelect
-                          kind="cash"
-                          allowCashInHand
-                          value={form.opening_cash_account_id}
-                          onChange={id => setForm(f => ({ ...f, opening_cash_account_id: id }))}
-                        />
-                      </div>
-                    )}
                   </div>
                   <div className="space-y-2 rounded-lg p-3 h-full" style={{ backgroundColor: 'var(--bg-elevated)' }}>
-                    <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>{t('viaBank') || 'Via Bank'}</label>
+                    <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>
+                      {t('currentBankAccountName') || 'Current Bank — account name'}
+                    </label>
+                    <input
+                      className="input" required
+                      placeholder={form.name ? `${form.name} — Current Bank` : 'e.g. Director Bank Wallet'}
+                      value={form.current_bank_name}
+                      onChange={setF('current_bank_name')}
+                    />
+                    <label className="text-xs font-semibold block mt-2" style={{ color: 'var(--text-secondary)' }}>
+                      {t('openingAmount') || 'Opening amount'}
+                    </label>
                     <input
                       className="input" type="number" min="0" step="0.01" placeholder="0.00"
-                      value={form.opening_bank_amount}
-                      onChange={setF('opening_bank_amount')}
+                      value={form.current_bank_amount}
+                      onChange={setF('current_bank_amount')}
                     />
-                    {parseFloat(form.opening_bank_amount || 0) > 0 && (
-                      <div>
-                        <FormLabel required>{t('whichBankAccount') || 'Which bank account?'}</FormLabel>
-                        <FundAccountSelect
-                          kind="bank"
-                          required
-                          value={form.opening_bank_account_id}
-                          onChange={id => setForm(f => ({ ...f, opening_bank_account_id: id }))}
-                        />
-                      </div>
-                    )}
                   </div>
+                </div>
+              </div>
+            )}
+            {modal === 'edit' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <FormLabel required>{t('currentCashAccountName') || 'Current Cash — account name'}</FormLabel>
+                  <input
+                    className="input" required
+                    value={form.current_cash_name}
+                    onChange={setF('current_cash_name')}
+                    placeholder={`${form.name || 'Member'} — Current Cash`}
+                  />
+                </div>
+                <div>
+                  <FormLabel required>{t('currentBankAccountName') || 'Current Bank — account name'}</FormLabel>
+                  <input
+                    className="input" required
+                    value={form.current_bank_name}
+                    onChange={setF('current_bank_name')}
+                    placeholder={`${form.name || 'Member'} — Current Bank`}
+                  />
                 </div>
               </div>
             )}
