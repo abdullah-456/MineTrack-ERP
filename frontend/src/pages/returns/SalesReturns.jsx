@@ -224,6 +224,12 @@ export default function SalesReturns() {
   }, [shopParams, error]);
 
   const openWizard = () => {
+    // Always start at step 1. The step lives in the URL so Back/Forward work,
+    // but the data step 2 needs (the selected sale) lives only in memory — so a
+    // leftover ?returnStep=details, from a reload or a back-navigation, used to
+    // open this modal directly on step 2 with nothing selected and render an
+    // empty body.
+    goWizardStep('sale', { replace: true });
     setWizard(true);
     loadSales('');
   };
@@ -550,8 +556,11 @@ export default function SalesReturns() {
       {wizard && (
         <Modal title="New Sales Return" onClose={resetWizard} wide>
 
-          {/* Step 1: Choose a sale */}
-          {wizardStep === 'sale' && (
+          {/* Step 1: Choose a sale.
+              Also the fallback whenever no sale is selected — the step can be
+              restored from the URL while `returnable` cannot, and step 2 below
+              renders nothing without it. */}
+          {(wizardStep === 'sale' || !returnable) && (
             <div className="space-y-4">
               <div>
                 <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>

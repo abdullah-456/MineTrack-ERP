@@ -28,7 +28,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     type: {
-      type: DataTypes.ENUM('sale_charge', 'payment_received', 'return_credit', 'opening_balance', 'adjustment'),
+      // advance_applied = existing store credit consumed by a sale. Recorded for
+      // the audit trail only; it does not move the customer's net balance,
+      // because the credit was already reflected in it (see SIGN_FOR in
+      // controllers/customerLedgerController.js).
+      type: DataTypes.ENUM('sale_charge', 'payment_received', 'return_credit', 'opening_balance', 'adjustment', 'advance_applied'),
       allowNull: false
     },
     amount: {

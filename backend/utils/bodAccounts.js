@@ -59,7 +59,9 @@ async function ensureBodAccounts(member, createdBy, transaction) {
     const inv = await createAccount({
       shopId,
       accountName: `${member.name} — Investment`,
-      accountType: 'liability',
+      // Equity, not liability: this is owner capital. See
+      // getOrCreateDirectorsParent in ./chartOfAccounts.js for why.
+      accountType: 'equity',
       parent,
       createdBy,
     }, transaction);
@@ -208,6 +210,8 @@ async function postPayFromBodCurrent(shopId, {
     voucher_id: voucherIdOf(voucher),
     account_bucket: wallet === 'bank' ? 'current_bank' : 'current_cash',
     fund_origin: personalAmt > 0 && dueAmt > 0 ? 'mixed' : (personalAmt > 0 ? 'personal' : 'company'),
+    personal_amount: personalAmt,
+    company_amount: dueAmt,
   }, { transaction });
 
   return { member, voucher, transaction: txn, dueAmt, personalAmt };
@@ -294,7 +298,7 @@ async function personalDeposit(shopId, member, { amount, method, createdBy, date
 
 /** Transfer Current → company Cash/Bank (Capital). */
 async function transferToCapital(shopId, member, {
-  amount, currentMethod, capitalMethod, capitalBankAccountId, createdBy, date, notes,
+  amount, currentMethod, capitalMethod, capitalBankAccountId, createdBy, date, notes, branchId,
 }, transaction) {
   const amt = round2(amount);
   if (!(amt > 0)) throw err(400, 'amount must be greater than 0');
@@ -338,7 +342,7 @@ async function transferToCapital(shopId, member, {
     date: date ? new Date(date) : new Date(),
     narration: notes || `Transfer BOD Current → Capital — ${member.name}`,
     createdBy,
-    branchId: null,
+    branchId: branchId || null,
     lines,
   }, transaction);
 
@@ -356,6 +360,8 @@ async function transferToCapital(shopId, member, {
     voucher_id: voucherIdOf(voucher),
     account_bucket: currentMethod === 'bank' ? 'current_bank' : 'current_cash',
     fund_origin: personalPortion > 0 && companyPortion > 0 ? 'mixed' : (personalPortion > 0 ? 'personal' : 'company'),
+    personal_amount: personalPortion,
+    company_amount: companyPortion,
   }, { transaction });
 
   return { member, voucher, transaction: txn, companyPortion, personalPortion };
@@ -363,7 +369,7 @@ async function transferToCapital(shopId, member, {
 
 /** Transfer company Cash/Bank → Current. Investment unchanged. */
 async function transferFromCapital(shopId, member, {
-  amount, currentMethod, capitalMethod, capitalBankAccountId, createdBy, date, notes,
+  amount, currentMethod, capitalMethod, capitalBankAccountId, createdBy, date, notes, branchId,
 }, transaction) {
   const amt = round2(amount);
   if (!(amt > 0)) throw err(400, 'amount must be greater than 0');
@@ -395,7 +401,7 @@ async function transferFromCapital(shopId, member, {
     date: date ? new Date(date) : new Date(),
     narration: notes || `Transfer Capital → BOD Current — ${member.name}`,
     createdBy,
-    branchId: null,
+    branchId: branchId || null,
     lines: [
       { accountCode: dueCode, debit: amt },
       { accountCode: capitalCode, credit: amt },
@@ -423,7 +429,7 @@ async function transferFromCapital(shopId, member, {
 
 /** Investment contribution via company Cash/Bank. */
 async function investmentReceive(shopId, member, {
-  amount, method, bankAccountId, createdBy, date, notes,
+  amount, method, bankAccountId, createdBy, date, notes, branchId,
 }, transaction) {
   const amt = round2(amount);
   if (!(amt > 0)) throw err(400, 'amount must be greater than 0');
@@ -446,7 +452,7 @@ async function investmentReceive(shopId, member, {
     date: date ? new Date(date) : new Date(),
     narration: notes || `Investment received — ${member.name}`,
     createdBy,
-    branchId: null,
+    branchId: branchId || null,
     lines: [
       { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : paymentAccountCode('cash', cashAcc), debit: amt },
       { accountCode: invCode, credit: amt },
@@ -472,7 +478,7 @@ async function investmentReceive(shopId, member, {
 
 /** Investment withdrawal via company Cash/Bank. */
 async function investmentSend(shopId, member, {
-  amount, method, bankAccountId, createdBy, date, notes,
+  amount, method, bankAccountId, createdBy, date, notes, branchId,
 }, transaction) {
   const amt = round2(amount);
   if (!(amt > 0)) throw err(400, 'amount must be greater than 0');
@@ -486,7 +492,15 @@ async function investmentSend(shopId, member, {
     cashAcc = await debitCashPayment(shopId, amt, transaction, bankAccountId);
   }
 
-  const invBal = round2(parseFloat(member.investment_balance || 0) - amt);
+  // Mirrors assertCurrentAvailable's guard on the Current wallets: without it a
+  // director could withdraw more capital than they ever contributed, leaving a
+  // negative equity balance that reads as an asset on the balance sheet.
+  const availableInvestment = round2(parseFloat(member.investment_balance || 0));
+  if (availableInvestment + 1e-9 < amt) {
+    throw err(400, `Withdrawal exceeds ${member.name}'s investment balance (available ${availableInvestment})`);
+  }
+
+  const invBal = round2(availableInvestment - amt);
   await member.update({ investment_balance: invBal, current_balance: invBal }, { transaction });
 
   const invCode = await codeOf(member.chart_of_account_id, transaction);
@@ -495,7 +509,7 @@ async function investmentSend(shopId, member, {
     date: date ? new Date(date) : new Date(),
     narration: notes || `Investment withdrawal — ${member.name}`,
     createdBy,
-    branchId: null,
+    branchId: branchId || null,
     lines: [
       { accountCode: invCode, debit: amt },
       { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : paymentAccountCode('cash', cashAcc), credit: amt },

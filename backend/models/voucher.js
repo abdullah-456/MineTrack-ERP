@@ -31,7 +31,10 @@ module.exports = (sequelize, DataTypes) => {
       unique: true
     },
     voucher_type: {
-      type: DataTypes.ENUM('payment', 'receipt', 'journal', 'contra'),
+      // 'opening' marks setup / opening-balance journals so live cash figures
+      // can exclude them by purpose rather than by guessing from account type
+      // (see openingVoucherIds in utils/cashHelpers.js).
+      type: DataTypes.ENUM('payment', 'receipt', 'journal', 'contra', 'opening'),
       allowNull: false
     },
     voucher_date: {

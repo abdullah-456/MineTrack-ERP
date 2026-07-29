@@ -300,7 +300,13 @@ exports.create = async (req, res) => {
           });
           if (customer) {
             const outstanding = parseFloat(customer.current_balance || 0);
-            creditApplied = Math.min(returnedValue, outstanding);
+            // Floored at 0: `outstanding` is negative when the customer already
+            // holds store credit, and an unfloored Math.min then returned a
+            // NEGATIVE creditApplied — which wiped out that existing credit and
+            // inflated cashExcess above returnedValue, refunding more cash than
+            // the goods were worth. Nothing is owed, so nothing is offset here
+            // and the full value falls through to the cash refund below.
+            creditApplied = Math.max(0, Math.min(returnedValue, outstanding));
             await customer.update({
               current_balance: Math.round((outstanding - creditApplied) * 100) / 100,
             }, { transaction });

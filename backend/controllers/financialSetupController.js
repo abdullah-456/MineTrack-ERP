@@ -1,6 +1,6 @@
 const db = require('../models');
 const { Op } = require('sequelize');
-const { computeLiveCash, computeTotalCashOnHand } = require('../utils/cashHelpers');
+const { computeLiveCash, computeTotalCashOnHand, resolveOpeningCash } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
 const { createAccount } = require('../utils/chartOfAccounts');
 
@@ -52,18 +52,48 @@ async function upsertTodayCashSession(shopId, openingCashAmt, userId, transactio
   }, { transaction });
 }
 
+// ── postCashCountAdjustment ───────────────────────────────────────────────────
+// Books the difference between what the drawer actually holds and what the
+// books say it should, so recording a cash count stops being a one-sided change
+// to an asset.
+//
+// Tagged 'opening' on purpose. That keeps it out of computeCashFlow (a counting
+// correction is not trading activity) while still recording it in the ledger —
+// which is exactly what makes the two cash figures move together: the session
+// baseline that gates payments and the GL total shown on the dashboard both
+// shift by the same delta instead of drifting apart.
+async function postCashCountAdjustment(shopId, delta, userId, transaction, reason) {
+  const amount = round2(delta);
+  if (Math.abs(amount) < 0.005) return;
+
+  const surplus = amount > 0;
+  const magnitude = Math.abs(amount);
+
+  await postVoucher(shopId, {
+    type: 'opening',
+    date: new Date(),
+    narration: reason || `Opening cash count adjustment (${surplus ? 'over' : 'short'} ${magnitude.toFixed(2)})`,
+    createdBy: userId,
+    lines: surplus
+      // More cash than the books expected: asset up, gain recorded.
+      ? [{ accountCode: '05-CASH', debit: magnitude }, { accountCode: '07-CASH-VAR', credit: magnitude }]
+      // Less cash than expected: shortfall expensed, asset down.
+      : [{ accountCode: '07-CASH-VAR', debit: magnitude }, { accountCode: '05-CASH', credit: magnitude }],
+  }, transaction);
+}
+
 async function postOpeningCashJournal(shopId, amount, userId, transaction) {
   const openingCashAmt = round2(amount);
   if (openingCashAmt <= 0) return;
 
   await postVoucher(shopId, {
-    type: 'journal',
+    type: 'opening',
     date: new Date(),
     narration: 'Opening cash balance',
     createdBy: userId,
     lines: [
       { accountCode: '05-CASH', debit: openingCashAmt },
-      { accountCode: '01-CAPITAL', credit: openingCashAmt },
+      { accountCode: '01-OBE', credit: openingCashAmt },
     ],
   }, transaction);
 }
@@ -95,13 +125,30 @@ exports.setOpeningCash = async (req, res) => {
   }
 
   const openingCashAmt = round2(opening_cash);
+  if (openingCashAmt < 0) {
+    return res.status(400).json({ message: 'opening_cash cannot be negative' });
+  }
+
   const t = await db.sequelize.transaction();
   try {
     const alreadyRecorded = await hadNonZeroCashOpening(shopId, t);
-    await upsertTodayCashSession(shopId, openingCashAmt, req.user.id, t);
+
     if (!alreadyRecorded) {
+      // First time: the whole amount is capital being introduced.
+      await upsertTodayCashSession(shopId, openingCashAmt, req.user.id, t);
       await postOpeningCashJournal(shopId, openingCashAmt, req.user.id, t);
+    } else {
+      // Any later correction only used to move the session row, leaving the
+      // ledger untouched and the two cash figures permanently divergent. Book
+      // the difference instead.
+      const { openingCash: expected } = await resolveOpeningCash(shopId, { transaction: t });
+      await upsertTodayCashSession(shopId, openingCashAmt, req.user.id, t);
+      await postCashCountAdjustment(
+        shopId, openingCashAmt - round2(expected), req.user.id, t,
+        `Opening cash corrected to ${openingCashAmt.toFixed(2)}`,
+      );
     }
+
     await t.commit();
     return res.json({ message: 'Opening cash saved', opening_cash: openingCashAmt });
   } catch (error) {
@@ -131,13 +178,13 @@ exports.addBankAccounts = async (req, res) => {
 
     if (bankOpeningTotal > 0) {
       await postVoucher(shopId, {
-        type: 'journal',
+        type: 'opening',
         date: new Date(),
         narration: 'Opening bank balances',
         createdBy: req.user.id,
         lines: [
           ...bankOpeningLines,
-          { accountCode: '01-CAPITAL', credit: bankOpeningTotal },
+          { accountCode: '01-OBE', credit: bankOpeningTotal },
         ],
       }, t);
     }
@@ -179,14 +226,14 @@ exports.completeSetup = async (req, res) => {
     const openingTotal = round2(bankOpeningTotal + openingCashAmt);
     if (openingTotal > 0) {
       await postVoucher(shopId, {
-        type: 'journal',
+        type: 'opening',
         date: new Date(),
         narration: 'Financial setup — opening balances',
         createdBy: req.user.id,
         lines: [
           ...bankOpeningLines,
           ...(openingCashAmt > 0 ? [{ accountCode: '05-CASH', debit: openingCashAmt }] : []),
-          { accountCode: '01-CAPITAL', credit: openingTotal },
+          { accountCode: '01-OBE', credit: openingTotal },
         ],
       }, t);
     }
@@ -246,30 +293,22 @@ exports.getMoneyFlow = async (req, res) => {
       return res.json({ total_received: 0, total_spent: 0, net: 0 });
     }
 
-    // Vouchers to exclude: those touching an equity account (capital / opening /
-    // drawings) and contra transfers between the shop's own accounts.
-    const equity = await db.ChartOfAccount.findAll({
-      where: { account_type: 'equity' },
-      attributes: ['id'],
-    });
-    const equityIds = equity.map(a => a.id);
-
+    // Vouchers to exclude: opening-balance/setup journals, and contra transfers
+    // between the shop's own accounts.
+    //
+    // Previously this excluded every voucher touching an equity account, which
+    // also hid genuine cash movements (owner drawings, and the cash leg of
+    // "Direct stock received"). Now that director capital is correctly typed as
+    // equity, that test would have hidden every BOD movement too. Opening
+    // vouchers are tagged at posting time instead — see
+    // openingVoucherIds in utils/cashHelpers.js.
     const excluded = new Set();
-    if (equityIds.length) {
-      const eqVouchers = await db.GeneralLedger.findAll({
-        where: { shop_id: shopId, account_id: { [Op.in]: equityIds } },
-        attributes: ['voucher_id'],
-        group: ['voucher_id'],
-        raw: true,
-      });
-      eqVouchers.forEach(r => excluded.add(r.voucher_id));
-    }
-    const contraVouchers = await db.Voucher.findAll({
-      where: { shop_id: shopId, voucher_type: 'contra' },
+    const skipVouchers = await db.Voucher.findAll({
+      where: { shop_id: shopId, voucher_type: { [Op.in]: ['opening', 'contra'] } },
       attributes: ['id'],
       raw: true,
     });
-    contraVouchers.forEach(v => excluded.add(v.id));
+    skipVouchers.forEach(v => excluded.add(v.id));
 
     const where = { shop_id: shopId, account_id: { [Op.in]: liquidIds } };
     if (excluded.size) where.voucher_id = { [Op.notIn]: [...excluded] };
@@ -407,33 +446,52 @@ exports.recordCashSession = async (req, res) => {
     return res.status(400).json({ message: 'opening_cash is required' });
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayStr();
+  const countedCash = round2(opening_cash);
+  if (countedCash < 0) {
+    return res.status(400).json({ message: 'opening_cash cannot be negative' });
+  }
 
+  // Previously this ran with no transaction at all — the only write path in the
+  // codebase that didn't — and adjusted the cash asset with no offsetting entry.
+  const t = await db.sequelize.transaction();
   try {
+    // What the books say the drawer should open with, before this count.
+    const { openingCash: expected } = await resolveOpeningCash(shopId, { transaction: t });
+
     const existing = await db.CashSession.findOne({
-      where: { shop_id: shopId, session_date: today }
+      where: { shop_id: shopId, session_date: today },
+      transaction: t,
     });
 
+    let session;
     if (existing) {
       await existing.update({
-        opening_cash: parseFloat(opening_cash) || 0,
+        opening_cash: countedCash,
         notes:        notes?.trim() ?? existing.notes,
-      });
-      return res.json({ session: existing });
+      }, { transaction: t });
+      session = existing;
+    } else {
+      session = await db.CashSession.create({
+        shop_id:      shopId,
+        session_date: today,
+        opening_cash: countedCash,
+        notes:        notes?.trim() || null,
+        created_by:   req.user.id,
+      }, { transaction: t });
     }
 
-    const session = await db.CashSession.create({
-      shop_id:      shopId,
-      session_date: today,
-      opening_cash: parseFloat(opening_cash) || 0,
-      notes:        notes?.trim() || null,
-      created_by:   req.user.id,
-    });
+    await postCashCountAdjustment(
+      shopId, countedCash - round2(expected), req.user.id, t,
+      `Cash count on ${today} — counted ${countedCash.toFixed(2)}`,
+    );
 
-    return res.status(201).json({ session });
+    await t.commit();
+    return res.status(existing ? 200 : 201).json({ session });
   } catch (error) {
+    if (!t.finished) await t.rollback();
     console.error('recordCashSession error:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 };
 

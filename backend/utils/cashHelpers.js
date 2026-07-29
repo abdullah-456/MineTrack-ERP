@@ -4,45 +4,56 @@ const { Op } = require('sequelize');
 const round2 = (n) => Math.round(n * 100) / 100;
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-// Vouchers touching equity (opening balances, capital injections/drawings) must
-// not inflate today's operational cash flow on the shared 05-CASH bucket.
-async function equityVoucherIds(shopId, transaction) {
-  const equity = await db.ChartOfAccount.findAll({
-    where: { account_type: 'equity' },
+// Opening-balance / setup journals must not inflate today's operational cash
+// flow on the shared 05-CASH bucket.
+//
+// This used to exclude every voucher that touched ANY equity account, which
+// swept up real cash movements: an owner drawing (Dr Drawings / Cr Cash) left
+// the drawer without the dashboard ever seeing it, and "Direct stock received"
+// — which credits 01-CAPITAL for the unpaid remainder — had its genuine cash
+// payment leg excluded too. Once director capital is correctly typed as equity,
+// that same test would have hidden every BOD cash movement as well.
+//
+// Vouchers are now tagged 'opening' at the point they are posted, so intent is
+// recorded rather than inferred.
+async function openingVoucherIds(shopId, transaction) {
+  const rows = await db.Voucher.findAll({
+    where: { shop_id: shopId, voucher_type: 'opening' },
     attributes: ['id'],
+    raw: true,
     transaction,
   });
-  const ids = new Set();
-  if (equity.length) {
-    const rows = await db.GeneralLedger.findAll({
-      where: { shop_id: shopId, account_id: { [Op.in]: equity.map(a => a.id) } },
-      attributes: ['voucher_id'],
-      group: ['voucher_id'],
-      raw: true,
-      transaction,
-    });
-    rows.forEach(r => ids.add(r.voucher_id));
-  }
-  return ids;
+  return new Set(rows.map(r => r.id));
 }
 
 async function cashParentAccount(transaction) {
   return db.ChartOfAccount.findOne({ where: { account_code: '05-CASH' }, transaction });
 }
 
-// All liquid cash for this shop: shared Cash in Hand (05-CASH) plus every named
-// cash fund nested under it. Ledger lines stay on each sub-account; the
-// dashboard shows one merged total from the GL.
-async function computeTotalCashOnHand(shopId, { transaction } = {}) {
+// Every account that holds this shop's cash: the shared Cash in Hand (05-CASH)
+// plus every named cash fund nested under it.
+//
+// Single definition on purpose. computeTotalCashOnHand used to include the
+// sub-accounts while computeCashFlow counted only the parent — so the dashboard
+// total, the chart-of-accounts tree, and the balance that gates every cash
+// payment disagreed with each other the moment a shop created a petty-cash
+// fund, and the payment guard used the narrowest of the three.
+async function cashAccountIds(shopId, transaction) {
   const parent = await cashParentAccount(transaction);
-  if (!parent) return 0;
+  if (!parent) return [];
 
   const children = await db.ChartOfAccount.findAll({
     where: { parent_account_id: parent.id, shop_id: shopId },
     attributes: ['id'],
     transaction,
   });
-  const accountIds = [parent.id, ...children.map(a => a.id)];
+  return [parent.id, ...children.map(a => a.id)];
+}
+
+// All liquid cash for this shop, merged from the GL.
+async function computeTotalCashOnHand(shopId, { transaction } = {}) {
+  const accountIds = await cashAccountIds(shopId, transaction);
+  if (!accountIds.length) return 0;
 
   const agg = await db.GeneralLedger.findOne({
     where: { shop_id: shopId, account_id: { [Op.in]: accountIds } },
@@ -57,24 +68,24 @@ async function computeTotalCashOnHand(shopId, { transaction } = {}) {
 }
 
 // ── computeCashFlow ─────────────────────────────────────────────────────────────
-// Net movement on the shared Cash in Hand account (05-CASH) over [fromDate,
-// toDate). Named cash funds (Petty Cash, etc.) post to their own sub-accounts
-// and are tracked separately — they are included in computeTotalCashOnHand but
-// not here, so the daily session bucket is not double-counted.
+// Net movement across every cash account for this shop over [fromDate, toDate).
+// Uses the same cashAccountIds() set as computeTotalCashOnHand, so live cash,
+// the dashboard total and the payment guard can no longer drift apart.
 //
-// Opening-balance / capital vouchers are excluded so setup journals do not
-// inflate live cash on top of the session's opening_cash baseline.
+// Vouchers tagged 'opening' are excluded so setup journals do not inflate live
+// cash on top of the session's opening_cash baseline. Real capital movements
+// (drawings, director contributions) are NOT excluded — they move real cash.
 async function computeCashFlow(shopId, fromDate, toDate, { transaction } = {}) {
-  const parent = await cashParentAccount(transaction);
-  if (!parent) return 0;
+  const accountIds = await cashAccountIds(shopId, transaction);
+  if (!accountIds.length) return 0;
 
-  const excluded = await equityVoucherIds(shopId, transaction);
+  const excluded = await openingVoucherIds(shopId, transaction);
   const gte = new Date(fromDate + 'T00:00:00.000Z');
   const dateRange = toDate
     ? { [Op.gte]: gte, [Op.lt]: new Date(toDate + 'T00:00:00.000Z') }
     : { [Op.gte]: gte };
 
-  const where = { shop_id: shopId, account_id: parent.id, entry_date: dateRange };
+  const where = { shop_id: shopId, account_id: { [Op.in]: accountIds }, entry_date: dateRange };
   if (excluded.size) where.voucher_id = { [Op.notIn]: [...excluded] };
 
   const agg = await db.GeneralLedger.findOne({
@@ -187,7 +198,28 @@ async function computeLiveCash(shopId, { transaction } = {}) {
 // Throws a 400-flavoured error if paying `amount` out in cash today would push
 // live cash-in-hand below zero. No overdraft setting exists yet, so this is a
 // hard floor.
+//
+// Takes an exclusive lock on the shop row first. This was previously a plain
+// check-then-act: the balance is derived by aggregating the general ledger, and
+// the shared cash bucket — unlike a BankAccount, which findTargetBankAccount
+// locks — has no row of its own to lock against. Two simultaneous cash payments
+// could therefore both read the same pre-transaction balance, both pass, and
+// both commit, driving cash in hand negative.
+//
+// The shop row is the natural serialization point: it always exists, needs no
+// new schema, and every cash-out path already runs inside a transaction, so the
+// lock is held until that transaction commits. Cash payments are low-throughput,
+// so serializing them per shop costs nothing in practice.
 async function assertCashAvailable(shopId, amount, transaction) {
+  if (transaction) {
+    await db.Shop.findOne({
+      where: { id: shopId },
+      attributes: ['id'],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+  }
+
   const { liveCash } = await computeLiveCash(shopId, { transaction });
   if (liveCash - parseFloat(amount) < 0) {
     const err = new Error(`Insufficient cash in hand. Available: ${liveCash.toFixed(2)}`);
@@ -284,16 +316,24 @@ function paymentAccountCode(method, bankAcc) {
 
 async function creditBankAccount(shopId, amount, transaction, bankAccountId = null) {
   const bankAcc = await findTargetBankAccount(shopId, transaction, bankAccountId);
-  if (bankAcc) {
-    if (bankAcc.kind !== 'bank') {
-      const err = new Error('Selected account is not a bank account');
-      err.statusCode = 400;
-      throw err;
-    }
-    await bankAcc.update({
-      current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) + parseFloat(amount)) * 100) / 100,
-    }, { transaction });
+  // Throws rather than returning null, matching debitBankAccount. Silently
+  // no-oping here left the caller free to post the GL line against the shared
+  // '05-BANK' fallback while no BankAccount row was ever updated — so the
+  // ledger and BankAccount.current_balance diverged permanently, with nothing
+  // to signal it had happened.
+  if (!bankAcc) {
+    const err = new Error('No active bank account found for this shop');
+    err.statusCode = 400;
+    throw err;
   }
+  if (bankAcc.kind !== 'bank') {
+    const err = new Error('Selected account is not a bank account');
+    err.statusCode = 400;
+    throw err;
+  }
+  await bankAcc.update({
+    current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) + parseFloat(amount)) * 100) / 100,
+  }, { transaction });
   return bankAcc;
 }
 

@@ -4,6 +4,7 @@ const { requireShopId } = require('../utils/shopScope');
 const {
   ACCOUNT_TYPES, createAccount, createFundAccount, isFundParent, hasPostings, wouldCreateCycle,
 } = require('../utils/chartOfAccounts');
+const { invalidateAccountCache } = require('../utils/postVoucher');
 
 // ── POST /accounting/chart-of-accounts ───────────────────────────────────────
 // Manual account/sub-account creation. account_type must match the parent's
@@ -213,7 +214,13 @@ exports.remove = async (req, res) => {
     }
 
     if (linkedFund) await linkedFund.destroy();
+    const removedCode = account.account_code;
     await account.destroy();
+    // postVoucher caches account_code → id for the life of the process. A code
+    // freed here can legitimately be reused by a new account, so the stale entry
+    // has to go or every later voucher using that code would post against the
+    // deleted row's id.
+    invalidateAccountCache(removedCode);
     return res.json({ message: 'Account deleted' });
   } catch (error) {
     console.error('deleteChartOfAccount error:', error);

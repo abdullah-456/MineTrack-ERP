@@ -229,19 +229,8 @@ exports.update = async (req, res) => {
         if (oldBankAccountId) {
           oldBankAcc = await creditCashPayment(shopId, oldAmount, transaction, oldBankAccountId);
         }
-        if (newMethod === 'cash' && !newBankAccountId) {
-          await assertCashAvailable(shopId, newAmount, transaction);
-        }
       } else {
         oldBankAcc = await creditBankAccount(shopId, oldAmount, transaction, oldBankAccountId);
-        if (newMethod === 'cash' && !newBankAccountId) {
-          await assertCashAvailable(shopId, newAmount, transaction);
-        }
-      }
-      if (newMethod === 'bank') {
-        newBankAcc = await debitBankAccount(shopId, newAmount, transaction, newBankAccountId);
-      } else if (newMethod === 'cash' && newBankAccountId) {
-        newBankAcc = await debitCashPayment(shopId, newAmount, transaction, newBankAccountId);
       }
 
       const oldExpenseAccount = oldExpenseAccountId
@@ -249,6 +238,11 @@ exports.update = async (req, res) => {
         : await db.ChartOfAccount.findOne({ where: { account_code: EXPENSE_ACCOUNT_CODE }, transaction });
       newExpenseAccount = await resolveExpenseAccount(newExpenseAccountId, transaction);
 
+      // The reversal is posted BEFORE the availability check. Shared cash has no
+      // balance row — it is derived from the ledger — so until this voucher
+      // exists the old payment is still counted as spent, and raising a cash
+      // expense could be rejected for insufficient funds that the edit itself
+      // was about to release.
       await postVoucher(shopId, {
         type: 'journal',
         date: new Date(),
@@ -260,6 +254,15 @@ exports.update = async (req, res) => {
           { accountCode: paymentAccountCode(oldMethod, oldBankAcc), debit: oldAmount },
         ],
       }, transaction);
+
+      if (newMethod === 'cash' && !newBankAccountId) {
+        await assertCashAvailable(shopId, newAmount, transaction);
+      }
+      if (newMethod === 'bank') {
+        newBankAcc = await debitBankAccount(shopId, newAmount, transaction, newBankAccountId);
+      } else if (newMethod === 'cash' && newBankAccountId) {
+        newBankAcc = await debitCashPayment(shopId, newAmount, transaction, newBankAccountId);
+      }
 
       const voucher = await postVoucher(shopId, {
         type: 'payment',

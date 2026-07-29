@@ -4,6 +4,8 @@ const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
 const { creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
 
+const round2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
+
 const saleIncludes = [
   { model: db.Customer, attributes: ['id', 'name', 'phone'] },
   { model: db.Branch, attributes: ['id', 'name'] },
@@ -257,21 +259,26 @@ exports.create = async (req, res) => {
         return res.status(400).json({ message: 'Unit price must be a non-negative number' });
       }
 
-      let lineDiscount = parseFloat(item.discount) || 0;
+      // Rounded at each step, like every other money calculation in the app.
+      // This block alone accumulated raw floating-point products and compared
+      // them unrounded, leaving residue such as 0.30000000000000004 to reach the
+      // GL — where postVoucher's balance check works to the cent.
+      const grossLine = round2(unitPrice * qty);
+      let lineDiscount = round2(item.discount);
       if (lineDiscount < 0) lineDiscount = 0;
-      if (lineDiscount > unitPrice * qty) lineDiscount = unitPrice * qty; // never below zero line
-      const lineTotal = (unitPrice * qty) - lineDiscount;
-      subtotal += lineTotal;
+      if (lineDiscount > grossLine) lineDiscount = grossLine; // never below zero line
+      const lineTotal = round2(grossLine - lineDiscount);
+      subtotal = round2(subtotal + lineTotal);
 
       lineItems.push({ product, qty, unitPrice, lineDiscount, lineTotal });
     }
 
-    let saleDiscount = parseFloat(discount) || 0;
-    let saleTax = parseFloat(tax) || 0;
+    let saleDiscount = round2(discount);
+    let saleTax = round2(tax);
     if (saleDiscount < 0) saleDiscount = 0;
     if (saleTax < 0) saleTax = 0;
     if (saleDiscount > subtotal) saleDiscount = subtotal; // total never goes negative
-    const total = subtotal - saleDiscount + saleTax;
+    const total = round2(subtotal - saleDiscount + saleTax);
 
     const invoice_number = await generateInvoiceNumber(shopId, transaction);
 
@@ -387,11 +394,23 @@ exports.create = async (req, res) => {
       if (customer) {
         customerName = customer.name;
         const advanceAvailable = Math.max(0, -parseFloat(customer.current_balance || 0));
-        advanceApplied = Math.round(Math.min(advanceAvailable, total) * 100) / 100;
+        // Advance credit only covers what is still unpaid after this sale's own
+        // payment — never the whole invoice. Applying it against `total` while
+        // payAmount had already covered the invoice double-counted the money:
+        // it inflated the customer's credit instead of consuming it, and made
+        // the GL debits (cash + advance) exceed the sales credit, so postVoucher
+        // rejected the voucher and the sale could not be completed at all.
+        advanceApplied = Math.round(Math.min(advanceAvailable, Math.max(0, total - payAmount)) * 100) / 100;
         const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
 
+        // Net effect is (total - payAmount), exactly as documented above.
+        // advanceApplied is deliberately NOT subtracted here: the credit it
+        // draws on is already baked into current_balance (that is what made the
+        // balance negative in the first place), so subtracting it again spent
+        // the same credit twice and left this balance disagreeing with the
+        // 05-AR / 03-CUSTADV position in the general ledger.
         await customer.update({
-          current_balance: Math.round((parseFloat(customer.current_balance || 0) + total - advanceApplied - payAmount) * 100) / 100,
+          current_balance: Math.round((parseFloat(customer.current_balance || 0) + total - payAmount) * 100) / 100,
         }, { transaction });
 
         if (total > 0) {
@@ -403,9 +422,14 @@ exports.create = async (req, res) => {
           }, { transaction });
         }
         if (advanceApplied > 0) {
+          // Logged as advance_applied, not payment_received: this is existing
+          // credit being consumed, not new money arriving, so it must not move
+          // the running balance or inflate "total paid". ('advance' was also
+          // not a valid `method` enum value, so this insert could never
+          // succeed on Postgres.)
           await db.CustomerTransaction.create({
             shop_id: shopId, customer_id: customer.id, date: sale.sale_date,
-            type: 'payment_received', amount: advanceApplied, method: 'advance',
+            type: 'advance_applied', amount: advanceApplied, method: 'store_credit',
             related_sale_id: sale.id, notes: `Advance credit of Rs. ${advanceApplied} applied from ${customer.name}`, created_by: req.user.id,
           }, { transaction });
         }

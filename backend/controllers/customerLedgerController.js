@@ -13,6 +13,12 @@ const SIGN_FOR = {
   adjustment: 1,
   payment_received: -1,
   return_credit: -1,
+  // Store credit consumed by a sale. Deliberately 0: the credit was already
+  // subtracted from the balance when the customer overpaid, and the matching
+  // sale_charge above restores it. Giving this a -1 sign would count the same
+  // money as received twice and drive the running balance below the customer's
+  // real position.
+  advance_applied: 0,
 };
 
 // ── POST /customers/:id/payments ─────────────────────────────────────────────

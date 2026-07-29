@@ -22,7 +22,7 @@ async function loadReportData(shopId, { from, to, asOf, branchId } = {}) {
   if (from && to) {
     const openingEnd = dayBefore(from);
     const [accounts, openingMap, periodMap, closingMap] = await Promise.all([
-      loadAccounts(),
+      loadAccounts(shopId),
       aggregateGlByAccount(shopId, { asOf: openingEnd }, options),
       aggregateGlByAccount(shopId, { from, to }, options),
       aggregateGlByAccount(shopId, { asOf: to }, options),
@@ -32,7 +32,7 @@ async function loadReportData(shopId, { from, to, asOf, branchId } = {}) {
 
   const end = asOf || new Date().toISOString().slice(0, 10);
   const [accounts, balanceMap] = await Promise.all([
-    loadAccounts(),
+    loadAccounts(shopId),
     aggregateGlByAccount(shopId, { asOf: end }, options),
   ]);
   return { accounts, balanceMap, openingMap: balanceMap, periodMap: balanceMap, closingMap: balanceMap };

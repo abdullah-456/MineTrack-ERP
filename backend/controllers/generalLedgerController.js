@@ -7,15 +7,48 @@ const { ENTITY_TYPES, resolveEntityVoucherIds, listFilterOptions } = require('..
 // In "All Accounts" view, sales post four GL lines (e.g. Cash, Sales, COGS, Stock).
 // Hide the internal COGS ↔ Stock pair so each transaction shows its two main accounts.
 // Stock stays visible when it is the primary leg (purchases, opening stock, etc.).
-function filterMainLedgerRows(rows) {
-  const vouchersWithCogs = new Set(
-    rows.filter(r => r.account_code === '07-COGS').map(r => r.voucher_id),
-  );
-  return rows.filter(r => {
-    if (r.account_code === '07-COGS') return false;
-    if (r.account_code === '05-STOCK' && vouchersWithCogs.has(r.voucher_id)) return false;
-    return true;
+//
+// Resolves the account ids to exclude so the filtering can happen in SQL, BEFORE
+// the row limit. Applying it in JS afterwards trimmed an already-capped page, so
+// the view returned an unpredictable number of rows and silently dropped the
+// oldest entries.
+// A COGS/Stock pair is "internal" only when BOTH legs are present on the same
+// voucher — that is the shape a sale posts. Hiding 07-COGS unconditionally (as
+// this did) also swallowed the debit leg of a genuine expense booked to Cost of
+// Goods Sold, e.g. one paid from a director's Current account, leaving a fully
+// balanced voucher looking one-sided on screen.
+async function internalPairAccountIds(shopId) {
+  const codes = await db.ChartOfAccount.findAll({
+    where: { account_code: { [Op.in]: ['07-COGS', '05-STOCK'] } },
+    attributes: ['id', 'account_code'],
+    raw: true,
   });
+  const byCode = {};
+  codes.forEach(c => { byCode[c.account_code] = c.id; });
+  if (!byCode['07-COGS'] || !byCode['05-STOCK']) {
+    return { cogsId: byCode['07-COGS'] || null, stockId: byCode['05-STOCK'] || null, voucherIds: [] };
+  }
+
+  // Vouchers carrying both legs — only these get either leg hidden.
+  const paired = await db.GeneralLedger.findAll({
+    where: { shop_id: shopId, account_id: { [Op.in]: [byCode['07-COGS'], byCode['05-STOCK']] } },
+    attributes: [
+      'voucher_id',
+      [db.sequelize.fn('COUNT', db.sequelize.fn('DISTINCT', db.sequelize.col('account_id'))), 'legs'],
+    ],
+    group: ['voucher_id'],
+    having: db.sequelize.where(
+      db.sequelize.fn('COUNT', db.sequelize.fn('DISTINCT', db.sequelize.col('account_id'))),
+      2,
+    ),
+    raw: true,
+  });
+
+  return {
+    cogsId: byCode['07-COGS'],
+    stockId: byCode['05-STOCK'],
+    voucherIds: paired.map(r => r.voucher_id),
+  };
 }
 
 // ── GET /accounting/chart-of-accounts ────────────────────────────────────────
@@ -97,17 +130,28 @@ exports.getFilterOptions = async (req, res) => {
 
 // ── GET /accounting/general-ledger?account_id=&from=&to=&entity_type=&entity_id=
 // The whole-business ledger: every voucher line posted for this shop, optionally
-// filtered to one account and/or a date range. running_balance on each row was
-// computed at write time scoped to this shop (see utils/postVoucher.js), so no
-// recomputation is needed here even when a date range narrows the view.
+// filtered to one account and/or a date range.
+//
+// running_balance is computed HERE, not read from the stored column. It used to
+// be written at post time seeded from the last-inserted row for the account,
+// while this view sorts by entry_date — so one backdated voucher made the column
+// meaningless from that point on. It is now derived with a window function
+// ordered by entry_date over the account's full history, then presented in the
+// account's natural sign so the ledger agrees with the financial statements.
+//
+// It is also only meaningful for a single account: in the All-Accounts view every
+// row belongs to a different account, so a "running balance" column there was
+// just each row's own account balance stacked into one column. It is omitted
+// unless account_id is set.
 exports.listEntries = async (req, res) => {
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
+    const singleAccountId = req.query.account_id ? parseInt(req.query.account_id, 10) : null;
     const where = { shop_id: shopId };
-    if (req.query.account_id) {
-      where.account_id = parseInt(req.query.account_id, 10);
+    if (singleAccountId) {
+      where.account_id = singleAccountId;
     }
     if (req.query.from || req.query.to) {
       where.entry_date = {};
@@ -141,6 +185,23 @@ exports.listEntries = async (req, res) => {
       where.voucher_id = { [Op.in]: voucherIdFilter };
     }
 
+    // Exclude the internal COGS ↔ Stock pair in SQL, before the limit, so the
+    // page is a full 500 rows of what the user actually asked for.
+    if (!singleAccountId && !entityType) {
+      const { cogsId, stockId, voucherIds } = await internalPairAccountIds(shopId);
+      if (cogsId && stockId && voucherIds.length) {
+        // Hide both legs, but only on the vouchers that actually carry the pair.
+        // A standalone COGS expense (or a Stock purchase) keeps both of its sides
+        // visible, so what is on screen always balances.
+        where[Op.and] = [{
+          [Op.not]: {
+            account_id: { [Op.in]: [cogsId, stockId] },
+            voucher_id: { [Op.in]: voucherIds },
+          },
+        }];
+      }
+    }
+
     const entries = await db.GeneralLedger.findAll({
       where,
       include: [
@@ -151,7 +212,32 @@ exports.listEntries = async (req, res) => {
       limit: 500,
     });
 
-    let rows = entries.map(e => ({
+    // For a single-account view, derive the running balance across that
+    // account's WHOLE history in date order, so the figure shown against a row
+    // is correct even when the view is narrowed to a date range.
+    let balanceByEntryId = null;
+    if (singleAccountId && entries.length) {
+      const account = entries[0].ChartOfAccount;
+      const creditNormal = ['liability', 'equity', 'income'].includes(account?.account_type);
+      const [balanceRows] = await db.sequelize.query(
+        `SELECT id,
+                SUM(debit - credit) OVER (ORDER BY entry_date, id
+                                          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS balance
+           FROM general_ledger
+          WHERE shop_id = :shopId AND account_id = :accountId`,
+        { replacements: { shopId, accountId: singleAccountId } },
+      );
+      balanceByEntryId = new Map(
+        balanceRows.map(r => [
+          r.id,
+          // Present in the account's natural sign: a payable or capital account
+          // reads positive as it grows, matching the financial statements.
+          Math.round((creditNormal ? -parseFloat(r.balance) : parseFloat(r.balance)) * 100) / 100,
+        ]),
+      );
+    }
+
+    const rows = entries.map(e => ({
       id: e.id,
       voucher_id: e.voucher_id,
       date: e.entry_date,
@@ -162,12 +248,8 @@ exports.listEntries = async (req, res) => {
       account_name: e.ChartOfAccount?.account_name,
       debit: parseFloat(e.debit || 0),
       credit: parseFloat(e.credit || 0),
-      running_balance: parseFloat(e.running_balance || 0),
+      ...(balanceByEntryId ? { running_balance: balanceByEntryId.get(e.id) ?? 0 } : {}),
     }));
-
-    if (!req.query.account_id && !entityType) {
-      rows = filterMainLedgerRows(rows);
-    }
 
     return res.json({ entries: rows });
   } catch (error) {
@@ -233,7 +315,10 @@ exports.createJournalEntry = async (req, res) => {
   const shopId = requireShopId(req, res);
   if (!shopId) return;
 
-  const { date, narration, lines } = req.body;
+  // branch_id is accepted so manual journals can be attributed to a branch.
+  // Without it every manual adjustment was stamped NULL and silently vanished
+  // from any branch-filtered report.
+  const { date, narration, lines, branch_id } = req.body;
   if (!Array.isArray(lines) || lines.length < 2) {
     return res.status(400).json({ message: 'At least two lines are required' });
   }
@@ -267,11 +352,21 @@ exports.createJournalEntry = async (req, res) => {
       }
     }
 
+    let branchId = branch_id ? parseInt(branch_id, 10) : null;
+    if (branchId) {
+      const branch = await db.Branch.findOne({ where: { id: branchId, shop_id: shopId }, transaction });
+      if (!branch) {
+        await transaction.rollback();
+        return res.status(400).json({ message: 'Branch not found for this shop' });
+      }
+    }
+
     const voucher = await postVoucher(shopId, {
       type: 'journal',
       date: date ? new Date(date) : new Date(),
       narration: narration?.trim() || 'Manual journal entry',
       createdBy: req.user.id,
+      branchId,
       lines: lines.map(l => ({
         accountCode: accountMap.get(l.account_id).account_code,
         debit: round(l.debit),

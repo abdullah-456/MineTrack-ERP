@@ -3,7 +3,6 @@
 const db = require('../models');
 const { requireShopId } = require('../utils/shopScope');
 const {
-  ensureBodAccounts,
   personalDeposit,
   transferToCapital,
   transferFromCapital,
@@ -111,8 +110,13 @@ exports.getLedger = async (req, res) => {
     });
     if (!member) return res.status(404).json({ message: 'Board member not found' });
 
-    await ensureBodAccounts(member, null, null).catch(() => {});
-
+    // Deliberately does NOT provision chart-of-accounts rows. This used to call
+    // ensureBodAccounts(member, null, null) — with no transaction, and with
+    // every error swallowed — so a plain GET could create up to four accounts
+    // and update the member row, and a failure part-way through left them
+    // half-created with nothing surfaced. Accounts are provisioned on member
+    // create/update and on any posting path (all of which run transactionally);
+    // a read just reports what exists.
     const bucket = req.query.bucket || 'all'; // all | investment | current
 
     const txns = await db.BoardMemberTransaction.findAll({
@@ -152,10 +156,12 @@ exports.getLedger = async (req, res) => {
       } else if (type === 'withdrawal') {
         invDelta = -amt;
       } else if (type === 'transfer_to_capital') {
-        // Personal portion raises Investment; company portion does not.
-        // We don't store split on txn — approximate: if fund_origin personal/mixed, show note only.
-        // Running Investment uses member field as source of truth in summary.
-        if (t.fund_origin === 'personal') invDelta = amt;
+        // Only the director's own money raises Investment; the company portion
+        // just settles Due-from. The split is now stored on the row (see
+        // bodAccounts.transferToCapital), so this no longer has to be inferred
+        // from fund_origin — which tested only 'personal' and silently counted
+        // the personal share of a 'mixed' transfer as zero.
+        invDelta = round2(t.personal_amount);
         // Current always decreases
         if (t.method === 'bank') bankDelta = -amt;
         else cashDelta = -amt;
@@ -166,6 +172,10 @@ exports.getLedger = async (req, res) => {
         if (t.method === 'bank') bankDelta = amt;
         else cashDelta = amt;
       } else if (type === 'current_payment') {
+        // Paying a company bill from the director's own funds is a capital
+        // contribution for that portion — postPayFromBodCurrent raises
+        // investment_balance by exactly this amount, so the trail must too.
+        invDelta = round2(t.personal_amount);
         if (t.method === 'bank') bankDelta = -amt;
         else cashDelta = -amt;
       }

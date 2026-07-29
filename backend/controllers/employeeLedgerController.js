@@ -253,13 +253,13 @@ exports.recordOpeningBalance = async (req, res) => {
     if (amt !== 0) {
       const absAmt = Math.abs(amt);
       await postVoucher(shopId, {
-        type: 'journal',
+        type: 'opening',
         date: date ? new Date(date) : new Date(),
         narration: `Opening balance recorded for employee ${employee.name}`,
         createdBy: req.user.id,
         lines: amt > 0
-          ? [{ accountCode: '01-CAPITAL', debit: absAmt }, { accountCode: '03-SALPAY', credit: absAmt }]
-          : [{ accountCode: '03-SALPAY', debit: absAmt }, { accountCode: '01-CAPITAL', credit: absAmt }],
+          ? [{ accountCode: '01-OBE', debit: absAmt }, { accountCode: '03-SALPAY', credit: absAmt }]
+          : [{ accountCode: '03-SALPAY', debit: absAmt }, { accountCode: '01-OBE', credit: absAmt }],
       }, transaction);
     }
 
@@ -304,7 +304,11 @@ exports.giveSalary = async (req, res) => {
       return res.status(409).json({ message: `Salary already given for ${month}` });
     }
 
-    const bonusAmt = parseFloat(bonus) || 0;
+    // Floored at 0, like tax_deduction_percent on the next line. The UI sets
+    // min="0" on the input, but that is client-side only — a direct API call
+    // could send a negative bonus, quietly reducing gross pay with no
+    // corresponding deduction line to explain it on the payslip.
+    const bonusAmt = Math.max(0, parseFloat(bonus) || 0);
     const taxPercent = Math.min(100, Math.max(0, parseFloat(tax_deduction_percent) || 0));
     const basicSalary = parseFloat(employee.basic_salary || 0);
     const grossSalary = Math.round((basicSalary + bonusAmt) * 100) / 100;
@@ -365,9 +369,27 @@ exports.giveSalary = async (req, res) => {
       amount: netPay, method, related_payroll_id: payroll.id, created_by: req.user.id, notes: `Salary ${month} payout`,
     }, { transaction });
 
-    // Net effect on current_payable across the three legs above is 0 (salary
-    // accrues, deductions/advance and the payout net it back down by the same
-    // total) — so current_payable is intentionally left untouched here.
+    // The three legs above (salary_due, deduction, payment_made) do net to 0
+    // among themselves — but the advance they clear was ALREADY subtracted from
+    // current_payable by recordAdvance when it was paid out, and the `deduction`
+    // row carries it a second time with a negative sign. Recovering the advance
+    // therefore has to be booked back explicitly, or the employee keeps looking
+    // like they owe the company money forever (and that phantom balance could be
+    // collected again at termination).
+    //
+    // Non-cash on purpose: no money moves here, so this is `advance_cleared`
+    // rather than `receivable_collected`, which reports count as cash in.
+    if (advanceDeduction > 0) {
+      await db.EmployeeTransaction.create({
+        shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'advance_cleared',
+        amount: advanceDeduction, method: null, related_payroll_id: payroll.id, created_by: req.user.id,
+        notes: `Advance cleared against salary ${month}`,
+      }, { transaction });
+
+      await employee.update({
+        current_payable: Math.round((parseFloat(employee.current_payable || 0) + advanceDeduction) * 100) / 100,
+      }, { transaction });
+    }
 
     // Dr Salaries Expense (net of tax deductions only — advance clearing is
     // recovering an existing asset, not reducing the expense) = Cr advance
@@ -421,6 +443,11 @@ exports.getLedger = async (req, res) => {
 
     const signFor = {
       salary_due: 1, loan_repayment: 1, opening_balance: 1, adjustment: 1, receivable_collected: 1,
+      // advance_cleared offsets the advance_given that funded it: the combined
+      // `deduction` row below already carries the advance with a negative sign,
+      // so without this the advance is subtracted twice and the running balance
+      // never returns to zero once the advance has been recovered.
+      advance_cleared: 1,
       advance_given: -1, loan_given: -1, payment_made: -1, deduction: -1,
     };
     let running = 0;

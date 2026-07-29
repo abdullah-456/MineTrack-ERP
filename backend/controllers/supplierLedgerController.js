@@ -194,12 +194,12 @@ exports.recordOpeningBalance = async (req, res) => {
 
     if (amt > 0) {
       await postVoucher(shopId, {
-        type: 'journal',
+        type: 'opening',
         date: date ? new Date(date) : new Date(),
         narration: `Opening balance recorded for ${supplier.company_name}`,
         createdBy: req.user.id,
         lines: [
-          { accountCode: '01-CAPITAL', debit: amt },
+          { accountCode: '01-OBE', debit: amt },
           { accountCode: '03-AP', credit: amt },
         ],
       }, transaction);

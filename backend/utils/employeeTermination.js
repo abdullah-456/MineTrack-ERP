@@ -48,9 +48,20 @@ async function getAdvancePending(employeeId, transaction) {
   return { total, rows };
 }
 
+// The salary-only slice of current_payable, with the loan and advance amounts
+// that are tracked separately added back out of it. Mirrors the same
+// calculation in ./employeeBalances.js, which drives the termination screen —
+// both must agree, or the UI offers a settlement the backend then refuses (or,
+// as before, happily collects the same debt through two different buckets).
+async function getNetSalaryPosition(employee, transaction) {
+  const loanReceivable = await getLoanReceivable(employee.id, transaction);
+  const { total: advancePending } = await getAdvancePending(employee.id, transaction);
+  return round2(parseFloat(employee.current_payable || 0) + loanReceivable + advancePending);
+}
+
 async function applyPayPayable(employee, shopId, settlement, userId, transaction) {
   await employee.reload({ transaction, lock: transaction.LOCK.UPDATE });
-  const payable = round2(Math.max(0, employee.current_payable));
+  const payable = round2(Math.max(0, await getNetSalaryPosition(employee, transaction)));
   if (!(payable > 0)) return;
 
   const pay = Math.min(settlement.amount, payable);
@@ -90,7 +101,10 @@ async function applyPayPayable(employee, shopId, settlement, userId, transaction
 
 async function applyCollectOverpayment(employee, shopId, settlement, userId, transaction) {
   await employee.reload({ transaction, lock: transaction.LOCK.UPDATE });
-  const receivable = round2(Math.max(0, -parseFloat(employee.current_payable || 0)));
+  // Netted, so an outstanding loan or uncleared advance can no longer masquerade
+  // as a salary overpayment here — it is collected by applyCollectLoan /
+  // applyCollectAdvance instead, against the correct receivable account.
+  const receivable = round2(Math.max(0, -(await getNetSalaryPosition(employee, transaction))));
   if (!(receivable > 0)) return;
 
   const collect = Math.min(settlement.amount, receivable);

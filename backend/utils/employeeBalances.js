@@ -16,8 +16,23 @@ function computeEmployeeBalances(employee, txns) {
     .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
 
   const currentPayable = parseFloat(employee.current_payable || 0);
-  const salaryPayable = Math.max(0, round2(currentPayable));
-  const salaryReceivable = Math.max(0, round2(-currentPayable));
+
+  // current_payable is a single running figure that recordAdvance and recordLoan
+  // also push negative — so an outstanding loan or advance shows up inside it as
+  // well as in loan_receivable / advance_pending above, which are derived
+  // independently from the transaction rows.
+  //
+  // Reading salary payable/receivable straight off current_payable therefore
+  // reported the SAME debt twice under two different labels, and the termination
+  // screen renders each as its own settlement box: one ₨1,000 loan appeared as
+  // both "salary overpayment receivable" and "loan receivable", letting ₨2,000
+  // be collected against a ₨1,000 debt.
+  //
+  // Adding the separately-tracked components back isolates the part of
+  // current_payable that is genuinely about salary timing.
+  const netSalaryPosition = round2(currentPayable + loanReceivable + advancePending);
+  const salaryPayable = Math.max(0, netSalaryPosition);
+  const salaryReceivable = Math.max(0, round2(-netSalaryPosition));
 
   return {
     total_salary_accrued: round2(totalSalaryAccrued),

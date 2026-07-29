@@ -77,7 +77,11 @@ exports.create = async (req, res) => {
     const account = await createAccount({
       shopId,
       accountName: `${name.trim()} — Investment`,
-      accountType: 'liability',
+      // Equity, not liability — director capital belongs in equity, and all four
+      // financial statements branch on account_type. Must stay in step with
+      // ensureBodAccounts in utils/bodAccounts.js, which creates the same
+      // account for members that predate this path.
+      accountType: 'equity',
       parent,
       createdBy: req.user.id,
     }, transaction);

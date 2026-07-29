@@ -74,6 +74,19 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(16),
       allowNull: true,
     },
+    // The actual split behind fund_origin. Stored rather than inferred: a
+    // 'mixed' row carries both, and the ledger previously had to guess it back
+    // out (and got it wrong — see migrations/20260812000001).
+    personal_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      allowNull: false,
+      defaultValue: 0.00,
+    },
+    company_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      allowNull: false,
+      defaultValue: 0.00,
+    },
     counterpart_method: {
       type: DataTypes.STRING(16),
       allowNull: true,

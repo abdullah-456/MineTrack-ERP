@@ -2,15 +2,24 @@
 
 const db = require('../models');
 const { Op } = require('sequelize');
+const { BALANCE_TOLERANCE } = require('./postVoucher');
 
 const round2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
 
 function buildEntryDateFilter({ from, to, asOf } = {}) {
   const filter = {};
-  if (from) filter[Op.gte] = new Date(from);
+  let applied = false;
+  if (from) { filter[Op.gte] = new Date(from); applied = true; }
   const end = to || asOf;
-  if (end) filter[Op.lte] = new Date(`${end}T23:59:59.999Z`);
-  return Object.keys(filter).length ? filter : null;
+  if (end) { filter[Op.lte] = new Date(`${end}T23:59:59.999Z`); applied = true; }
+  // Op.gte / Op.lte are Symbols, and Object.keys() never returns symbol keys —
+  // so the old `Object.keys(filter).length` test was always 0 and this function
+  // always returned null. Every date range on every financial report was
+  // silently discarded: "as of" trial balances and balance sheets, P&L and cash
+  // flow periods all reported inception-to-date instead. It also made the cash
+  // flow statement unreconcilable, because its opening and closing snapshots
+  // came back identical.
+  return applied ? filter : null;
 }
 
 function dayBefore(dateStr) {
@@ -60,8 +69,17 @@ async function aggregateGlByAccount(shopId, range = {}, options = {}) {
   return map;
 }
 
-async function loadAccounts() {
-  return db.ChartOfAccount.findAll({ order: [['account_code', 'ASC']] });
+// Scoped to one tenant: system accounts (shop_id NULL) plus this shop's own
+// custom accounts. Loading every shop's accounts was masked only because other
+// tenants' balances come back zero from the shop-scoped GL aggregate — the
+// account names themselves were still in scope, and any future report that
+// listed accounts rather than balances would have leaked them.
+// Mirrors the filter in generalLedgerController.listChartOfAccounts.
+async function loadAccounts(shopId) {
+  const where = shopId
+    ? { [Op.or]: [{ shop_id: null }, { shop_id: shopId }] }
+    : undefined;
+  return db.ChartOfAccount.findAll({ where, order: [['account_code', 'ASC']] });
 }
 
 // Leaf accounts plus any top-level account with direct GL activity (e.g. 01-CAPITAL
@@ -120,7 +138,9 @@ function buildTrialBalance(accounts, balanceMap) {
     rows,
     total_debit: round2(totalDebit),
     total_credit: round2(totalCredit),
-    is_balanced: Math.abs(totalDebit - totalCredit) < 0.02,
+    // Same tolerance the posting engine enforces — a report must not be able to
+    // call itself balanced by a margin postVoucher would have rejected.
+    is_balanced: Math.abs(totalDebit - totalCredit) <= BALANCE_TOLERANCE,
   };
 }
 
@@ -235,10 +255,16 @@ function adjustmentLabel(acct, change, category) {
   return acct.account_name;
 }
 
+// Counter-entry account for balances carried in when a shop is first set up
+// (opening cash/bank, supplier payables, employee balances). Equity by nature,
+// but NOT owner activity — see migrations/20260811000005.
+const OPENING_BALANCE_EQUITY_CODE = '01-OBE';
+
 function buildEquityStatement(accounts, openingMap, periodMap) {
   const detail = [];
   let capitalContributed = 0;
   let drawings = 0;
+  let openingBalanceEquity = 0;
 
   for (const acct of accounts.filter(a => a.account_type === 'equity')) {
     const opening = naturalAmount('equity', (openingMap[acct.id] || { net: 0 }).net);
@@ -251,23 +277,35 @@ function buildEquityStatement(accounts, openingMap, periodMap) {
       movement,
       closing: round2(opening + movement),
     });
-    if (movement > 0) capitalContributed += movement;
+    // Balances carried in at setup are migration artifacts, not the owner
+    // putting money in or taking it out. Reporting them as "Capital
+    // contributed" / "Drawings" made this statement meaningless — recording a
+    // supplier's outstanding payable read as an owner capital injection.
+    if (acct.account_code === OPENING_BALANCE_EQUITY_CODE) {
+      openingBalanceEquity += movement;
+    } else if (movement > 0) capitalContributed += movement;
     else if (movement < 0) drawings += Math.abs(movement);
   }
 
   capitalContributed = round2(capitalContributed);
   drawings = round2(drawings);
+  openingBalanceEquity = round2(openingBalanceEquity);
   const openingRetained = computeUnclosedEarnings(accounts, openingMap);
   const netProfit = computePeriodNetProfit(accounts, periodMap);
   const openingEquity = round2(
     detail.reduce((s, r) => s + r.opening, 0) + openingRetained,
   );
-  const closingEquity = round2(openingEquity + capitalContributed - drawings + netProfit);
+  const closingEquity = round2(
+    openingEquity + capitalContributed - drawings + openingBalanceEquity + netProfit,
+  );
 
   const summary = [
     { key: 'opening', label: 'Opening balance', amount: openingEquity },
     ...(capitalContributed > 0 ? [{ key: 'capital', label: 'Capital contributed', amount: capitalContributed }] : []),
     ...(drawings > 0 ? [{ key: 'drawings', label: 'Drawings', amount: -drawings }] : []),
+    ...(Math.abs(openingBalanceEquity) >= 0.005
+      ? [{ key: 'opening_balance_equity', label: 'Opening balances recorded', amount: openingBalanceEquity }]
+      : []),
     { key: 'net_profit', label: 'Net profit for the period', amount: netProfit },
     { key: 'closing', label: 'Closing balance', amount: closingEquity },
   ];
@@ -278,6 +316,7 @@ function buildEquityStatement(accounts, openingMap, periodMap) {
     opening_balance: openingEquity,
     capital_contributed: capitalContributed,
     drawings,
+    opening_balance_equity: openingBalanceEquity,
     net_profit: netProfit,
     closing_balance: closingEquity,
     opening_retained_earnings: openingRetained,
@@ -366,7 +405,10 @@ function buildCashFlowStatement(accounts, openingMap, closingMap, periodMap) {
     computed_net_change: computedNetChange,
     opening_cash: openingCash,
     closing_cash: closingCash,
-    is_reconciled: Math.abs(netCashChange - computedNetChange) < 0.02,
+    // Deliberately looser than BALANCE_TOLERANCE: unlike a single voucher, this
+    // compares two figures each summed from many independently-rounded account
+    // balances, so a cent of drift per account is expected rather than a fault.
+    is_reconciled: Math.abs(netCashChange - computedNetChange) <= BALANCE_TOLERANCE * 10,
   };
 }
 
@@ -422,7 +464,7 @@ function buildBalanceSheet(accounts, balanceMap) {
     total_liabilities: totalLiabilities,
     total_equity: totalEquity,
     total_liabilities_and_equity: round2(totalLiabilities + totalEquity),
-    is_balanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.02,
+    is_balanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) <= BALANCE_TOLERANCE,
   };
 }
 

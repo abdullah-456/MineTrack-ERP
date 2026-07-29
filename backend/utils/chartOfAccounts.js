@@ -58,8 +58,20 @@ async function wouldCreateCycle(accountId, newParentId, transaction) {
   return false;
 }
 
-// Finds (or creates, once per shop) the "Directors & Investors" liability
-// account every board member's/investor's own sub-account nests under.
+// Finds (or creates, once per shop) the "Directors & Investors" EQUITY account
+// every board member's/investor's own sub-account nests under.
+//
+// This was previously typed 'liability' under Current Liabilities, which put
+// director capital in the wrong half of the balance sheet, reported
+// contributions and withdrawals as operating rather than financing cash flow,
+// and left them out of the statement of changes in equity altogether — all four
+// of those reports key off account_type, so retyping fixes them at the source.
+//
+// The '03-BOD' code is kept deliberately: every member sub-account already
+// derives its own code from it (03-BOD-01, 03-BOD-02, ...), so renaming the
+// parent would strand the children and split existing shops onto a second
+// parent. The leading '03' is now just a legacy label — account_type is what
+// the financial statements read.
 async function getOrCreateDirectorsParent(shopId, createdBy, transaction) {
   const existing = await db.ChartOfAccount.findOne({
     where: { shop_id: shopId, account_code: '03-BOD' },
@@ -67,16 +79,16 @@ async function getOrCreateDirectorsParent(shopId, createdBy, transaction) {
   });
   if (existing) return existing;
 
-  const currentLiabilities = await db.ChartOfAccount.findOne({
-    where: { account_code: '03-CUR-LIAB' },
+  const capital = await db.ChartOfAccount.findOne({
+    where: { account_code: '01-CAPITAL' },
     transaction,
   });
 
   return createAccount({
     shopId,
     accountName: 'Directors & Investors',
-    accountType: 'liability',
-    parent: currentLiabilities || null,
+    accountType: 'equity',
+    parent: capital || null,
     accountCode: '03-BOD',
     createdBy,
   }, transaction);
@@ -168,13 +180,13 @@ async function createFundAccount({
 
   if (openingBal !== 0) {
     await postVoucher(shopId, {
-      type: 'journal',
+      type: 'opening',
       date: new Date(),
       narration: `Opening balance — ${bankAccount.account_name}`,
       createdBy,
       lines: [
         { accountCode: ledgerAccount.account_code, debit: openingBal },
-        { accountCode: '01-CAPITAL', credit: openingBal },
+        { accountCode: '01-OBE', credit: openingBal },
       ],
     }, transaction);
   }

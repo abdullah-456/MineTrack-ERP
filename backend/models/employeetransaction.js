@@ -29,7 +29,10 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     type: {
-      type: DataTypes.ENUM('salary_due', 'advance_given', 'loan_given', 'payment_made', 'loan_repayment', 'deduction', 'opening_balance', 'adjustment', 'receivable_collected'),
+      // advance_cleared = an advance recovered through a payroll deduction.
+      // Non-cash (the money left when the advance was paid), which is why it is
+      // distinct from receivable_collected — reports count that one as cash in.
+      type: DataTypes.ENUM('salary_due', 'advance_given', 'loan_given', 'payment_made', 'loan_repayment', 'deduction', 'opening_balance', 'adjustment', 'receivable_collected', 'advance_cleared'),
       allowNull: false
     },
     amount: {

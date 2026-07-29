@@ -1,7 +1,24 @@
 'use strict';
 
+/**
+ * Guarded because 20260709000004-align-schema-with-models.js walks every model
+ * and adds columns the schema is missing — which includes branches.godown_id
+ * from models/branch.js. On a fresh database that runs first, so the
+ * unguarded addColumn below used to abort the whole migration chain with
+ * `column "godown_id" of relation "branches" already exists`.
+ */
+async function tableExists(queryInterface, table) {
+  try {
+    await queryInterface.describeTable(table);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
+    if (!(await tableExists(queryInterface, 'godowns'))) {
     await queryInterface.createTable('godowns', {
       id: {
         type: Sequelize.INTEGER,
@@ -48,22 +65,26 @@ module.exports = {
         allowNull: false
       }
     });
+    }
 
-    // Add godown_id to branches table
-    await queryInterface.addColumn('branches', 'godown_id', {
-      type: Sequelize.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'godowns',
-        key: 'id'
-      },
-      onUpdate: 'CASCADE',
-      onDelete: 'SET NULL'
-    });
+    const branchesDesc = await queryInterface.describeTable('branches');
+    if (!branchesDesc.godown_id) {
+      await queryInterface.addColumn('branches', 'godown_id', {
+        type: Sequelize.INTEGER,
+        allowNull: true,
+        references: {
+          model: 'godowns',
+          key: 'id'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL'
+      });
+    }
   },
 
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.removeColumn('branches', 'godown_id');
-    await queryInterface.dropTable('godowns');
+    const branchesDesc = await queryInterface.describeTable('branches');
+    if (branchesDesc.godown_id) await queryInterface.removeColumn('branches', 'godown_id');
+    if (await tableExists(queryInterface, 'godowns')) await queryInterface.dropTable('godowns');
   }
 };

@@ -26,11 +26,30 @@ module.exports = {
       }
     };
 
+    // model.sync() runs on the models' OWN connection, which models/index.js
+    // builds from config/config.js — NOT on the connection this migration is
+    // running against. Normally they are the same database, but if the CLI is
+    // pointed elsewhere (a custom --config, a scratch database) the sync would
+    // silently create tables in whatever .env names instead, leaving the actual
+    // target untouched while still reporting success.
+    const targetDb = queryInterface.sequelize.config?.database;
+    const modelsDb = db.sequelize.config?.database;
+    const sameDatabase = !targetDb || !modelsDb || targetDb === modelsDb;
+
+    if (!sameDatabase) {
+      console.warn(
+        `  skipping model-driven table creation: migrating "${targetDb}" but models are bound to "${modelsDb}". ` +
+        'Column alignment below still runs on the correct connection.'
+      );
+    }
+
     // ---- Create missing tables. Retry in passes so parents get created
     //      before children; swallow ordering errors until they resolve. ----
     let remaining = [];
-    for (const model of models) {
-      if (!(await tableExists(model.tableName))) remaining.push(model);
+    if (sameDatabase) {
+      for (const model of models) {
+        if (!(await tableExists(model.tableName))) remaining.push(model);
+      }
     }
 
     let lastCount = -1;
