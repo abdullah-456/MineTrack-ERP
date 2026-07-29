@@ -4,7 +4,7 @@ const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { createAccount, getOrCreateDirectorsParent } = require('../utils/chartOfAccounts');
 const { assertCnicAvailable } = require('../utils/cnic');
-const { ensureBodAccounts } = require('../utils/bodAccounts');
+const { ensureBodAccounts, composeWalletName } = require('../utils/bodAccounts');
 
 exports.list = async (req, res) => {
   try {
@@ -67,8 +67,9 @@ exports.create = async (req, res) => {
   if (invAmt < 0 || curCash < 0 || curBank < 0) {
     return res.status(400).json({ message: 'Opening amounts cannot be negative' });
   }
-  const cashName = (current_cash_name || '').trim() || null;
-  const bankName = (current_bank_name || '').trim() || null;
+  // Only the prefix is user-supplied — "Current Cash" / "Current Bank" is appended here.
+  const cashName = composeWalletName(current_cash_name, 'cash', name);
+  const bankName = composeWalletName(current_bank_name, 'bank', name);
 
   const transaction = await db.sequelize.transaction();
   try {
@@ -186,7 +187,9 @@ exports.update = async (req, res) => {
     fields.forEach(f => {
       if (req.body[f] === undefined) return;
       if (f === 'current_cash_name' || f === 'current_bank_name') {
-        member[f] = (req.body[f] || '').trim() || null;
+        const kind = f === 'current_bank_name' ? 'bank' : 'cash';
+        const memberName = req.body.name !== undefined ? req.body.name : member.name;
+        member[f] = composeWalletName(req.body[f], kind, memberName);
       } else {
         member[f] = req.body[f];
       }

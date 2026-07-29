@@ -335,7 +335,7 @@ export default function PurchaseOrders() {
                 </select>
               </div>
               <div>
-                <LocationPicker required label={t('defaultBranch') || 'Default branch'} value={form} onChange={loc => setForm(f => ({ ...f, ...loc }))} />
+                <LocationPicker required label={t('defaultBranch')} value={form} onChange={loc => setForm(f => ({ ...f, ...loc }))} />
               </div>
               <div>
                 <FormLabel>{t('orderDate') || 'Order date'}</FormLabel>
@@ -360,7 +360,7 @@ export default function PurchaseOrders() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <FormLabel>{t('lineItems') || 'Line items'}</FormLabel>
-                <button type="button" className="text-xs text-brand-400" onClick={addLine}>+ {t('addLine') || 'Add line'}</button>
+                <button type="button" className="text-xs text-brand-400" onClick={addLine}>+ {t('addLine')}</button>
               </div>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {form.items.map((line, idx) => (

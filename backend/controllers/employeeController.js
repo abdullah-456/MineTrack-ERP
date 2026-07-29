@@ -98,7 +98,9 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     preparedCnic = await assertCnicAvailable(shopId, body.cnic, body._cnicExclude || {});
   }
 
-  if (body.cnic_expiry) {
+  // Only validate CNIC expiry when the client sends that field (avoid blocking
+  // unrelated updates when an employee already has a past expiry on file).
+  if (body.cnic_expiry && !body._skipCnicExpiryCheck) {
     const exp = new Date(body.cnic_expiry);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -123,6 +125,12 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     age = ageFromDob(body.date_of_birth);
   }
 
+  const ALLOWED_STATUS = ['active', 'suspended', 'terminated'];
+  const status = (body.status || 'active').toLowerCase();
+  if (!ALLOWED_STATUS.includes(status)) {
+    throw err(400, 'Invalid employee status');
+  }
+
   return {
     name,
     father_name: father_name || null,
@@ -134,7 +142,7 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     basic_salary,
     hire_date: hire_date || new Date(),
     branch_id,
-    status: body.status || 'active',
+    status,
     cnic: preparedCnic.cnic,
     cnic_normalized: preparedCnic.cnic_normalized,
     cnic_expiry: body.cnic_expiry || null,
@@ -281,10 +289,15 @@ exports.update = async (req, res) => {
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
 
     const wasTerminated = employee.status === 'terminated';
+    if (req.body.status === 'terminated' && !wasTerminated) {
+      throw err(400, 'Use Terminate employee to mark as terminated');
+    }
+
     const data = await validateEmployeePayload(shopId, {
       ...employee.toJSON(),
       ...req.body,
       _cnicExclude: { employeeId: employee.id },
+      _skipCnicExpiryCheck: req.body.cnic_expiry === undefined,
       // When updating, only re-validate fields present in body for optional groups —
       // merge so required checks still see existing values.
       name: req.body.name !== undefined ? req.body.name : employee.name,
@@ -316,9 +329,6 @@ exports.update = async (req, res) => {
       employee.termination_notes = req.body.termination_notes;
     }
 
-    if (req.body.status === 'terminated' && !wasTerminated) {
-      employee.terminated_at = new Date();
-    }
     await employee.save();
 
     const full = await db.Employee.findByPk(employee.id, { include: employeeIncludes });
@@ -329,6 +339,35 @@ exports.update = async (req, res) => {
     if (error.name === 'SequelizeUniqueConstraintError') {
       return res.status(409).json({ message: 'CNIC already registered for another person' });
     }
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.patchStatus = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { status } = req.body || {};
+    if (!['active', 'suspended'].includes(status)) {
+      return res.status(400).json({ message: 'Status must be active or suspended' });
+    }
+
+    const employee = await db.Employee.findOne({
+      where: { id: req.params.id, shop_id: shopId },
+    });
+    if (!employee) return res.status(404).json({ message: 'Employee not found' });
+    if (employee.status === 'terminated') {
+      return res.status(400).json({ message: 'Cannot change status of a terminated employee' });
+    }
+
+    employee.status = status;
+    await employee.save();
+
+    const full = await db.Employee.findByPk(employee.id, { include: employeeIncludes });
+    return res.json({ employee: full });
+  } catch (error) {
+    console.error('patchEmployeeStatus error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };

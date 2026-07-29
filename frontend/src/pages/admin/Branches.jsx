@@ -108,7 +108,7 @@ export default function Branches() {
                 { header: t('branchName') || 'Name', key: 'name', width: 1.6 },
                 { header: t('branchAddress') || 'Address', render: b => b.address || '', width: 2.2 },
                 { header: t('godown') || 'Linked Godown', render: b => b.Godown?.name || '—', width: 1.4 },
-                { header: t('defaultBranch') || 'Default', render: b => (b.is_default ? 'Yes' : ''), width: 0.9 },
+                { header: t('default'), render: b => (b.is_default ? 'Yes' : ''), width: 0.9 },
                 { header: t('status') || 'Status', key: 'status', width: 0.9 },
               ]}
               rows={branches}

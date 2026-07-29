@@ -47,12 +47,34 @@ function bodWalletMethod(method) {
   return method === 'bod_bank' ? 'bank' : 'cash';
 }
 
+// A director wallet is always "<typed prefix> Current Cash" / "... Current Bank".
+// Only the prefix is user-supplied; the suffix is fixed so it can never be
+// mistyped, and stripping any suffix already present keeps it from doubling up
+// when the client round-trips a composed name back to us.
+const WALLET_SUFFIX = { cash: 'Current Cash', bank: 'Current Bank' };
+const WALLET_SUFFIX_RE = /[\s—–-]*current\s*(?:cash|bank)\s*$/i;
+
+function walletNamePrefix(stored) {
+  return String(stored ?? '').replace(WALLET_SUFFIX_RE, '').trim();
+}
+
+function composeWalletName(raw, kind, memberName) {
+  const prefix = walletNamePrefix(raw) || walletNamePrefix(memberName);
+  return prefix ? `${prefix} ${WALLET_SUFFIX[kind]}` : null;
+}
+
+/** Full display label for a member's wallet, falling back to their own name. */
+function walletLabel(member, kind) {
+  const stored = kind === 'bank' ? member.current_bank_name : member.current_cash_name;
+  return composeWalletName(stored, kind, member.name) || `${member.name} ${WALLET_SUFFIX[kind]}`;
+}
+
 /** Ensure Investment + Due-from + Current Cash/Bank COAs exist for a member. */
 async function ensureBodAccounts(member, createdBy, transaction) {
   const shopId = member.shop_id;
   const updates = {};
-  const cashLabel = (member.current_cash_name || '').trim() || `${member.name} — Current Cash`;
-  const bankLabel = (member.current_bank_name || '').trim() || `${member.name} — Current Bank`;
+  const cashLabel = walletLabel(member, 'cash');
+  const bankLabel = walletLabel(member, 'bank');
 
   if (!member.chart_of_account_id) {
     const parent = await getOrCreateDirectorsParent(shopId, createdBy, transaction);
@@ -546,14 +568,14 @@ async function listPaymentSources(shopId) {
   return members.flatMap(m => ([
     {
       value: `bod_cash:${m.id}`,
-      label: (m.current_cash_name || '').trim() || `${m.name} — Current Cash`,
+      label: walletLabel(m, 'cash'),
       method: 'bod_cash',
       board_member_id: m.id,
       balance: round2(m.current_cash_balance),
     },
     {
       value: `bod_bank:${m.id}`,
-      label: (m.current_bank_name || '').trim() || `${m.name} — Current Bank`,
+      label: walletLabel(m, 'bank'),
       method: 'bod_bank',
       board_member_id: m.id,
       balance: round2(m.current_bank_balance),
@@ -609,4 +631,8 @@ module.exports = {
   assertCurrentAvailable,
   currentBalanceField,
   currentCoaField,
+  composeWalletName,
+  walletNamePrefix,
+  walletLabel,
+  WALLET_SUFFIX,
 };

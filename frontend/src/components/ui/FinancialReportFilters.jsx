@@ -57,7 +57,7 @@ export default function FinancialReportFilters({
       )}
       {(branches.length > 0 || godowns.length > 0) && (
         <div className="flex flex-col gap-1.5 min-w-[200px]">
-          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('location') || 'Location (Branch / Godown)'}</span>
+          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('branchGodownLocation')}</span>
           <select className="input text-xs" value={branchId} onChange={e => onBranchChange?.(e.target.value)}>
             <option value="">{t('allLocations') || t('allBranches') || 'All Locations'}</option>
             {branches.length > 0 && (

@@ -297,7 +297,7 @@ export default function Expenses() {
               <div className="sm:col-span-2">
                 <LocationPicker
                   required
-                  label={t('location') || 'Branch / Godown Location'}
+                  label={t('branchGodownLocation')}
                   value={{
                     location_type: form.location_type || 'branch',
                     branch_id: form.branch_id,

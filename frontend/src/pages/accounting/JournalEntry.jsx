@@ -100,7 +100,7 @@ export default function JournalEntry() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{t('journalLines') || 'Lines'}</span>
-            <button type="button" onClick={addLine} className="text-xs text-brand-400 hover:underline">{t('addLine') || '+ Add Line'}</button>
+            <button type="button" onClick={addLine} className="text-xs text-brand-400 hover:underline">+ {t('addLine')}</button>
           </div>
 
           <div className="glass-card overflow-x-auto" style={{ background: 'var(--bg-elevated)' }}>

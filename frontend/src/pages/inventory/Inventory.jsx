@@ -317,7 +317,7 @@ export default function Inventory() {
   const submitReceive = async (e) => {
     e.preventDefault();
     if (!formReceive.branch_id) {
-      error(t('selectBranch') || 'Please select a location');
+      error(t('selectLocationRequired'));
       return;
     }
     setSaving(true);
@@ -404,7 +404,7 @@ export default function Inventory() {
   const submitTransfer = async (e) => {
     e.preventDefault();
     if (!formTransfer.from_branch_id || !formTransfer.to_branch_id) {
-      error(t('selectBranch') || 'Please select from and to locations');
+      error(t('selectFromToLocations'));
       return;
     }
     setSaving(true);
@@ -432,7 +432,7 @@ export default function Inventory() {
   const submitAdjust = async (e) => {
     e.preventDefault();
     if (!formAdjust.branch_id) {
-      error(t('selectBranch') || 'Please select a location');
+      error(t('selectLocationRequired'));
       return;
     }
     setSaving(true);
@@ -887,7 +887,7 @@ export default function Inventory() {
               <div className="col-span-2">
                 <LocationPicker
                   required
-                  label={t('location') || 'Receive Location (Branch / Godown)'}
+                  label={t('receiveLocation')}
                   value={{
                     location_type: formReceive.location_type,
                     branch_id: formReceive.branch_id,
@@ -1276,7 +1276,7 @@ export default function Inventory() {
             <div className="space-y-3">
               <LocationPicker
                 required
-                label={t('location') || 'Adjustment Location (Branch / Godown)'}
+                label={t('adjustmentLocation')}
                 value={{
                   location_type: formAdjust.location_type,
                   branch_id: formAdjust.branch_id,

@@ -3,6 +3,26 @@ import translations from '../translations';
 
 const ThemeContext = createContext(null);
 
+// Words that must stay fully capitalised when a key is humanised.
+const ACRONYMS = new Set([
+  'bod', 'cnic', 'ntn', 'crm', 'esms', 'hr', 'po', 'grn', 'coa', 'sku',
+  'pkr', 'pdf', 'url', 'id', 'ids', 'gst', 'vat', 'pos', 'usd',
+]);
+
+// Last-resort label for a key with no translation: 'bodCurrentCash' → 'BOD Current Cash'.
+// Without this a missing key rendered its own raw camelCase name in the UI.
+function humanizeKey(key) {
+  return String(key)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => (ACRONYMS.has(w.toLowerCase())
+      ? w.toUpperCase()
+      : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
 export function ThemeProvider({ children }) {
   // ── Theme (dark | light) ──────────────────────────────────────────────
   const [theme, setTheme] = useState(() => {
@@ -37,7 +57,10 @@ export function ThemeProvider({ children }) {
 
   const toggleTheme = () => setTheme(t => (t === 'dark' ? 'light' : 'dark'));
 
-  const t = (key) => translations[lang]?.[key] ?? translations['en']?.[key] ?? key;
+  const t = (key, fallback) => translations[lang]?.[key]
+    ?? translations['en']?.[key]
+    ?? fallback
+    ?? humanizeKey(key);
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, toggleTheme, lang, setLang, t }}>

@@ -20,6 +20,41 @@ const EMPTY = {
   current_bank_amount: '',
 };
 
+// Only the prefix is typed — "Current Cash" / "Current Bank" is fixed, so the
+// stored name is always "<prefix> Current Cash". Strip it off an existing value
+// when loading so editing never stacks the suffix twice.
+const WALLET_SUFFIX_RE = /[\s—–-]*current\s*(?:cash|bank)\s*$/i;
+const walletPrefix = (stored) => String(stored ?? '').replace(WALLET_SUFFIX_RE, '').trim();
+
+/** Text input whose fixed wallet-type suffix is rendered inside, but not editable. */
+function WalletNameInput({ value, onChange, suffix, placeholder, required }) {
+  return (
+    <div
+      className="flex items-stretch rounded-lg overflow-hidden"
+      style={{ border: '1px solid var(--border-input)', backgroundColor: 'var(--bg-input)' }}
+    >
+      <input
+        className="flex-1 min-w-0 bg-transparent px-3 py-2 text-sm outline-none"
+        style={{ color: 'var(--text-primary)' }}
+        required={required}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+      />
+      <span
+        className="flex items-center px-3 text-xs font-semibold whitespace-nowrap select-none"
+        style={{
+          color: 'var(--text-muted)',
+          backgroundColor: 'var(--bg-elevated)',
+          borderInlineStart: '1px solid var(--border-subtle)',
+        }}
+      >
+        {suffix}
+      </span>
+    </div>
+  );
+}
+
 export default function BoardOfDirectors() {
   const navigate = useNavigate();
   const { t, lang } = useTheme();
@@ -195,8 +230,8 @@ export default function BoardOfDirectors() {
                           setSelected(m);
                           setForm({
                             name: m.name, phone: m.phone || '', cnic: m.cnic || '', address: m.address || '',
-                            current_cash_name: m.current_cash_name || '',
-                            current_bank_name: m.current_bank_name || '',
+                            current_cash_name: walletPrefix(m.current_cash_name),
+                            current_bank_name: walletPrefix(m.current_bank_name),
                             investment_amount: '', current_cash_amount: '', current_bank_amount: '',
                           });
                           setModal('edit');
@@ -260,11 +295,12 @@ export default function BoardOfDirectors() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2 rounded-lg p-3 h-full" style={{ backgroundColor: 'var(--bg-elevated)' }}>
                     <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>
-                      {t('currentCashAccountName') || 'Current Cash — account name'}
+                      {t('currentCashAccountName')}
                     </label>
-                    <input
-                      className="input" required
-                      placeholder={form.name ? `${form.name} — Current Cash` : 'e.g. Director Petty Cash'}
+                    <WalletNameInput
+                      required
+                      suffix={t('currentCashNameSuffix')}
+                      placeholder={form.name || t('name')}
                       value={form.current_cash_name}
                       onChange={setF('current_cash_name')}
                     />
@@ -279,11 +315,12 @@ export default function BoardOfDirectors() {
                   </div>
                   <div className="space-y-2 rounded-lg p-3 h-full" style={{ backgroundColor: 'var(--bg-elevated)' }}>
                     <label className="text-xs font-semibold block" style={{ color: 'var(--text-secondary)' }}>
-                      {t('currentBankAccountName') || 'Current Bank — account name'}
+                      {t('currentBankAccountName')}
                     </label>
-                    <input
-                      className="input" required
-                      placeholder={form.name ? `${form.name} — Current Bank` : 'e.g. Director Bank Wallet'}
+                    <WalletNameInput
+                      required
+                      suffix={t('currentBankNameSuffix')}
+                      placeholder={form.name || t('name')}
                       value={form.current_bank_name}
                       onChange={setF('current_bank_name')}
                     />
@@ -302,23 +339,28 @@ export default function BoardOfDirectors() {
             {modal === 'edit' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <FormLabel required>{t('currentCashAccountName') || 'Current Cash — account name'}</FormLabel>
-                  <input
-                    className="input" required
+                  <FormLabel required>{t('currentCashAccountName')}</FormLabel>
+                  <WalletNameInput
+                    required
+                    suffix={t('currentCashNameSuffix')}
+                    placeholder={form.name || t('name')}
                     value={form.current_cash_name}
                     onChange={setF('current_cash_name')}
-                    placeholder={`${form.name || 'Member'} — Current Cash`}
                   />
                 </div>
                 <div>
-                  <FormLabel required>{t('currentBankAccountName') || 'Current Bank — account name'}</FormLabel>
-                  <input
-                    className="input" required
+                  <FormLabel required>{t('currentBankAccountName')}</FormLabel>
+                  <WalletNameInput
+                    required
+                    suffix={t('currentBankNameSuffix')}
+                    placeholder={form.name || t('name')}
                     value={form.current_bank_name}
                     onChange={setF('current_bank_name')}
-                    placeholder={`${form.name || 'Member'} — Current Bank`}
                   />
                 </div>
+                <p className="md:col-span-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {t('accountNameSuffixHint')}
+                </p>
               </div>
             )}
             <div className="flex gap-3 pt-2">

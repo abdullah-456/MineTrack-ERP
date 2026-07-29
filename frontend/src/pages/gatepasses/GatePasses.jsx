@@ -124,7 +124,7 @@ export default function GatePasses() {
         return;
       }
       if (!form.branch_id) {
-        error(t('selectBranch') || 'Please select a branch');
+        error(t('selectBranchRequired'));
         setSaving(false);
         return;
       }
@@ -191,7 +191,7 @@ export default function GatePasses() {
     { key: 'type', label: t('gatepassType') || 'Dispatch Type', options: [
       { value: 'sale_dispatch', label: t('saleDispatch') || 'Sale Dispatch' },
       { value: 'pre_sale', label: t('preSale') || 'Pre-Sale Dispatch' },
-      { value: 'transfer', label: t('transfer') || 'Stock Transfer' },
+      { value: 'transfer', label: t('stockTransfer') },
       { value: 'return', label: t('sampleReturn') || 'Return / Sample' },
       { value: 'other', label: t('otherDispatch') || 'Other' },
     ]},
@@ -430,7 +430,7 @@ export default function GatePasses() {
               <div className="sm:col-span-3">
                 <LocationPicker
                   required
-                  label={t('location') || 'Branch / Godown Location'}
+                  label={t('branchGodownLocation')}
                   value={{
                     location_type: form.location_type,
                     branch_id: form.branch_id,
@@ -450,7 +450,7 @@ export default function GatePasses() {
                 <select className="input" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
                   <option value="sale_dispatch">{t('saleDispatch') || 'Sale Dispatch'}</option>
                   <option value="pre_sale">{t('preSale') || 'Pre-Sale Dispatch'}</option>
-                  <option value="transfer">{t('transfer') || 'Stock Transfer'}</option>
+                  <option value="transfer">{t('stockTransfer')}</option>
                   <option value="return">{t('sampleReturn') || 'Return / Sample'}</option>
                   <option value="other">{t('otherDispatch') || 'Other Dispatch'}</option>
                 </select>
@@ -543,7 +543,7 @@ export default function GatePasses() {
                 <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                   Dispatched Products / Items<span className="text-red-400 ms-0.5">*</span>
                 </span>
-                <button type="button" onClick={addLine} className="text-xs text-indigo-400 hover:underline">{t('addLine') || '+ Add line'}</button>
+                <button type="button" onClick={addLine} className="text-xs text-indigo-400 hover:underline">+ {t('addLine')}</button>
               </div>
 
               {form.items.map((item, i) => (

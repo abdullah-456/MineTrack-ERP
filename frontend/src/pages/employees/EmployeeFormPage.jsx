@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, Loader2, Plus, Trash2, UserCheck } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus, Trash2, UserCheck } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
 import { useAuth } from '../../context/AuthContext';
-import { useWizardSteps } from '../../hooks/useWizardSteps';
 import PageHeader from '../../components/ui/PageHeader';
 import FormLabel from '../../components/ui/FormLabel';
 import LocationPicker from '../../components/ui/LocationPicker';
@@ -15,9 +14,6 @@ const EMPTY_EXP = () => ({
   organization: '', designation: '', from: '', to: '', salary: '', leaving_reason: '',
 });
 const EMPTY_DEP = () => ({ name: '', relation: '', age: '', dob: '' });
-
-const ALL_STEPS = ['personal', 'contact', 'education', 'experience', 'dependants', 'employment', 'remarks'];
-const STEPS_NO_HR = ['personal', 'contact', 'education', 'experience', 'dependants', 'remarks'];
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -58,7 +54,7 @@ function emptyForm(branches) {
   };
 }
 
-function StepPanel({ title, children }) {
+function FormSection({ title, children }) {
   return (
     <div className="glass-card overflow-hidden">
       <div className="px-5 py-3.5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -80,21 +76,6 @@ export default function EmployeeFormPage() {
   const isRTL = lang === 'ur';
   const isHr = can('employees', 'create') || can('employees', 'update')
     || ['admin', 'super_admin'].includes(user?.Role?.name);
-
-  const stepIds = useMemo(() => (isHr ? ALL_STEPS : STEPS_NO_HR), [isHr]);
-  const {
-    step, index, isFirst, isLast, goNext, goPrev, clearStepParam,
-  } = useWizardSteps(stepIds, { paramName: 'step' });
-
-  const stepLabels = {
-    personal: t('personalInfo') || 'Personal Info',
-    contact: t('contactEmergency') || 'Contact & Emergency',
-    education: t('lastEducation') || 'Last Education',
-    experience: t('professionalExperience') || 'Professional Experience',
-    dependants: t('dependants') || 'Dependants / Joint Family',
-    employment: t('employmentDetails') || 'Employment Details',
-    remarks: t('remarks') || 'Remarks',
-  };
 
   const [form, setForm] = useState(() => emptyForm(branches));
   const [loading, setLoading] = useState(isEdit);
@@ -170,58 +151,29 @@ export default function EmployeeFormPage() {
     setForm(f => ({ ...f, date_of_birth: val, age: calcAge(val) || f.age }));
   };
 
-  const validateStep = (sid) => {
-    if (sid === 'personal') {
-      if (!form.name?.trim()) return t('fullName') || 'Full Name';
-      if (!form.father_name?.trim()) return t('fatherName') || 'Father Name';
-      if (!form.cnic?.trim()) return t('cnic') || 'CNIC No';
-      if (!form.gender) return t('gender') || 'Gender';
-    }
-    if (sid === 'contact') {
-      if (!form.phone?.trim()) return t('cellNo') || 'Cell No';
-      if (!form.address?.trim()) return t('address') || 'Address';
-      if (!form.city?.trim()) return t('city') || 'City / Location';
-    }
-    if (sid === 'employment' && isHr) {
+  const validateForm = () => {
+    if (!form.name?.trim()) return t('fullName') || 'Full Name';
+    if (!form.father_name?.trim()) return t('fatherName') || 'Father Name';
+    if (!form.cnic?.trim()) return t('cnic') || 'CNIC No';
+    if (!form.gender) return t('gender') || 'Gender';
+    if (!form.phone?.trim()) return t('cellNo') || 'Cell No';
+    if (!form.address?.trim()) return t('address') || 'Address';
+    if (!form.city?.trim()) return t('city') || 'City / Location';
+    if (isHr) {
       if (!form.hire_date) return t('dateOfJoining') || 'Date of Joining';
       if (!form.designation?.trim()) return t('designation') || 'Designation';
       if (form.basic_salary === '' || Number.isNaN(parseFloat(form.basic_salary))) return t('salary') || 'Salary';
-      if (!form.branch_id) return t('location') || 'Branch / Godown Location';
+      if (!form.branch_id) return t('branchGodownLocation');
     }
     return null;
   };
 
-  const handleNext = () => {
-    const missing = validateStep(step);
+  const submit = async (ev) => {
+    ev.preventDefault();
+    const missing = validateForm();
     if (missing) {
       error(`${t('required') || 'Required'}: ${missing}`);
       return;
-    }
-    goNext();
-  };
-
-  const handleBack = () => {
-    if (isFirst) {
-      clearStepParam();
-      navigate('/employees');
-      return;
-    }
-    goPrev();
-  };
-
-  const leaveForm = () => {
-    clearStepParam();
-    navigate('/employees');
-  };
-
-  const submit = async (ev) => {
-    ev.preventDefault();
-    for (const sid of stepIds) {
-      const missing = validateStep(sid);
-      if (missing) {
-        error(`${t('required') || 'Required'}: ${missing}`);
-        return;
-      }
     }
     setSaving(true);
     try {
@@ -234,14 +186,15 @@ export default function EmployeeFormPage() {
         dependants: form.dependants,
         ...shopParams(),
       };
+      // Status is changed from the employees list / ledger — not via full profile save
       if (isEdit) {
+        delete payload.status;
         await api.put(`/employees/${id}`, payload);
         success(t('employeeUpdated') || 'Employee updated');
       } else {
         await api.post('/employees', payload);
         success(t('employeeCreated') || 'Employee created');
       }
-      clearStepParam();
       navigate('/employees');
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
@@ -255,227 +208,200 @@ export default function EmployeeFormPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl" dir={isRTL ? 'rtl' : 'ltr'}>
+    <div className="space-y-6 w-full" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
         icon={UserCheck}
         accent="blue"
         title={isEdit ? (t('editEmployee') || 'Edit Employee') : (t('addEmployee') || 'Add Employee')}
-        subtitle={`${stepLabels[step] || ''} · ${index + 1}/${stepIds.length}`}
+        subtitle={isEdit ? form.employment_id : (t('employeeFormSub') || 'Full employee profile')}
         action={
-          <button type="button" onClick={leaveForm} className="btn-secondary flex items-center gap-2">
+          <button type="button" onClick={() => navigate('/employees')} className="btn-secondary flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" />{t('back') || 'Back'}
           </button>
         }
       />
 
-      {/* Step dots */}
-      <div className="flex flex-wrap gap-2">
-        {stepIds.map((sid, i) => (
-          <span
-            key={sid}
-            className="text-xs px-2.5 py-1 rounded-full"
-            style={{
-              backgroundColor: i === index ? 'var(--brand-soft, rgba(99,102,241,0.2))' : 'var(--bg-elevated)',
-              color: i === index ? 'var(--text-primary)' : 'var(--text-muted)',
-              border: `1px solid ${i === index ? 'var(--border-input)' : 'var(--border-subtle)'}`,
-            }}
-          >
-            {i + 1}. {stepLabels[sid]}
-          </span>
-        ))}
-      </div>
-
       <form onSubmit={submit} className="space-y-4">
-        {step === 'personal' && (
-          <StepPanel title={stepLabels.personal}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <FormLabel required>{t('fullName') || 'Full Name'}</FormLabel>
-                <input className="input" required value={form.name} onChange={setF('name')} />
-              </div>
-              <div>
-                <FormLabel required>{t('fatherName') || 'Father Name'}</FormLabel>
-                <input className="input" required value={form.father_name} onChange={setF('father_name')} />
-              </div>
-              <div>
-                <FormLabel required>{t('cnic') || 'CNIC No'}</FormLabel>
-                <input className="input" required placeholder="35202-1234567-1" value={form.cnic} onChange={setF('cnic')} />
-              </div>
-              <div>
-                <FormLabel>{t('cnicExpiry') || 'CNIC Expiry Date'}</FormLabel>
-                <input className="input" type="date" value={form.cnic_expiry} onChange={setF('cnic_expiry')} />
-              </div>
-              <div>
-                <FormLabel required>{t('gender') || 'Gender'}</FormLabel>
-                <select className="input" required value={form.gender} onChange={setF('gender')}>
-                  <option value="">Select</option>
-                  <option value="male">{t('male') || 'Male'}</option>
-                  <option value="female">{t('female') || 'Female'}</option>
-                  <option value="other">{t('other') || 'Other'}</option>
-                </select>
-              </div>
-              <div>
-                <FormLabel>{t('dateOfBirth') || 'Date of Birth'}</FormLabel>
-                <input className="input" type="date" value={form.date_of_birth} onChange={e => onDobChange(e.target.value)} />
-              </div>
-              <div>
-                <FormLabel>{t('age') || 'Age'}</FormLabel>
-                <input className="input" type="number" min="0" value={form.age} onChange={setF('age')} />
-              </div>
-              <div>
-                <FormLabel>{t('placeOfBirth') || 'Place of Birth'}</FormLabel>
-                <input className="input" value={form.place_of_birth} onChange={setF('place_of_birth')} />
-              </div>
-              <div>
-                <FormLabel>{t('maritalStatus') || 'Marital Status'}</FormLabel>
-                <select className="input" value={form.marital_status} onChange={setF('marital_status')}>
-                  <option value="">Select</option>
-                  <option value="single">Single</option>
-                  <option value="married">Married</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div>
-                <FormLabel>{t('religion') || 'Religion'}</FormLabel>
-                <input className="input" value={form.religion} onChange={setF('religion')} />
-              </div>
-              <div>
-                <FormLabel>{t('language') || 'Language'}</FormLabel>
-                <input className="input" value={form.language} onChange={setF('language')} />
-              </div>
+        <FormSection title={t('personalInfo') || 'Personal Info'}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <FormLabel required>{t('fullName') || 'Full Name'}</FormLabel>
+              <input className="input" required value={form.name} onChange={setF('name')} />
             </div>
-          </StepPanel>
-        )}
+            <div>
+              <FormLabel required>{t('fatherName') || 'Father Name'}</FormLabel>
+              <input className="input" required value={form.father_name} onChange={setF('father_name')} />
+            </div>
+            <div>
+              <FormLabel required>{t('cnic') || 'CNIC No'}</FormLabel>
+              <input className="input" required placeholder="35202-1234567-1" value={form.cnic} onChange={setF('cnic')} />
+            </div>
+            <div>
+              <FormLabel>{t('cnicExpiry') || 'CNIC Expiry Date'}</FormLabel>
+              <input className="input" type="date" value={form.cnic_expiry} onChange={setF('cnic_expiry')} />
+            </div>
+            <div>
+              <FormLabel required>{t('gender') || 'Gender'}</FormLabel>
+              <select className="input" required value={form.gender} onChange={setF('gender')}>
+                <option value="">Select</option>
+                <option value="male">{t('male') || 'Male'}</option>
+                <option value="female">{t('female') || 'Female'}</option>
+                <option value="other">{t('other') || 'Other'}</option>
+              </select>
+            </div>
+            <div>
+              <FormLabel>{t('dateOfBirth') || 'Date of Birth'}</FormLabel>
+              <input className="input" type="date" value={form.date_of_birth} onChange={e => onDobChange(e.target.value)} />
+            </div>
+            <div>
+              <FormLabel>{t('age') || 'Age'}</FormLabel>
+              <input className="input" type="number" min="0" value={form.age} onChange={setF('age')} />
+            </div>
+            <div>
+              <FormLabel>{t('placeOfBirth') || 'Place of Birth'}</FormLabel>
+              <input className="input" value={form.place_of_birth} onChange={setF('place_of_birth')} />
+            </div>
+            <div>
+              <FormLabel>{t('maritalStatus') || 'Marital Status'}</FormLabel>
+              <select className="input" value={form.marital_status} onChange={setF('marital_status')}>
+                <option value="">Select</option>
+                <option value="single">Single</option>
+                <option value="married">Married</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <FormLabel>{t('religion') || 'Religion'}</FormLabel>
+              <input className="input" value={form.religion} onChange={setF('religion')} />
+            </div>
+            <div>
+              <FormLabel>{t('language') || 'Language'}</FormLabel>
+              <input className="input" value={form.language} onChange={setF('language')} />
+            </div>
+          </div>
+        </FormSection>
 
-        {step === 'contact' && (
-          <StepPanel title={stepLabels.contact}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <FormLabel required>{t('cellNo') || 'Cell No'}</FormLabel>
-                <input className="input" required value={form.phone} onChange={setF('phone')} />
-              </div>
-              <div>
-                <FormLabel>{t('homeTel') || 'Home Tel No'}</FormLabel>
-                <input className="input" value={form.home_tel} onChange={setF('home_tel')} />
-              </div>
-              <div className="sm:col-span-2">
-                <FormLabel required>{t('address') || 'Address'}</FormLabel>
-                <textarea className="input min-h-[60px]" required value={form.address} onChange={setF('address')} />
-              </div>
-              <div>
-                <FormLabel required>{t('city') || 'City / Location'}</FormLabel>
-                <input className="input" required value={form.city} onChange={setF('city')} />
-              </div>
+        <FormSection title={t('contactEmergency') || 'Contact & Emergency'}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <FormLabel required>{t('cellNo') || 'Cell No'}</FormLabel>
+              <input className="input" required value={form.phone} onChange={setF('phone')} />
             </div>
-            <p className="text-xs font-semibold pt-2" style={{ color: 'var(--text-muted)' }}>{t('emergencyContact') || 'Emergency Contact'}</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <FormLabel>{t('name') || 'Name'}</FormLabel>
-                <input className="input" value={form.emergency_name} onChange={setF('emergency_name')} />
-              </div>
-              <div>
-                <FormLabel>{t('relation') || 'Relation'}</FormLabel>
-                <input className="input" value={form.emergency_relation} onChange={setF('emergency_relation')} />
-              </div>
-              <div>
-                <FormLabel>{t('cellNo') || 'Cell No'}</FormLabel>
-                <input className="input" value={form.emergency_cell} onChange={setF('emergency_cell')} />
-              </div>
-              <div>
-                <FormLabel>{t('residenceNo') || 'Residence No'}</FormLabel>
-                <input className="input" value={form.emergency_residence} onChange={setF('emergency_residence')} />
-              </div>
+            <div>
+              <FormLabel>{t('homeTel') || 'Home Tel No'}</FormLabel>
+              <input className="input" value={form.home_tel} onChange={setF('home_tel')} />
             </div>
-          </StepPanel>
-        )}
+            <div className="sm:col-span-2">
+              <FormLabel required>{t('address') || 'Address'}</FormLabel>
+              <textarea className="input min-h-[60px]" required value={form.address} onChange={setF('address')} />
+            </div>
+            <div>
+              <FormLabel required>{t('city') || 'City / Location'}</FormLabel>
+              <input className="input" required value={form.city} onChange={setF('city')} />
+            </div>
+          </div>
+          <p className="text-xs font-semibold pt-2" style={{ color: 'var(--text-muted)' }}>{t('emergencyContact') || 'Emergency Contact'}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <FormLabel>{t('name') || 'Name'}</FormLabel>
+              <input className="input" value={form.emergency_name} onChange={setF('emergency_name')} />
+            </div>
+            <div>
+              <FormLabel>{t('relation') || 'Relation'}</FormLabel>
+              <input className="input" value={form.emergency_relation} onChange={setF('emergency_relation')} />
+            </div>
+            <div>
+              <FormLabel>{t('cellNo') || 'Cell No'}</FormLabel>
+              <input className="input" value={form.emergency_cell} onChange={setF('emergency_cell')} />
+            </div>
+            <div>
+              <FormLabel>{t('residenceNo') || 'Residence No'}</FormLabel>
+              <input className="input" value={form.emergency_residence} onChange={setF('emergency_residence')} />
+            </div>
+          </div>
+        </FormSection>
 
-        {step === 'education' && (
-          <StepPanel title={stepLabels.education}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <FormLabel>{t('institute') || 'Institute'}</FormLabel>
-                <input className="input" value={form.education_institute} onChange={setF('education_institute')} />
-              </div>
-              <div>
-                <FormLabel>{t('certificateDegree') || 'Certificate / Degree'}</FormLabel>
-                <input className="input" value={form.education_degree} onChange={setF('education_degree')} />
-              </div>
-              <div>
-                <FormLabel>{t('specialization') || 'Specialization'}</FormLabel>
-                <input className="input" value={form.education_specialization} onChange={setF('education_specialization')} />
-              </div>
-              <div>
-                <FormLabel>{t('gradePercentage') || 'Grade / Percentage'}</FormLabel>
-                <input className="input" value={form.education_grade} onChange={setF('education_grade')} />
-              </div>
-              <div>
-                <FormLabel>{t('passingYear') || 'Passing Year'}</FormLabel>
-                <input className="input" value={form.education_year} onChange={setF('education_year')} />
-              </div>
+        <FormSection title={t('lastEducation') || 'Last Education'}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <FormLabel>{t('institute') || 'Institute'}</FormLabel>
+              <input className="input" value={form.education_institute} onChange={setF('education_institute')} />
             </div>
-          </StepPanel>
-        )}
+            <div>
+              <FormLabel>{t('certificateDegree') || 'Certificate / Degree'}</FormLabel>
+              <input className="input" value={form.education_degree} onChange={setF('education_degree')} />
+            </div>
+            <div>
+              <FormLabel>{t('specialization') || 'Specialization'}</FormLabel>
+              <input className="input" value={form.education_specialization} onChange={setF('education_specialization')} />
+            </div>
+            <div>
+              <FormLabel>{t('gradePercentage') || 'Grade / Percentage'}</FormLabel>
+              <input className="input" value={form.education_grade} onChange={setF('education_grade')} />
+            </div>
+            <div>
+              <FormLabel>{t('passingYear') || 'Passing Year'}</FormLabel>
+              <input className="input" value={form.education_year} onChange={setF('education_year')} />
+            </div>
+          </div>
+        </FormSection>
 
-        {step === 'experience' && (
-          <StepPanel title={stepLabels.experience}>
-            <div className="space-y-3">
-              {form.experience.map((row, i) => (
-                <div key={i} className="rounded-xl p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>#{i + 1}</span>
-                    <button type="button" className="icon-btn text-red-400" onClick={() => setForm(f => ({ ...f, experience: f.experience.filter((_, j) => j !== i) }))}>
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input className="input" placeholder="Organization" value={row.organization || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], organization: e.target.value }; return { ...f, experience }; })} />
-                    <input className="input" placeholder="Designation" value={row.designation || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], designation: e.target.value }; return { ...f, experience }; })} />
-                    <input className="input" type="date" placeholder="From" value={row.from || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], from: e.target.value }; return { ...f, experience }; })} />
-                    <input className="input" type="date" placeholder="To" value={row.to || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], to: e.target.value }; return { ...f, experience }; })} />
-                    <input className="input" type="number" placeholder="Salary" value={row.salary || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], salary: e.target.value }; return { ...f, experience }; })} />
-                    <input className="input" placeholder="Leaving reason" value={row.leaving_reason || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], leaving_reason: e.target.value }; return { ...f, experience }; })} />
-                  </div>
+        <FormSection title={t('professionalExperience') || 'Professional Experience'}>
+          <div className="space-y-3">
+            {form.experience.map((row, i) => (
+              <div key={i} className="rounded-xl p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>#{i + 1}</span>
+                  <button type="button" className="icon-btn text-red-400" onClick={() => setForm(f => ({ ...f, experience: f.experience.filter((_, j) => j !== i) }))}>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-              ))}
-              <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => setForm(f => ({ ...f, experience: [...f.experience, EMPTY_EXP()] }))}>
-                <Plus className="w-4 h-4" />{t('addAnother') || 'Add another'}
-              </button>
-            </div>
-          </StepPanel>
-        )}
-
-        {step === 'dependants' && (
-          <StepPanel title={stepLabels.dependants}>
-            <div className="space-y-3">
-              {form.dependants.map((row, i) => (
-                <div key={i} className="rounded-xl p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>#{i + 1}</span>
-                    <button type="button" className="icon-btn text-red-400" onClick={() => setForm(f => ({ ...f, dependants: f.dependants.filter((_, j) => j !== i) }))}>
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input className="input" placeholder="Name" value={row.name || ''} onChange={e => setForm(f => { const dependants = [...f.dependants]; dependants[i] = { ...dependants[i], name: e.target.value }; return { ...f, dependants }; })} />
-                    <input className="input" placeholder="Relation" value={row.relation || ''} onChange={e => setForm(f => { const dependants = [...f.dependants]; dependants[i] = { ...dependants[i], relation: e.target.value }; return { ...f, dependants }; })} />
-                    <input className="input" type="number" placeholder="Age" value={row.age || ''} onChange={e => setForm(f => { const dependants = [...f.dependants]; dependants[i] = { ...dependants[i], age: e.target.value }; return { ...f, dependants }; })} />
-                    <input className="input" type="date" placeholder="D.O.B" value={row.dob || ''} onChange={e => setForm(f => { const dependants = [...f.dependants]; dependants[i] = { ...dependants[i], dob: e.target.value }; return { ...f, dependants }; })} />
-                  </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input className="input" placeholder="Organization" value={row.organization || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], organization: e.target.value }; return { ...f, experience }; })} />
+                  <input className="input" placeholder="Designation" value={row.designation || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], designation: e.target.value }; return { ...f, experience }; })} />
+                  <input className="input" type="date" placeholder="From" value={row.from || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], from: e.target.value }; return { ...f, experience }; })} />
+                  <input className="input" type="date" placeholder="To" value={row.to || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], to: e.target.value }; return { ...f, experience }; })} />
+                  <input className="input" type="number" placeholder="Salary" value={row.salary || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], salary: e.target.value }; return { ...f, experience }; })} />
+                  <input className="input" placeholder="Leaving reason" value={row.leaving_reason || ''} onChange={e => setForm(f => { const experience = [...f.experience]; experience[i] = { ...experience[i], leaving_reason: e.target.value }; return { ...f, experience }; })} />
                 </div>
-              ))}
-              <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => setForm(f => ({ ...f, dependants: [...f.dependants, EMPTY_DEP()] }))}>
-                <Plus className="w-4 h-4" />{t('addAnother') || 'Add another'}
-              </button>
-            </div>
-          </StepPanel>
-        )}
+              </div>
+            ))}
+            <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => setForm(f => ({ ...f, experience: [...f.experience, EMPTY_EXP()] }))}>
+              <Plus className="w-4 h-4" />{t('addAnother') || 'Add another'}
+            </button>
+          </div>
+        </FormSection>
 
-        {step === 'employment' && isHr && (
-          <StepPanel title={stepLabels.employment}>
+        <FormSection title={t('dependants') || 'Dependants / Joint Family'}>
+          <div className="space-y-3">
+            {form.dependants.map((row, i) => (
+              <div key={i} className="rounded-xl p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>#{i + 1}</span>
+                  <button type="button" className="icon-btn text-red-400" onClick={() => setForm(f => ({ ...f, dependants: f.dependants.filter((_, j) => j !== i) }))}>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input className="input" placeholder="Name" value={row.name || ''} onChange={e => setForm(f => { const dependants = [...f.dependants]; dependants[i] = { ...dependants[i], name: e.target.value }; return { ...f, dependants }; })} />
+                  <input className="input" placeholder="Relation" value={row.relation || ''} onChange={e => setForm(f => { const dependants = [...f.dependants]; dependants[i] = { ...dependants[i], relation: e.target.value }; return { ...f, dependants }; })} />
+                  <input className="input" type="number" placeholder="Age" value={row.age || ''} onChange={e => setForm(f => { const dependants = [...f.dependants]; dependants[i] = { ...dependants[i], age: e.target.value }; return { ...f, dependants }; })} />
+                  <input className="input" type="date" placeholder="D.O.B" value={row.dob || ''} onChange={e => setForm(f => { const dependants = [...f.dependants]; dependants[i] = { ...dependants[i], dob: e.target.value }; return { ...f, dependants }; })} />
+                </div>
+              </div>
+            ))}
+            <button type="button" className="btn-secondary flex items-center gap-2" onClick={() => setForm(f => ({ ...f, dependants: [...f.dependants, EMPTY_DEP()] }))}>
+              <Plus className="w-4 h-4" />{t('addAnother') || 'Add another'}
+            </button>
+          </div>
+        </FormSection>
+
+        {isHr && (
+          <FormSection title={t('employmentDetails') || 'Employment Details'}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <FormLabel>{t('employmentId') || 'Employment ID'}</FormLabel>
-                <input className="input" readOnly value={form.employment_id || (t('autoGenerated') || 'Auto-generated on save')} />
+                <input className="input" readOnly value={form.employment_id || (t('autoGeneratedOnSave'))} />
               </div>
               <div>
                 <FormLabel required>{t('dateOfJoining') || 'Date of Joining'}</FormLabel>
@@ -492,7 +418,7 @@ export default function EmployeeFormPage() {
               <div className="sm:col-span-2">
                 <LocationPicker
                   required
-                  label={t('location') || 'Branch / Godown Location'}
+                  label={t('branchGodownLocation')}
                   value={{
                     location_type: form.location_type || 'branch',
                     branch_id: form.branch_id,
@@ -506,46 +432,23 @@ export default function EmployeeFormPage() {
                   }))}
                 />
               </div>
-              {isEdit && (
-                <div>
-                  <FormLabel>{t('status') || 'Status'}</FormLabel>
-                  <select className="input" value={form.status} onChange={setF('status')}>
-                    <option value="active">Active</option>
-                    <option value="suspended">Suspended</option>
-                    <option value="terminated">Terminated</option>
-                  </select>
-                </div>
-              )}
               <div className="sm:col-span-2">
                 <FormLabel>{t('hrRemarks') || 'HR Remarks'}</FormLabel>
                 <textarea className="input min-h-[60px]" value={form.hr_remarks} onChange={setF('hr_remarks')} />
               </div>
             </div>
-          </StepPanel>
+          </FormSection>
         )}
 
-        {step === 'remarks' && (
-          <StepPanel title={stepLabels.remarks}>
-            <textarea className="input min-h-[80px]" value={form.remarks} onChange={setF('remarks')} placeholder={t('optionalRemarks') || 'Optional remarks…'} />
-          </StepPanel>
-        )}
+        <FormSection title={t('remarks') || 'Remarks'}>
+          <textarea className="input min-h-[80px]" value={form.remarks} onChange={setF('remarks')} placeholder={t('optionalRemarks') || 'Optional remarks…'} />
+        </FormSection>
 
-        <div className="flex gap-3 justify-between pt-2">
-          <button type="button" onClick={handleBack} className="btn-secondary flex items-center gap-2">
-            <ChevronLeft className="w-4 h-4" />
-            {isFirst ? (t('cancel') || 'Cancel') : (t('previous') || 'Previous')}
+        <div className="flex gap-3 justify-end pt-2">
+          <button type="button" onClick={() => navigate('/employees')} className="btn-secondary">{t('cancel')}</button>
+          <button type="submit" disabled={saving} className="btn-primary min-w-[140px]">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin inline" /> : (t('save') || 'Save')}
           </button>
-          <div className="flex gap-3">
-            {!isLast ? (
-              <button type="button" onClick={handleNext} className="btn-primary flex items-center gap-2 min-w-[120px]">
-                {t('next') || 'Next'} <ChevronRight className="w-4 h-4" />
-              </button>
-            ) : (
-              <button type="submit" disabled={saving} className="btn-primary min-w-[140px]">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin inline" /> : (t('save') || 'Save')}
-              </button>
-            )}
-          </div>
         </div>
       </form>
     </div>

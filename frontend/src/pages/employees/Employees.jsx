@@ -10,6 +10,7 @@ import LocationPicker from '../../components/ui/LocationPicker';
 import StatusBadge from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
+import { useAuth } from '../../context/AuthContext';
 import api from '../../api/axios';
 import { openClearancePrint } from '../../utils/employeeClearancePdf';
 import TerminateEmployeeModal from '../../components/employees/TerminateEmployeeModal';
@@ -18,7 +19,8 @@ import { filterRowsByLocation } from '../../utils/locationUtils';
 export default function Employees() {
   const navigate = useNavigate();
   const { t, lang } = useTheme();
-  const { error } = useToast();
+  const { success, error } = useToast();
+  const { can } = useAuth();
   const { shopParams, branches } = useShopApi();
   const isRTL = lang === 'ur';
   const { isHighlighted } = useHighlightRow();
@@ -55,7 +57,11 @@ export default function Employees() {
   };
 
   const reportSelects = [
-    { key: 'status', label: t('status') || 'Status', options: [{ value: 'active', label: t('active') || 'Active' }, { value: 'inactive', label: t('inactive') || 'Inactive' }] },
+    { key: 'status', label: t('status') || 'Status', options: [
+      { value: 'active', label: t('active') || 'Active' },
+      { value: 'suspended', label: t('suspended') || 'Suspended' },
+      { value: 'terminated', label: t('terminated') || 'Terminated' },
+    ] },
   ];
   let reportRows = filterByDate(employees, 'hire_date', reportFilters.from, reportFilters.to);
   if (reportFilters.status) reportRows = reportRows.filter(e => e.status === reportFilters.status);
@@ -90,6 +96,24 @@ export default function Employees() {
     __label: t('total') || 'Total',
     basic_salary: reportRows.reduce((s, e) => s + parseFloat(e.basic_salary || 0), 0),
     current_payable: reportRows.reduce((s, e) => s + parseFloat(e.current_payable || 0), 0),
+  };
+
+  const canUpdate = can('employees', 'update');
+
+  const changeStatus = async (emp, status) => {
+    if (status === 'terminated') {
+      setTerminateTarget(emp);
+      return;
+    }
+    if (emp.status === status) return;
+    try {
+      await api.patch(`/employees/${emp.id}/status`, { status, ...shopParams() });
+      success(t('employeeUpdated') || 'Employee updated');
+      fetchData();
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+      fetchData();
+    }
   };
 
   return (
@@ -163,7 +187,7 @@ export default function Employees() {
                   className={`${isHighlighted(emp.id) ? 'highlight-row' : 'hover:bg-white/10'} cursor-pointer transition-colors`}
                   title={t('viewLedger') || 'View Ledger'}
                   onClick={(e) => {
-                    if (e.target.closest('button')) return;
+                    if (e.target.closest('button, select')) return;
                     navigate(`/employees/${emp.id}`);
                   }}
                 >
@@ -181,10 +205,24 @@ export default function Employees() {
                   <td className="p-4 font-semibold" style={{ color: parseFloat(emp.current_payable) < 0 ? '#f87171' : 'var(--text-secondary)' }}>
                     {formatPKR(emp.current_payable, lang)}
                   </td>
-                  <td className="p-4"><StatusBadge status={emp.status} /></td>
+                  <td className="p-4" onClick={e => e.stopPropagation()}>
+                    {emp.status === 'terminated' || !canUpdate ? (
+                      <StatusBadge status={emp.status} />
+                    ) : (
+                      <select
+                        className="input text-xs py-1.5 px-2 min-w-[7rem]"
+                        value={emp.status === 'suspended' ? 'suspended' : 'active'}
+                        onChange={e => changeStatus(emp, e.target.value)}
+                      >
+                        <option value="active">{t('active') || 'Active'}</option>
+                        <option value="suspended">{t('suspended') || 'Suspended'}</option>
+                        <option value="terminated">{t('terminate') || 'Terminate'}</option>
+                      </select>
+                    )}
+                  </td>
                   <td className="p-4 text-end">
                     <div className="flex justify-end gap-1.5">
-                      <button type="button" onClick={() => navigate(`/employees/${emp.id}`)} className="icon-btn" title={t('viewLedger') || 'Ledger'}><BookOpen className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => navigate(`/employees/${emp.id}`)} className="icon-btn" title={t('ledger')}><BookOpen className="w-4 h-4" /></button>
                       {emp.status === 'terminated' && (
                         <button type="button" onClick={() => openClearancePrint(emp.id)} className="icon-btn text-emerald-400" title={t('clearanceCertificate') || 'Clearance Certificate'}><FileCheck className="w-4 h-4" /></button>
                       )}

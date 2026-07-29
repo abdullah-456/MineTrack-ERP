@@ -129,7 +129,7 @@ export default function Sales() {
       }));
       if (!items.length) { error(t('addAtLeastOneItem')); setSaving(false); return; }
       if (!form.branch_id) {
-        error(form.location_type === 'godown' ? (t('selectGodown') || 'Please select a godown with linked branches') : t('selectBranch'));
+        error(form.location_type === 'godown' ? (t('selectGodown') || 'Please select a godown with linked branches') : t('selectBranchRequired'));
         setSaving(false);
         return;
       }
@@ -481,7 +481,7 @@ export default function Sales() {
               <div className="sm:col-span-2">
                 <LocationPicker
                   required
-                  label={t('location') || 'Branch / Godown Location'}
+                  label={t('branchGodownLocation')}
                   value={saleLocation}
                   onChange={(loc) => setForm(f => ({
                     ...f,
@@ -566,7 +566,7 @@ export default function Sales() {
                 <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                   {t('saleItems')}<span className="text-red-400 ms-0.5" aria-hidden="true">*</span>
                 </span>
-                <button type="button" onClick={addLine} className="text-xs text-brand-400 hover:underline">{t('addLine')}</button>
+                <button type="button" onClick={addLine} className="text-xs text-brand-400 hover:underline">+ {t('addLine')}</button>
               </div>
               {form.items.map((item, i) => {
                 const avail = item.product_id ? stockForProduct(item.product_id, form.branch_id) : null;
@@ -875,7 +875,7 @@ export default function Sales() {
               <div className="sm:col-span-3">
                 <LocationPicker
                   required
-                  label={t('location') || 'Branch / Godown Location'}
+                  label={t('branchGodownLocation')}
                   value={{
                     location_type: gatePassForm.location_type,
                     branch_id: gatePassForm.branch_id,
@@ -895,7 +895,7 @@ export default function Sales() {
                 <select className="input" value={gatePassForm.type} onChange={e => setGatePassForm(f => ({ ...f, type: e.target.value }))}>
                   <option value="sale_dispatch">{t('saleDispatch') || 'Sale Dispatch'}</option>
                   <option value="pre_sale">{t('preSale') || 'Pre-Sale Dispatch'}</option>
-                  <option value="transfer">{t('transfer') || 'Stock Transfer'}</option>
+                  <option value="transfer">{t('stockTransfer')}</option>
                   <option value="return">{t('sampleReturn') || 'Return / Sample'}</option>
                   <option value="other">{t('otherDispatch') || 'Other Dispatch'}</option>
                 </select>
@@ -970,7 +970,7 @@ export default function Sales() {
                   Dispatched Products / Items<span className="text-red-400 ms-0.5">*</span>
                 </span>
                 <button type="button" onClick={() => setGatePassForm(f => ({ ...f, items: [...f.items, { product_id: '', product_name: '', quantity: 1, unit: 'kg', notes: '' }] }))} className="text-xs text-indigo-400 hover:underline">
-                  {t('addLine') || '+ Add line'}
+                  + {t('addLine')}
                 </button>
               </div>
 

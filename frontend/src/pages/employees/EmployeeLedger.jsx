@@ -6,11 +6,13 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
+import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
+import TerminateEmployeeModal from '../../components/employees/TerminateEmployeeModal';
 import { openClearancePrint } from '../../utils/employeeClearancePdf';
 
 // Transaction types that represent an actual physical hand-off of money —
@@ -23,7 +25,7 @@ export default function EmployeeLedger() {
   const navigate = useNavigate();
   const { t, lang } = useTheme();
   const { success, error } = useToast();
-  const { shopName } = useAuth();
+  const { shopName, can } = useAuth();
   const { shopParams } = useShopApi();
   const isRTL = lang === 'ur';
   const [downloadingId, setDownloadingId] = useState(null);
@@ -56,6 +58,7 @@ export default function EmployeeLedger() {
   const [tab, setTab] = useState('history');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(null); // advance | loan | receivable
+  const [terminateOpen, setTerminateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
@@ -120,6 +123,24 @@ export default function EmployeeLedger() {
   const submitReceivable = (e) => {
     e.preventDefault();
     runAction(() => api.post(`/employees/${id}/receive-loan-payment`, { ...receivableForm, amount: parseFloat(receivableForm.amount), ...shopParams() }), t('loanPaymentReceivedMsg') || 'Loan payment received');
+  };
+
+  const changeStatus = async (status) => {
+    if (status === 'terminated') {
+      setTerminateOpen(true);
+      return;
+    }
+    if (ledger?.employee?.status === status) return;
+    setSaving(true);
+    try {
+      await api.patch(`/employees/${id}/status`, { status, ...shopParams() });
+      success(t('employeeUpdated') || 'Employee updated');
+      fetchData();
+    } catch (err) {
+      error(err.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-cyan-400" /></div>;
@@ -189,6 +210,23 @@ export default function EmployeeLedger() {
           </div>
         }
       />
+
+      <div className="flex flex-wrap items-center gap-3">
+        {can('employees', 'update') && employee.status !== 'terminated' ? (
+          <select
+            className="input text-sm py-1.5 px-3 w-auto"
+            value={employee.status === 'suspended' ? 'suspended' : 'active'}
+            disabled={saving}
+            onChange={e => changeStatus(e.target.value)}
+          >
+            <option value="active">{t('active') || 'Active'}</option>
+            <option value="suspended">{t('suspended') || 'Suspended'}</option>
+            <option value="terminated">{t('terminate') || 'Terminate'}</option>
+          </select>
+        ) : (
+          <StatusBadge status={employee.status} />
+        )}
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         {pills.map(({ label, value, icon: Icon, tone }) => {
@@ -407,7 +445,7 @@ export default function EmployeeLedger() {
         <Modal title={t('giveAdvance') || 'Give Advance'} onClose={() => setModal(null)}>
           <form onSubmit={submitAdvance} className="space-y-3">
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              {t('advanceHint') || 'An advance is deducted automatically from the salary of the month you pick below — no separate collection needed.'}
+              {t('advanceMonthHint')}
             </p>
             <div>
               <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
@@ -514,6 +552,14 @@ export default function EmployeeLedger() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {terminateOpen && employee && (
+        <TerminateEmployeeModal
+          employee={employee}
+          onClose={() => setTerminateOpen(false)}
+          onDone={fetchData}
+        />
       )}
     </div>
   );

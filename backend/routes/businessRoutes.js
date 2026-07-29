@@ -110,6 +110,7 @@ router.get(   '/employees/next-employment-id', authorize('employees', 'create'),
 router.get(   '/employees/:id',          authorize('employees', 'read'),   employeeController.get);
 router.post(  '/employees',              authorize('employees', 'create'), employeeController.create);
 router.put(   '/employees/:id',          authorize('employees', 'update'), employeeController.update);
+router.patch( '/employees/:id/status',   authorize('employees', 'update'), employeeController.patchStatus);
 router.get(   '/employees/:id/termination-preview', authorize('employees', 'read'), employeeController.getTerminationPreview);
 router.post(  '/employees/:id/terminate', authorize('employees', 'delete'), employeeController.terminate);
 router.delete('/employees/:id',          authorize('employees', 'delete'), employeeController.remove);

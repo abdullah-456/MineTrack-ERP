@@ -232,7 +232,7 @@ export default function Customers() {
                     onClick={() => navigate(`/customers/${c.id}`)}
                     className="btn-secondary flex-1 flex items-center justify-center gap-2 text-sm"
                   >
-                    <BookOpen className="w-3.5 h-3.5" />{t('viewLedger') || 'Ledger'}
+                    <BookOpen className="w-3.5 h-3.5" />{t('ledger')}
                   </button>
                   <button type="button" onClick={() => handleDelete(c)} className="icon-btn text-red-400" title={t('delete')}>
                     <Trash2 className="w-3.5 h-3.5" />
