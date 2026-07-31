@@ -4,6 +4,7 @@ const { requireShopId } = require('../utils/shopScope');
 const {
   calcLineTotal, calcOrderTotals, generatePoNumber, refreshPurchaseOrderStatus, roundQty, round2,
 } = require('../utils/stockReceipt');
+const { resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
 
 const poIncludes = [
   { model: db.Shop, attributes: ['id', 'name', 'owner_name', 'email', 'phone', 'address', 'logo_url'] },
@@ -54,6 +55,11 @@ exports.list = async (req, res) => {
     const where = { shop_id: shopId };
     if (req.query.status && req.query.status !== 'all') where.status = req.query.status;
     if (req.query.supplier_id) where.supplier_id = parseInt(req.query.supplier_id, 10);
+
+    // Scoped to the fiscal year being viewed, so a new year opens with an empty
+    // list and picking a past year shows exactly that year's orders.
+    const range = await resolveListDateRange(req, shopId);
+    applyDateRangeToWhere(where, 'order_date', range);
 
     if (req.query.search) {
       where[Op.or] = [

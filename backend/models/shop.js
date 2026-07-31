@@ -15,6 +15,8 @@ module.exports = (sequelize, DataTypes) => {
       Shop.hasMany(models.CashSession,  { foreignKey: 'shop_id' });
       Shop.hasMany(models.PurchaseOrder, { foreignKey: 'shop_id' });
       Shop.hasMany(models.GoodsReceiptNote, { foreignKey: 'shop_id' });
+      Shop.hasMany(models.FiscalYear, { foreignKey: 'shop_id' });
+      Shop.belongsTo(models.FiscalYear, { as: 'CurrentFiscalYear', foreignKey: 'current_fiscal_year_id' });
     }
   }
   Shop.init({
@@ -70,7 +72,27 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
       allowNull: false
-    }
+    },
+    current_fiscal_year_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    fiscal_year_end_month: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 6,
+    },
+    fiscal_year_end_day: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 30,
+    },
+    // Earliest date an entry may carry — the floor for creating fiscal years
+    // backwards when historical records are entered. See utils/fiscalYear.js.
+    books_start_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
   }, {
     sequelize,
     modelName: 'Shop',

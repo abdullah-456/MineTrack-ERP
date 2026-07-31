@@ -10,6 +10,7 @@ const {
   roundQty,
   round2,
 } = require('../utils/stockReceipt');
+const { resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
 
 const grnIncludes = [
   { model: db.Supplier, attributes: ['id', 'company_name', 'supplier_code', 'phone'] },
@@ -143,6 +144,10 @@ exports.list = async (req, res) => {
     if (req.query.status && req.query.status !== 'all') where.status = req.query.status;
     if (req.query.supplier_id) where.supplier_id = parseInt(req.query.supplier_id, 10);
     if (req.query.purchase_order_id) where.purchase_order_id = parseInt(req.query.purchase_order_id, 10);
+
+    // Scoped to the fiscal year being viewed — see purchaseOrderController.list.
+    const range = await resolveListDateRange(req, shopId);
+    applyDateRangeToWhere(where, 'receipt_date', range);
 
     if (req.query.search) {
       where[Op.or] = [

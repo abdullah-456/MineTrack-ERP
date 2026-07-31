@@ -3,6 +3,7 @@ import { Landmark, Loader2, RefreshCw, Search } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
+import { useFiscalYear } from '../../context/FiscalYearContext';
 import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
@@ -32,6 +33,7 @@ export default function GeneralLedger() {
   const { t, lang } = useTheme();
   const { error } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { listParams } = useFiscalYear();
   const { isHighlighted } = useHighlightRow();
 
   const [accounts, setAccounts] = useState([]);
@@ -70,7 +72,7 @@ export default function GeneralLedger() {
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { ...shopParams() };
+      const params = { ...shopParams(), ...listParams };
       if (filterType === 'account' && accountId) params.account_id = accountId;
       if (['customer', 'supplier', 'employee', 'board_member'].includes(filterType)) {
         params.entity_type = filterType;
@@ -87,7 +89,7 @@ export default function GeneralLedger() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, filterType, accountId, entityId, branchId, from, to, error, t]);
+  }, [shopParams, listParams, filterType, accountId, entityId, branchId, from, to, error, t]);
 
   useEffect(() => { fetchAccounts(); fetchEntityOptions(); }, [fetchAccounts, fetchEntityOptions]);
   useEffect(() => { fetchEntries(); }, [fetchEntries]);

@@ -175,6 +175,7 @@ export default function ShopSetupModal({
     { account_name: '', bank_name: '', account_number: '', opening_balance: '' }
   ]);
   const [openingCash, setOpeningCash] = useState('');
+  const [booksStartDate, setBooksStartDate] = useState('');
 
   // Existing cash/bank accounts a new account's balance could be transferred
   // from. Only fetched when adding accounts after setup — during the first-time
@@ -240,6 +241,7 @@ export default function ShopSetupModal({
         await api.post('/financial-setup', {
           bank_accounts: validAccounts,
           opening_cash: parseFloat(openingCash) || 0,
+          books_start_date: booksStartDate || undefined,
         });
       }
       clearStepParam();
@@ -500,6 +502,30 @@ export default function ShopSetupModal({
                   This is the cash physically available in your shop's drawer right now
                 </p>
               </div>
+
+              {/* Only on the full first-time wizard: the floor for back-dating
+                  entries when moving across from manual books. */}
+              {!isPartial && (
+                <div
+                  className="p-5 rounded-2xl border"
+                  style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-input)' }}
+                >
+                  <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    Our Books Start From (Optional)
+                  </label>
+                  <input
+                    type="date"
+                    className="input"
+                    value={booksStartDate}
+                    onChange={e => setBooksStartDate(e.target.value)}
+                  />
+                  <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                    Set this if you are moving from manual records and want to enter older
+                    entries. Entries dated before it are refused. Leave blank to allow the
+                    last 5 years.
+                  </p>
+                </div>
+              )}
 
               <div className="flex gap-3">
                 {!isCashOnly && (

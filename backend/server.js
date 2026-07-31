@@ -44,12 +44,26 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'ESMS Backend Server is running!', version: '2.1-multitenant' });
 });
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 // Throttle auth endpoints against brute force / credential stuffing.
+// Development keeps a generous ceiling so a burst of failed refresh attempts
+// (e.g. stale tabs after a server restart) doesn't lock out local sign-in.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: isProduction ? 10 : 200,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { message: 'Too many attempts. Please try again later.' },
+});
+
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isProduction ? 30 : 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
   message: { message: 'Too many attempts. Please try again later.' },
 });
 
@@ -64,7 +78,7 @@ app.use('/api', apiLimiter);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/refresh', authLimiter);
+app.use('/api/auth/refresh', refreshLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/shops', shopRoutes);
 app.use('/api/users', userRoutes);

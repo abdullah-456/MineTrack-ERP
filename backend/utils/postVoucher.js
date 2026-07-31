@@ -1,5 +1,6 @@
 const db = require('../models');
 const { parseTransactionDate } = require('./transactionDate');
+const { assertWritableDate } = require('./fiscalYear');
 
 // A voucher is rejected if its debits and credits differ by more than this.
 // Shared with the financial statements so a report can never call itself
@@ -85,6 +86,11 @@ async function postVoucher(shopId, { type, date, narration, createdBy, lines, br
   // back too. Backdating remains allowed — see utils/transactionDate.js.
   const voucherDate = parseTransactionDate(date, 'voucher date');
 
+  // Same reasoning as the date guard above: every posting funnels through here,
+  // so one check keeps closed years sealed everywhere. It also opens the next
+  // fiscal year on demand, so trading never stops the day after a year ends.
+  const fiscalYear = await assertWritableDate(shopId, voucherDate, transaction);
+
   const voucher_number = await generateVoucherNumber(shopId, transaction);
   const voucher = await db.Voucher.create({
     shop_id: shopId,
@@ -95,6 +101,9 @@ async function postVoucher(shopId, { type, date, narration, createdBy, lines, br
     narration: narration || null,
     created_by: createdBy,
     status: 'posted',
+    // Stamped from the year the date resolves to, so every voucher is
+    // attributable. Only the year-end closing voucher used to carry this.
+    fiscal_year_id: fiscalYear?.id || null,
   }, { transaction });
 
   for (const line of lines) {

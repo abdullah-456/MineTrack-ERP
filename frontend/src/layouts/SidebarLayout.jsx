@@ -2,12 +2,13 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import FiscalYearSelector from '../components/ui/FiscalYearSelector';
 import {
   LayoutDashboard, ShoppingCart, Package, Users, Building2,
   TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2, Landmark,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
   Zap, Bell, Search, ChevronLeft, Sun, Moon, Globe, Check,
-  Store, GitBranch, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList } from 'lucide-react';
+  Store, GitBranch, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar } from 'lucide-react';
 
 // ── Nav structure for regular shop users (uses translation keys) ─
 const shopNavGroups = [
@@ -80,6 +81,7 @@ const shopNavGroups = [
       { to: '/admin/branches', icon: GitBranch, labelKey: 'branches', module: 'branches', action: 'read' },
       { to: '/admin/roles', icon: KeyRound, labelKey: 'roles', module: 'roles', action: 'read' },
       { to: '/admin/deletion-requests', icon: ShieldAlert, labelKey: 'deletionRequests', module: 'users', action: 'read' },
+      { to: '/admin/fiscal-years', icon: Calendar, labelKey: 'fiscalYears', module: 'accounting', action: 'read' },
     ]
   },
 ];
@@ -380,6 +382,7 @@ export default function SidebarLayout() {
 
           {/* Right controls */}
           <div className="ml-auto flex items-center gap-2">
+            {!isSuperAdmin() && <FiscalYearSelector />}
             <ThemeToggle theme={theme} toggleTheme={toggleTheme} t={t} />
             <LangDropdown lang={lang} setLang={setLang} t={t} />
 

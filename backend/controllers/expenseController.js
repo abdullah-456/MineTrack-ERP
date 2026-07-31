@@ -4,6 +4,7 @@ const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
 const { assertCashAvailable, debitBankAccount, debitCashPayment, creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
+const { guardWritableDates, handleFiscalYearError, resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
 
 const EXPENSE_ACCOUNT_CODE = '07-OPEX';
 
@@ -52,6 +53,9 @@ exports.list = async (req, res) => {
       where.expense_date = {};
       if (req.query.from) where.expense_date[Op.gte] = new Date(req.query.from);
       if (req.query.to) where.expense_date[Op.lte] = new Date(`${req.query.to}T23:59:59.999`);
+    } else {
+      const range = await resolveListDateRange(req, shopId);
+      applyDateRangeToWhere(where, 'expense_date', range);
     }
 
     const expenses = await db.Expense.findAll({
@@ -121,6 +125,7 @@ exports.create = async (req, res) => {
     const expenseAccount = await resolveExpenseAccount(expense_account_id, transaction);
 
     const date = expense_date ? new Date(expense_date) : new Date();
+    await guardWritableDates(shopId, date, transaction);
 
     let bankAcc = null;
     let voucher;
@@ -177,6 +182,8 @@ exports.create = async (req, res) => {
     return res.status(201).json({ expense });
   } catch (error) {
     await transaction.rollback();
+    const handled = handleFiscalYearError(res, error);
+    if (handled) return handled;
     console.error('createExpense error:', error);
     return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
@@ -195,6 +202,8 @@ exports.update = async (req, res) => {
     const expense = await db.Expense.findOne({ where: { id: req.params.id, shop_id: shopId }, transaction });
     if (!expense) { await transaction.rollback(); return res.status(404).json({ message: 'Expense not found' }); }
     if (expense.status === 'void') { await transaction.rollback(); return res.status(400).json({ message: 'Cannot edit a voided expense' }); }
+
+    await guardWritableDates(shopId, [expense.expense_date, req.body.expense_date], transaction);
 
     const { category, description, amount, expense_date, paid_via, bank_account_id, expense_account_id, branch_id } = req.body;
 
@@ -346,6 +355,8 @@ exports.remove = async (req, res) => {
     const expense = await db.Expense.findOne({ where: { id: req.params.id, shop_id: shopId }, transaction });
     if (!expense) { await transaction.rollback(); return res.status(404).json({ message: 'Expense not found' }); }
     if (expense.status === 'void') { await transaction.rollback(); return res.status(400).json({ message: 'Expense is already void' }); }
+
+    await guardWritableDates(shopId, expense.expense_date, transaction);
 
     const { pending } = await requestOrAllowDelete({
       req, res, shopId, module: 'expenses', entityId: expense.id,

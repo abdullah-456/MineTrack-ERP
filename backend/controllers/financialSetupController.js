@@ -290,10 +290,19 @@ exports.completeSetup = async (req, res) => {
   const shopId = req.user.shop_id;
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
 
-  const { bank_accounts = [], opening_cash = 0 } = req.body;
+  const { bank_accounts = [], opening_cash = 0, books_start_date } = req.body;
 
   const t = await db.sequelize.transaction();
   try {
+    // When the shop's records begin — the floor for back-dating entries during a
+    // migration from manual books. Left unset, utils/fiscalYear.js falls back to
+    // a bounded default.
+    if (books_start_date) {
+      await db.Shop.update(
+        { books_start_date },
+        { where: { id: shopId }, transaction: t },
+      );
+    }
     const { bankOpeningTotal, bankOpeningLines } = await createBankAccountsFromPayload(
       shopId, bank_accounts, req.user.id, t,
     );
@@ -307,6 +316,9 @@ exports.completeSetup = async (req, res) => {
       { setup_completed: true },
       { where: { id: shopId }, transaction: t }
     );
+
+    const { ensureFiscalYearForShop } = require('../utils/fiscalYear');
+    await ensureFiscalYearForShop(shopId, t);
 
     const openingTotal = round2(bankOpeningTotal + openingCashAmt);
     if (openingTotal > 0) {

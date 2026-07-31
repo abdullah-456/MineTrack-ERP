@@ -7,6 +7,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
+import { useFiscalYear } from '../../context/FiscalYearContext';
 
 function monthStart() {
   const d = new Date();
@@ -51,6 +52,7 @@ export default function ProfitAndLoss() {
   const { t, lang } = useTheme();
   const { error } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { reportDates } = useFiscalYear();
 
   const [income, setIncome] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -60,6 +62,15 @@ export default function ProfitAndLoss() {
   const [to, setTo] = useState(todayStr());
 
   const [branchId, setBranchId] = useState('');
+  // Follow the fiscal year picked in the top bar. reportDates states the rule
+  // once for every report: the period spans the selected year, ending today when
+  // that year is still running. The inputs stay editable.
+  useEffect(() => {
+    if (reportDates.from && reportDates.to) {
+      setFrom(reportDates.from);
+      setTo(reportDates.to);
+    }
+  }, [reportDates.from, reportDates.to]);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);

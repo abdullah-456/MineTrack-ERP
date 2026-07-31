@@ -3,6 +3,7 @@ const { requireShopId } = require('../utils/shopScope');
 const { isAdminRole } = require('../utils/deletionRequest');
 const { performVoidExpense } = require('./expenseController');
 const { performVoidReturn } = require('./saleReturnController');
+const { guardWritableDates, handleFiscalYearError } = require('../utils/fiscalYear');
 
 function requireAdmin(req, res) {
   if (!isAdminRole(req.user.Role.name)) {
@@ -72,7 +73,10 @@ async function applyModuleDeletion(module, entityId, shopId, req, transaction) {
     }
     case 'expenses': {
       const row = await db.Expense.findOne({ where: { id: entityId, shop_id: shopId }, transaction });
-      if (row && row.status !== 'void') await performVoidExpense(row, shopId, req.user.id, transaction);
+      if (row && row.status !== 'void') {
+        await guardWritableDates(shopId, row.expense_date, transaction);
+        await performVoidExpense(row, shopId, req.user.id, transaction);
+      }
       return !!row;
     }
     case 'returns': {
@@ -81,7 +85,10 @@ async function applyModuleDeletion(module, entityId, shopId, req, transaction) {
         include: [{ model: db.SaleReturnItem, as: 'ReturnItems' }, { model: db.Sale }],
         transaction,
       });
-      if (row && row.status !== 'void') await performVoidReturn(row, shopId, req, transaction);
+      if (row && row.status !== 'void') {
+        await guardWritableDates(shopId, row.return_date, transaction);
+        await performVoidReturn(row, shopId, req, transaction);
+      }
       return !!row;
     }
     default:
@@ -113,6 +120,8 @@ exports.approve = async (req, res) => {
     return res.json({ message: 'Deletion request approved', request });
   } catch (error) {
     await transaction.rollback();
+    const handled = handleFiscalYearError(res, error);
+    if (handled) return handled;
     console.error('approveDeletionRequest error:', error);
     return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }

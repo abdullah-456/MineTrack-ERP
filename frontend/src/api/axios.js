@@ -17,17 +17,40 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// One in-flight refresh at a time — parallel 401s (e.g. branches + fiscal-years
+// on load) used to each POST /auth/refresh and exhaust the rate limiter.
+let refreshPromise = null;
+
+function refreshAccessToken() {
+  if (!refreshPromise) {
+    refreshPromise = axios.post(`${API_BASE}/auth/refresh`, {}, { withCredentials: true })
+      .then(({ data }) => {
+        localStorage.setItem('accessToken', data.accessToken);
+        return data.accessToken;
+      })
+      .finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
 // Auto-refresh on 401
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    const hadAuth = Boolean(original?.headers?.Authorization);
+    const isAuthRoute = original?.url?.includes('/auth/login') || original?.url?.includes('/auth/refresh');
+
+    if (
+      error.response?.status === 401
+      && !original._retry
+      && hadAuth
+      && !isAuthRoute
+    ) {
       original._retry = true;
       try {
-        const { data } = await axios.post(`${API_BASE}/auth/refresh`, {}, { withCredentials: true });
-        localStorage.setItem('accessToken', data.accessToken);
-        original.headers.Authorization = `Bearer ${data.accessToken}`;
+        const accessToken = await refreshAccessToken();
+        original.headers.Authorization = `Bearer ${accessToken}`;
         return api(original);
       } catch (refreshError) {
         // Only force a logout when the server actually rejected the refresh
@@ -35,7 +58,9 @@ api.interceptors.response.use(
         // has no `.response` at all and shouldn't wipe a valid session.
         if (refreshError.response?.status === 401 || refreshError.response?.status === 403) {
           localStorage.removeItem('accessToken');
-          window.location.href = '/login';
+          if (!window.location.pathname.startsWith('/login')) {
+            window.location.href = '/login';
+          }
         }
       }
     }

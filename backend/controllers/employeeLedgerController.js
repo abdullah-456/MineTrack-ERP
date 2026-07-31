@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { assertCashAvailable, debitBankAccount, creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
+const { resolveListDateRange, sliceHistoryToRange, openingBalanceRow } = require('../utils/fiscalYear');
 
 function currentMonthStr() {
   return new Date().toISOString().slice(0, 7);
@@ -450,8 +451,10 @@ exports.getLedger = async (req, res) => {
       advance_cleared: 1,
       advance_given: -1, loan_given: -1, payment_made: -1, deduction: -1,
     };
+    // Replayed in full, then narrowed to the fiscal year in view so the year
+    // opens with the balance carried forward instead of from zero.
     let running = 0;
-    const history = txns.map(t => {
+    const fullHistory = txns.map(t => {
       const delta = (signFor[t.type] || 0) * parseFloat(t.amount || 0);
       running = Math.round((running + delta) * 100) / 100;
       return {
@@ -466,7 +469,12 @@ exports.getLedger = async (req, res) => {
         created_by: t.CreatedBy?.name || null,
         running_balance: running,
       };
-    }).reverse();
+    });
+
+    const range = await resolveListDateRange(req, shopId);
+    const { opening, rows } = sliceHistoryToRange(fullHistory, range);
+    const openingRow = openingBalanceRow(opening, range.from);
+    const history = [...(openingRow ? [openingRow] : []), ...rows].reverse();
 
     const totalSalaryAccrued = txns.filter(t => t.type === 'salary_due').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
     const totalPaid = txns.filter(t => t.type === 'payment_made').reduce((s, t) => s + parseFloat(t.amount || 0), 0);

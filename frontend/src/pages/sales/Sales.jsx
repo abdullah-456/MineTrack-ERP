@@ -14,12 +14,17 @@ import { BankAccountPicker, CashAccountPicker } from '../../components/ui/Paymen
 import LocationPicker from '../../components/ui/LocationPicker';
 import { defaultLocation, stockForProductAtLocation, filterRowsByLocation } from '../../utils/locationUtils';
 import api from '../../api/axios';
+import { useFiscalYear } from '../../context/FiscalYearContext';
+import { useFiscalYearGuard } from '../../hooks/useFiscalYearGuard';
 
 
 export default function Sales() {
   const { t, lang } = useTheme();
   const { success, error } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { listParams } = useFiscalYear();
+  const { canWrite, readOnlyLabel } = useFiscalYearGuard();
+  const { defaultEntryDate } = useFiscalYear();
   const isRTL = lang === 'ur';
   const { isHighlighted } = useHighlightRow();
 
@@ -52,7 +57,7 @@ export default function Sales() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { ...shopParams(), search };
+      const params = { ...shopParams(), ...listParams, search };
       const [sRes, pRes, cRes, eRes] = await Promise.all([
         api.get('/sales', { params }),
         api.get('/products', { params: shopParams() }),
@@ -68,7 +73,7 @@ export default function Sales() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, search, error, t]);
+  }, [shopParams, listParams, search, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -313,7 +318,7 @@ export default function Sales() {
         icon={TrendingUp}
         accent="rose"
         title={t('sales')}
-        subtitle={t('salesSub')}
+        subtitle={readOnlyLabel || t('salesSub')}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <ReportActions
@@ -324,16 +329,18 @@ export default function Sales() {
               filters={activeFilterList(reportFilters, reportSelects)}
               filename="sales-report.pdf"
             />
+            {canWrite && (
             <button
               type="button"
               onClick={() => {
-                setForm({ customer_id: '', ...defaultLocation(branches), employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_amount: '', payment_method: 'cash', bank_account_id: null, board_member_id: null, description: '' });
+                setForm({ customer_id: '', ...defaultLocation(branches), employee_id: '', sale_type: 'cash', items: [{ product_id: '', quantity: 1, unit_price: '' }], discount: '0', tax: '0', payment_amount: '', payment_method: 'cash', bank_account_id: null, board_member_id: null, description: '', sale_date: defaultEntryDate || '' });
                 setModal('create');
               }}
               className="btn-primary flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />{t('newSale')}
             </button>
+            )}
           </div>
         }
       />
@@ -550,13 +557,19 @@ export default function Sales() {
                 </div>
               )}
               <div>
-                <FormLabel>{t('saleDate') || 'Sale Date & Time (Optional)'}</FormLabel>
+                {/* A plain date: sales.sale_date is a DATE column, so any time
+                    component was always discarded — the old datetime-local input
+                    implied a precision the books never kept. */}
+                <FormLabel>{t('saleDate') || 'Sale Date'}</FormLabel>
                 <input
-                  type="datetime-local"
+                  type="date"
                   className="input"
                   value={form.sale_date || ''}
                   onChange={e => setForm(f => ({ ...f, sale_date: e.target.value }))}
                 />
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                  {t('saleDateHint') || 'Set this to record a sale that happened earlier.'}
+                </p>
               </div>
             </div>
 

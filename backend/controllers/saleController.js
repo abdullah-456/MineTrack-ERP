@@ -3,6 +3,8 @@ const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
 const { creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
+const { resolveListDateRange, applyDateRangeToWhere, handleFiscalYearError } = require('../utils/fiscalYear');
+const { parseTransactionDate } = require('../utils/transactionDate');
 
 const round2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
 
@@ -59,6 +61,9 @@ exports.list = async (req, res) => {
     } else if (req.query.branch_id) {
       where.branch_id = req.query.branch_id;
     }
+
+    const range = await resolveListDateRange(req, shopId);
+    applyDateRangeToWhere(where, 'sale_date', range);
 
     // Build includes — when searching, filter via Product name (require match)
     const searchTerm = req.query.search ? `%${req.query.search}%` : null;
@@ -154,8 +159,18 @@ exports.create = async (req, res) => {
 
     const {
       customer_id, branch_id, employee_id, sale_type, items, discount, tax, payment_method, payment_amount,
-      installment_plan, description, bank_account_id, board_member_id,
+      installment_plan, description, bank_account_id, board_member_id, sale_date,
     } = req.body;
+
+    // The date the sale actually happened. Resolved once, up front, and used for
+    // the sale row, every customer/BOD ledger row, the payment record and the
+    // voucher — so all five agree and the entry lands in the right fiscal year.
+    //
+    // sale_date used to be dropped on the floor here and hardcoded to new Date()
+    // below, which is why a sale entered with a March date still showed up in the
+    // current ledger stamped today. Resolving it before any work means an invalid
+    // or future date is rejected before stock or balances are touched.
+    const saleDate = parseTransactionDate(sale_date, 'sale date');
 
     // Credit sales require a registered customer
     if (sale_type === 'credit' && !customer_id) {
@@ -289,7 +304,7 @@ exports.create = async (req, res) => {
       employee_id: employee_id ? parseInt(employee_id, 10) : null,
       branch_id: targetBranchId,
       cashier_id: req.user.id,
-      sale_date: new Date(),
+      sale_date: saleDate,
       sale_type: sale_type || 'cash',
       subtotal,
       discount: saleDiscount,
@@ -369,7 +384,8 @@ exports.create = async (req, res) => {
       sale_id: sale.id,
       amount: payAmount,
       payment_method: isBodPay ? (bodMethod === 'bod_bank' ? 'bank' : 'cash') : finalPaymentMethod,
-      payment_date: new Date(),
+      // Money changed hands when the sale happened, not when it was keyed in.
+      payment_date: saleDate,
       bank_account_id: bankAcc?.id || null,
     }, { transaction });
 
@@ -513,7 +529,12 @@ exports.create = async (req, res) => {
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
     console.error('createSale error:', error);
-    return res.status(500).json({ message: error.message || 'Internal server error' });
+    // A sale dated into a closed (or uncovered) fiscal year is the user's to
+    // fix, not a server fault. Without this it surfaced as a 500 and the
+    // FISCAL_YEAR_CLOSED code the client keys off was lost.
+    const handled = handleFiscalYearError(res, error);
+    if (handled) return handled;
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 };
 

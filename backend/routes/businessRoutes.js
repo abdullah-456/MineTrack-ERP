@@ -28,6 +28,7 @@ const gatePassController = require('../controllers/gatePassController');
 const godownController = require('../controllers/godownController');
 const purchaseOrderController = require('../controllers/purchaseOrderController');
 const goodsReceiptController = require('../controllers/goodsReceiptController');
+const fiscalYearController = require('../controllers/fiscalYearController');
 const auditLog = require('../middleware/auditLog');
 
 router.use(authenticate);
@@ -156,6 +157,12 @@ router.get(   '/accounting/general-ledger/filter-options', authorize('accounting
 router.get(   '/accounting/general-ledger',        authorize('accounting', 'read'),   generalLedgerController.listEntries);
 router.get(   '/accounting/vouchers/:id',          authorize('accounting', 'read'),   generalLedgerController.getVoucher);
 router.post(  '/accounting/journal-entries',       authorize('accounting', 'create'), generalLedgerController.createJournalEntry);
+
+// Fiscal Years
+router.get(   '/fiscal-years',                      authorize('accounting', 'read'), fiscalYearController.list);
+router.get(   '/fiscal-years/current',              authorize('accounting', 'read'), fiscalYearController.current);
+router.get(   '/fiscal-years/:id/pre-close-checklist', authorize('accounting', 'read'), fiscalYearController.preCloseChecklist);
+router.post(  '/fiscal-years/:id/close',            authorize('accounting', 'fiscal_year.close'), fiscalYearController.close);
 
 // Financial Reports (derived from General Ledger)
 router.get(   '/reports/trial-balance',    authorize('reports', 'read'), financialReportsController.trialBalance);

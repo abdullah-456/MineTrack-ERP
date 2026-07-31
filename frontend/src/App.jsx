@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -6,6 +7,8 @@ import { ToastProvider } from './context/ToastContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import SidebarLayout from './layouts/SidebarLayout';
 import ShopSetupModal from './components/modals/ShopSetupModal';
+import YearEndCloseModal from './components/modals/YearEndCloseModal';
+import { FiscalYearProvider, useFiscalYear } from './context/FiscalYearContext';
 import LoginPage from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import ComingSoon from './pages/ComingSoon';
@@ -65,6 +68,7 @@ import GatePasses        from './pages/gatepasses/GatePasses';
 import GatePassPrintPage  from './pages/gatepasses/GatePassPrintPage';
 import PurchaseOrders    from './pages/purchases/PurchaseOrders';
 import PurchaseOrderPrintPage from './pages/purchases/PurchaseOrderPrintPage';
+import FiscalYears from './pages/admin/FiscalYears';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -79,19 +83,39 @@ function RootRedirect() {
   return <Navigate to="/dashboard" replace />;
 }
 
-// Global modal overlay — renders financial setup / cash check-in over the whole app
+// Global modal overlay — renders financial setup / year-end close over the whole app
 function GlobalModals() {
   const { setupModal, onSetupComplete, closeFinancialSetup, user } = useAuth();
-  if (!setupModal.open) return null;
+  const fy = useFiscalYear();
+  const [yearEndOpen, setYearEndOpen] = useState(false);
+
+  useEffect(() => {
+    if (!user || user.role === 'super_admin') {
+      setYearEndOpen(false);
+      return;
+    }
+    if (setupModal.open) {
+      setYearEndOpen(false);
+      return;
+    }
+    const shouldShow = fy.yearEndPrompt && fy.canClose && !fy.isCloseDismissed();
+    setYearEndOpen(shouldShow);
+  }, [user, setupModal.open, fy.yearEndPrompt, fy.canClose, fy.isCloseDismissed]);
+
   return (
-    <ShopSetupModal
-      shopName={user?.shop_name || 'Your Shop'}
-      onComplete={onSetupComplete}
-      onClose={setupModal.dismissible ? closeFinancialSetup : undefined}
-      initialStep={setupModal.initialStep}
-      focusMode={setupModal.focusMode}
-      dismissible={setupModal.dismissible}
-    />
+    <>
+      {setupModal.open && (
+        <ShopSetupModal
+          shopName={user?.shop_name || 'Your Shop'}
+          onComplete={onSetupComplete}
+          onClose={setupModal.dismissible ? closeFinancialSetup : undefined}
+          initialStep={setupModal.initialStep}
+          focusMode={setupModal.focusMode}
+          dismissible={setupModal.dismissible}
+        />
+      )}
+      <YearEndCloseModal open={yearEndOpen} onClose={() => setYearEndOpen(false)} />
+    </>
   );
 }
 
@@ -101,6 +125,7 @@ function App() {
     <ToastProvider>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <FiscalYearProvider>
           <BrowserRouter>
             <GlobalModals />
             <Routes>
@@ -151,6 +176,8 @@ function App() {
                 element={<ProtectedRoute module="users" action="read"><DeletionRequests /></ProtectedRoute>} />
               <Route path="/admin/company-profile"
                 element={<ProtectedRoute module="users" action="update"><CompanyProfile /></ProtectedRoute>} />
+              <Route path="/admin/fiscal-years"
+                element={<ProtectedRoute module="accounting" action="read"><FiscalYears /></ProtectedRoute>} />
 
               {/* Sales */}
               <Route path="/sales"
@@ -257,6 +284,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
+        </FiscalYearProvider>
       </AuthProvider>
     </QueryClientProvider>
     </ToastProvider>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { FileBarChart2, Loader2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
@@ -7,6 +8,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
+import { useFiscalYear } from '../../context/FiscalYearContext';
 
 const TYPE_COLORS = {
   asset: 'text-blue-400', liability: 'text-red-400', equity: 'text-violet-400',
@@ -17,11 +19,33 @@ export default function TrialBalance() {
   const { t, lang } = useTheme();
   const { error } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { reportDates, fiscalYears, setViewFY } = useFiscalYear();
+  const [searchParams] = useSearchParams();
 
   const [rows, setRows] = useState([]);
   const [totals, setTotals] = useState({ total_debit: 0, total_credit: 0, is_balanced: true });
   const [loading, setLoading] = useState(true);
-  const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
+  const [asOf, setAsOf] = useState(reportDates.asOf);
+
+  // The Fiscal Years admin page links here with ?fiscal_year_id=X. That param
+  // used to be read by nothing — the page just showed whatever year the top-bar
+  // dropdown happened to be on, so opening this link only worked if you'd also
+  // switched the dropdown by hand. Applying it to the SAME shared viewFY state
+  // the dropdown uses keeps one source of truth and makes the dropdown reflect
+  // the link's year too, rather than adding a second, independent date path.
+  useEffect(() => {
+    const fyId = searchParams.get('fiscal_year_id');
+    if (!fyId || !fiscalYears.length) return;
+    const target = fiscalYears.find(fy => String(fy.id) === fyId);
+    if (target) setViewFY(target);
+  }, [searchParams, fiscalYears, setViewFY]);
+
+  // Follow the fiscal year picked in the top bar. reportDates states the rule
+  // once for every report: a past year reports as at its own year end, the
+  // current one as at today. The input stays editable.
+  useEffect(() => {
+    if (reportDates.asOf) setAsOf(reportDates.asOf);
+  }, [reportDates.asOf]);
 
   const [branchId, setBranchId] = useState('');
 

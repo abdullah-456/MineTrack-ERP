@@ -4,6 +4,7 @@ const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { createAccount, getOrCreateDirectorsParent } = require('../utils/chartOfAccounts');
 const { assertCnicAvailable } = require('../utils/cnic');
+const { parseTransactionDate } = require('../utils/transactionDate');
 const { ensureBodAccounts, composeWalletName } = require('../utils/bodAccounts');
 
 exports.list = async (req, res) => {
@@ -57,8 +58,12 @@ exports.create = async (req, res) => {
   const {
     name, phone, cnic, address,
     investment_amount, current_cash_amount, current_bank_amount,
-    current_cash_name, current_bank_name,
+    current_cash_name, current_bank_name, opening_date,
   } = req.body;
+
+  // Opening balances belong to the day the director actually put money in, which
+  // for a migrated business is before the software existed.
+  const openingDate = parseTransactionDate(opening_date, 'opening date');
   if (!name?.trim()) return res.status(400).json({ message: 'Name is required' });
 
   const invAmt = Math.round((parseFloat(investment_amount) || 0) * 100) / 100;
@@ -114,7 +119,7 @@ exports.create = async (req, res) => {
       await db.BoardMemberTransaction.create({
         shop_id: shopId,
         board_member_id: member.id,
-        date: new Date(),
+        date: openingDate,
         type: 'opening_balance',
         amount: invAmt,
         method: null,
@@ -129,7 +134,7 @@ exports.create = async (req, res) => {
       await db.BoardMemberTransaction.create({
         shop_id: shopId,
         board_member_id: member.id,
-        date: new Date(),
+        date: openingDate,
         type: 'personal_deposit',
         amount: curCash,
         method: 'cash',
@@ -143,7 +148,7 @@ exports.create = async (req, res) => {
       await db.BoardMemberTransaction.create({
         shop_id: shopId,
         board_member_id: member.id,
-        date: new Date(),
+        date: openingDate,
         type: 'personal_deposit',
         amount: curBank,
         method: 'bank',

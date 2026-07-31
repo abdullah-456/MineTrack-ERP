@@ -3,6 +3,7 @@ import { Ticket, Plus, Search, Eye, Printer, Trash2, Loader2, Truck, User, Calen
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatQty } from '../../hooks/useShopApi';
+import { useFiscalYear } from '../../context/FiscalYearContext';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
@@ -11,6 +12,7 @@ import ReportFilters, { filterByDate, activeFilterList } from '../../components/
 import LocationPicker from '../../components/ui/LocationPicker';
 import { defaultLocation, filterRowsByLocation } from '../../utils/locationUtils';
 import api from '../../api/axios';
+import { useFiscalYearGuard } from '../../hooks/useFiscalYearGuard';
 
 const dispatchTypeBadgeColor = {
   sale_dispatch: 'badge-green',
@@ -24,6 +26,8 @@ export default function GatePasses() {
   const { t, lang } = useTheme();
   const { success, error } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { listParams } = useFiscalYear();
+  const { canWrite } = useFiscalYearGuard();
   const isRTL = lang === 'ur';
 
   const [gatePasses, setGatePasses] = useState([]);
@@ -63,7 +67,7 @@ export default function GatePasses() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { ...shopParams(), search };
+      const params = { ...shopParams(), ...listParams, search };
       const [gpRes, pRes, cRes] = await Promise.all([
         api.get('/gatepasses', { params }),
         api.get('/products', { params: shopParams() }),
@@ -77,7 +81,7 @@ export default function GatePasses() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, search, error, t]);
+  }, [shopParams, listParams, search, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -246,6 +250,7 @@ export default function GatePasses() {
               filters={activeFilterList(reportFilters, reportSelects)}
               filename="gatepasses-report.pdf"
             />
+            {canWrite && (
             <button
               type="button"
               onClick={() => {
@@ -268,6 +273,7 @@ export default function GatePasses() {
             >
               <Plus className="w-4 h-4" />{t('createGatepass') || 'Create Gatepass'}
             </button>
+            )}
           </div>
         }
       />

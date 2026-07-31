@@ -35,6 +35,7 @@ export function AuthProvider({ children }) {
       // transient network error or a dev-server restart has no `.response`
       // and shouldn't log a still-valid session out.
       if (err.response?.status === 401 || err.response?.status === 403) {
+        localStorage.removeItem('accessToken');
         setUser(null);
         setPermissions([]);
       }

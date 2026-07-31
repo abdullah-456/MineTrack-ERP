@@ -2,6 +2,9 @@ const db = require('../models');
 const { requireShopId } = require('../utils/shopScope');
 const { creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
+const {
+  resolveListDateRange, applyDateRangeToWhere, sliceHistoryToRange, openingBalanceRow,
+} = require('../utils/fiscalYear');
 
 // Sign convention mirrors employeeLedgerController's signFor map: +1 increases
 // what the customer owes, -1 reduces it — matches Customer.current_balance's
@@ -125,8 +128,12 @@ exports.getLedger = async (req, res) => {
     const customer = await db.Customer.findOne({ where: { id: req.params.id, shop_id: shopId } });
     if (!customer) return res.status(404).json({ message: 'Customer not found' });
 
+    const range = await resolveListDateRange(req, shopId);
+
+    const saleWhere = { customer_id: customer.id, shop_id: shopId };
+    applyDateRangeToWhere(saleWhere, 'sale_date', range);
     const sales = await db.Sale.findAll({
-      where: { customer_id: customer.id, shop_id: shopId },
+      where: saleWhere,
       include: [
         { model: db.SaleItem, as: 'SaleItems', include: [{ model: db.Product, attributes: ['id', 'name', 'sku'] }] },
         { model: db.Branch, attributes: ['id', 'name'] },
@@ -141,8 +148,11 @@ exports.getLedger = async (req, res) => {
       order: [['date', 'ASC'], ['id', 'ASC']],
     });
 
+    // Replayed over the entity's whole history, then narrowed to the fiscal year
+    // being viewed — so the year opens with the balance carried forward rather
+    // than from zero. See sliceHistoryToRange for why the replay comes first.
     let running = 0;
-    const history = txns.map(t => {
+    const fullHistory = txns.map(t => {
       const delta = (SIGN_FOR[t.type] || 0) * parseFloat(t.amount || 0);
       running = Math.round((running + delta) * 100) / 100;
       return {
@@ -156,7 +166,11 @@ exports.getLedger = async (req, res) => {
         created_by: t.CreatedBy?.name || null,
         running_balance: running,
       };
-    }).reverse();
+    });
+
+    const { opening, rows } = sliceHistoryToRange(fullHistory, range);
+    const openingRow = openingBalanceRow(opening, range.from);
+    const history = [...(openingRow ? [openingRow] : []), ...rows].reverse();
 
     const totalCharged = txns
       .filter(t => t.type === 'sale_charge' || t.type === 'installment_charge')

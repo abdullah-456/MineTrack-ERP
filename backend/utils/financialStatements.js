@@ -49,6 +49,24 @@ async function aggregateGlByAccount(shopId, range = {}, options = {}) {
     where.voucher_id = { [Op.in]: branchVoucherIds };
   }
 
+  // Period reports exclude year-end closing vouchers. The closing entry is dated
+  // the last day of the year, so it sits INSIDE the period being reported — a
+  // P&L run for a closed year would net its own revenue and expenses to zero
+  // against it. Position reports (balance sheet, trial balance) must keep it,
+  // since that is what moves the year's result into Retained Earnings.
+  if (options.excludeVoucherTypes?.length) {
+    const excluded = await db.Voucher.findAll({
+      where: { shop_id: shopId, voucher_type: { [Op.in]: options.excludeVoucherTypes } },
+      attributes: ['id'],
+      raw: true,
+    });
+    if (excluded.length) {
+      where.voucher_id = where.voucher_id
+        ? { [Op.and]: [where.voucher_id, { [Op.notIn]: excluded.map(v => v.id) }] }
+        : { [Op.notIn]: excluded.map(v => v.id) };
+    }
+  }
+
   const rows = await db.GeneralLedger.findAll({
     where,
     attributes: [
@@ -442,7 +460,11 @@ function buildBalanceSheet(accounts, balanceMap) {
   }
 
   const unclosedEarnings = computeUnclosedEarnings(accounts, balanceMap);
-  if (Math.abs(unclosedEarnings) >= 0.005) {
+  const reAccount = accounts.find(a => a.account_code === '01-RE');
+  const reBal = reAccount ? balanceMap[reAccount.id] : null;
+  const reHasBalance = reBal && Math.abs(naturalAmount('equity', reBal.net)) >= 0.005;
+
+  if (!reHasBalance && Math.abs(unclosedEarnings) >= 0.005) {
     equity.push({
       account_code: '',
       account_name: 'Current Period Earnings',
@@ -472,6 +494,12 @@ module.exports = {
   dayBefore,
   aggregateGlByAccount,
   loadAccounts,
+  // Sign helpers, shared with services/fiscalYearClose.js so the year-end close
+  // reads a balance exactly the way the statements do. They were used there
+  // before being exported, which left them undefined and made every close throw.
+  naturalAmount,
+  periodIncome,
+  periodExpense,
   buildTrialBalance,
   buildProfitAndLoss,
   buildBalanceSheet,

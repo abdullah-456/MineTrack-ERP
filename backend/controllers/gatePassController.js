@@ -1,6 +1,7 @@
 const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
+const { resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
 
 const GatePass     = db.GatePass;
 const GatePassItem = db.GatePassItem;
@@ -48,7 +49,7 @@ exports.list = async (req, res) => {
     const shop_id = requireShopId(req, res);
     if (!shop_id) return;
 
-    const { branch_id, search, type, status, from, to, page = 1, limit = 50 } = req.query;
+    const { branch_id, search, type, status, page = 1, limit = 50 } = req.query;
 
     const where = { shop_id };
 
@@ -56,15 +57,10 @@ exports.list = async (req, res) => {
     if (type)      where.type      = type;
     if (status)    where.status    = status;
 
-    if (from || to) {
-      where.gate_pass_date = {};
-      if (from) where.gate_pass_date[Op.gte] = new Date(from);
-      if (to) {
-        const endDate = new Date(to);
-        endDate.setHours(23, 59, 59, 999);
-        where.gate_pass_date[Op.lte] = endDate;
-      }
-    }
+    // An explicit from/to still wins; otherwise this falls back to the fiscal
+    // year being viewed, so a new year opens with an empty list.
+    const range = await resolveListDateRange(req, shop_id);
+    applyDateRangeToWhere(where, 'gate_pass_date', range);
 
     if (search) {
       where[Op.or] = [

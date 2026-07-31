@@ -8,23 +8,27 @@ import { useHistoryModal } from '../../hooks/useHistoryModal';
  * Backdrop/X/Escape are ignored until the history hook arms (~400ms) so the
  * opening click cannot dismiss the modal in the same gesture.
  */
-export default function Modal({ title, onClose, children, wide = false, xl = false }) {
+export default function Modal({ title, onClose, children, wide = false, xl = false, open = true }) {
   const widthClass = xl ? 'max-w-6xl' : wide ? 'max-w-4xl' : 'max-w-xl';
-  const requestClose = useHistoryModal(onClose);
+  const requestClose = useHistoryModal(onClose, { enabled: open });
 
   useEffect(() => {
+    if (!open) return undefined;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
-  }, []);
+  }, [open]);
 
   useEffect(() => {
+    if (!open) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape') requestClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [requestClose]);
+  }, [open, requestClose]);
+
+  if (!open) return null;
 
   return createPortal(
     <div

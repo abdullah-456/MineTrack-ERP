@@ -2,6 +2,7 @@
 
 const db = require('../models');
 const { requireShopId } = require('../utils/shopScope');
+const { resolveListDateRange, sliceHistoryToRange, openingBalanceRow } = require('../utils/fiscalYear');
 const {
   personalDeposit,
   transferToCapital,
@@ -140,11 +141,13 @@ exports.getLedger = async (req, res) => {
       return true;
     });
 
+    // Replayed in full, then narrowed to the fiscal year in view. A director
+    // carries three separate positions, so all three are carried forward.
     let invRunning = 0;
     let cashRunning = 0;
     let bankRunning = 0;
 
-    const history = filtered.map(t => {
+    const fullHistory = filtered.map(t => {
       const amt = round2(t.amount);
       const type = t.type;
       let invDelta = 0;
@@ -201,7 +204,15 @@ exports.getLedger = async (req, res) => {
         running_current_bank: bankRunning,
         running_balance: invRunning, // legacy
       };
-    }).reverse();
+    });
+
+    const BOD_BALANCE_KEYS = [
+      'running_investment', 'running_current_cash', 'running_current_bank', 'running_balance',
+    ];
+    const range = await resolveListDateRange(req, shopId);
+    const { opening, rows } = sliceHistoryToRange(fullHistory, range, { balanceKeys: BOD_BALANCE_KEYS });
+    const openingRow = openingBalanceRow(opening, range.from, BOD_BALANCE_KEYS);
+    const history = [...(openingRow ? [openingRow] : []), ...rows].reverse();
 
     const totalContributed = txns
       .filter(t => t.type === 'contribution' || t.type === 'opening_balance')

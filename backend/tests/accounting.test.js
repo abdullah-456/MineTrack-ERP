@@ -128,9 +128,20 @@ describe('employee balances — one debt cannot appear in two buckets', () => {
 });
 
 describe('transaction dates', () => {
-  test('backdating is allowed', () => {
+  // A transaction date is a calendar day, not an instant — parseTransactionDate
+  // normalises to midday UTC on the day the user typed, so the same entry can't
+  // land on different days depending on the server's offset. See toBusinessDate.
+  test('backdating is allowed, preserving the calendar day', () => {
     const d = new Date(Date.now() - 30 * 24 * 3600 * 1000);
-    expect(parseTransactionDate(d.toISOString()).getTime()).toBe(d.getTime());
+    const parsed = parseTransactionDate(d.toISOString());
+    expect(parsed.toISOString().slice(0, 10)).toBe(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+    );
+  });
+
+  test('the normalised date is anchored at midday UTC, clear of any timezone', () => {
+    const parsed = parseTransactionDate('2026-03-15T02:00');
+    expect(parsed.toISOString()).toBe('2026-03-15T12:00:00.000Z');
   });
 
   test('future dates are rejected', () => {

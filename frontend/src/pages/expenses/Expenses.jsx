@@ -14,6 +14,8 @@ import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import ExpenseCategorySelect from '../../components/ui/ExpenseCategorySelect';
 import api from '../../api/axios';
 import { filterRowsByLocation } from '../../utils/locationUtils';
+import { useFiscalYear } from '../../context/FiscalYearContext';
+import { useFiscalYearGuard } from '../../hooks/useFiscalYearGuard';
 
 function toDatetimeLocal(d) {
   const dt = d ? new Date(d) : new Date();
@@ -32,6 +34,8 @@ export default function Expenses() {
   const { t, lang } = useTheme();
   const { success, error, confirm } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { listParams } = useFiscalYear();
+  const { canWrite, readOnlyLabel } = useFiscalYearGuard();
   const isRTL = lang === 'ur';
   const { isHighlighted } = useHighlightRow();
 
@@ -50,7 +54,7 @@ export default function Expenses() {
     setLoading(true);
     try {
       const [expRes, godRes] = await Promise.all([
-        api.get('/expenses', { params: { ...shopParams(), search } }),
+        api.get('/expenses', { params: { ...shopParams(), ...listParams, search } }),
         api.get('/godowns', { params: shopParams() }).catch(() => ({ data: { godowns: [] } })),
       ]);
       setExpenses(expRes.data.expenses || []);
@@ -60,7 +64,7 @@ export default function Expenses() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, search, error, t]);
+  }, [shopParams, listParams, search, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -168,7 +172,7 @@ export default function Expenses() {
         icon={Receipt}
         accent="rose"
         title={t('expenses')}
-        subtitle={t('expensesSub')}
+        subtitle={readOnlyLabel || t('expensesSub')}
         action={
           <div className="flex flex-wrap items-center gap-2">
             <ReportActions
@@ -179,9 +183,11 @@ export default function Expenses() {
               filters={activeFilterList(reportFilters, reportSelects)}
               filename="expenses-report.pdf"
             />
-            <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
-              <Plus className="w-4 h-4" />{t('addExpense')}
-            </button>
+            {canWrite && (
+              <button type="button" onClick={openCreate} className="btn-primary flex items-center gap-2">
+                <Plus className="w-4 h-4" />{t('addExpense')}
+              </button>
+            )}
           </div>
         }
       />
@@ -247,10 +253,12 @@ export default function Expenses() {
                   </td>
                   <td className="p-4 text-end font-semibold" style={{ color: 'var(--text-primary)' }}>{formatPKR(exp.amount, lang)}</td>
                   <td className="p-4">
-                    <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => openEdit(exp)} className="icon-btn"><Edit className="w-4 h-4" /></button>
-                      <button type="button" onClick={() => handleDelete(exp)} className="icon-btn text-red-400"><Trash2 className="w-4 h-4" /></button>
-                    </div>
+                    {canWrite ? (
+                      <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => openEdit(exp)} className="icon-btn"><Edit className="w-4 h-4" /></button>
+                        <button type="button" onClick={() => handleDelete(exp)} className="icon-btn text-red-400"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               ))}

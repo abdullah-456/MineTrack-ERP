@@ -19,11 +19,49 @@
 
 const MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000;
 
-function parseTransactionDate(value, fieldName = 'date') {
-  if (value === undefined || value === null || value === '') return new Date();
+// ── toBusinessDate ──────────────────────────────────────────────────────────
+// A transaction's date is a calendar day, not an instant. Which day a sale
+// belongs to is a business fact — it decides the fiscal year, the period a
+// report covers, and where the entry sorts in a ledger — and it must not depend
+// on the server's clock offset.
+//
+// The database runs UTC while shops run UTC+5, and the old code fed a raw
+// `datetime-local` string straight into `new Date()`. Anything entered between
+// midnight and 05:00 local therefore resolved to the PREVIOUS day once read back
+// in UTC, so a sale at 02:00 on 1 July was filed under the fiscal year that had
+// just ended.
+//
+// Fixed by taking the calendar day the user actually typed — from LOCAL
+// components — and anchoring it at midday UTC. Midday leaves a 12-hour margin on
+// both sides, so no timezone on earth can shift the day. The same trick is
+// already used by alignStartToJuly1 and nextFiscalYearStart in utils/fiscalYear.js.
+function toBusinessDate(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate(), 12));
+  }
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
+  const str = String(value ?? '').trim();
+  if (!str) return null;
+
+  // A plain YYYY-MM-DD is already a calendar day — never let Date() reinterpret
+  // it through a timezone.
+  const dateOnly = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, y, m, d] = dateOnly;
+    return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
+  }
+
+  const parsed = new Date(str);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate(), 12));
+}
+
+function parseTransactionDate(value, fieldName = 'date') {
+  if (value === undefined || value === null || value === '') return toBusinessDate(new Date());
+
+  const parsed = toBusinessDate(value);
+  if (!parsed) {
     const err = new Error(`${fieldName} is not a valid date`);
     err.statusCode = 400;
     throw err;
@@ -38,4 +76,4 @@ function parseTransactionDate(value, fieldName = 'date') {
   return parsed;
 }
 
-module.exports = { parseTransactionDate, MAX_FUTURE_SKEW_MS };
+module.exports = { parseTransactionDate, toBusinessDate, MAX_FUTURE_SKEW_MS };

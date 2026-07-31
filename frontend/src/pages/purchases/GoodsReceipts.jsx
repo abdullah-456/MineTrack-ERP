@@ -6,6 +6,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
+import { useFiscalYear } from '../../context/FiscalYearContext';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
@@ -13,6 +14,7 @@ import LocationPicker from '../../components/ui/LocationPicker';
 import { BankAccountPicker, CashAccountPicker } from '../../components/ui/PaymentAccountSelect';
 import { defaultLocation } from '../../utils/locationUtils';
 import api from '../../api/axios';
+import { useFiscalYearGuard } from '../../hooks/useFiscalYearGuard';
 
 const EMPTY_LINE = { product_id: '', quantity_received: 1, unit_cost: '' };
 
@@ -20,6 +22,8 @@ export default function GoodsReceipts() {
   const { t, lang } = useTheme();
   const { success, error, confirm } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { listParams } = useFiscalYear();
+  const { canWrite } = useFiscalYearGuard();
   const location = useLocation();
   const isRTL = lang === 'ur';
 
@@ -53,7 +57,7 @@ export default function GoodsReceipts() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { ...shopParams(), search, status: statusFilter !== 'all' ? statusFilter : undefined };
+      const params = { ...shopParams(), ...listParams, search, status: statusFilter !== 'all' ? statusFilter : undefined };
       const [grnRes, supRes, prodRes] = await Promise.all([
         api.get('/goods-receipts', { params }),
         api.get('/suppliers', { params: shopParams() }),
@@ -67,7 +71,7 @@ export default function GoodsReceipts() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, search, statusFilter, error, t]);
+  }, [shopParams, listParams, search, statusFilter, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -183,9 +187,11 @@ export default function GoodsReceipts() {
         action={
           <div className="flex gap-2">
             <button type="button" onClick={fetchData} className="icon-btn"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></button>
+            {canWrite && (
             <button type="button" onClick={() => { setForm({ supplier_id: '', ...defaultLocation(branches), receipt_date: new Date().toISOString().slice(0, 16), supplier_invoice_number: '', notes: '', items: [{ ...EMPTY_LINE }] }); setModal('create'); }} className="btn-primary flex items-center gap-2">
               <Plus className="w-4 h-4" />{t('newGRN') || 'New receipt'}
             </button>
+            )}
           </div>
         }
       />

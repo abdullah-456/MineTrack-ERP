@@ -7,6 +7,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
+import { useFiscalYear } from '../../context/FiscalYearContext';
 
 function SectionTable({ title, rows, totalLabel, totalAmount, lang, t }) {
   return (
@@ -45,6 +46,7 @@ export default function BalanceSheet() {
   const { t, lang } = useTheme();
   const { error } = useToast();
   const { shopParams, branches } = useShopApi();
+  const { reportDates } = useFiscalYear();
 
   const [assets, setAssets] = useState([]);
   const [liabilities, setLiabilities] = useState([]);
@@ -57,6 +59,12 @@ export default function BalanceSheet() {
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
 
   const [branchId, setBranchId] = useState('');
+  // Follow the fiscal year picked in the top bar. reportDates states the rule
+  // once for every report: a past year reports as at its own year end, the
+  // current one as at today. The input stays editable.
+  useEffect(() => {
+    if (reportDates.asOf) setAsOf(reportDates.asOf);
+  }, [reportDates.asOf]);
 
   const fetchReport = useCallback(async () => {
     setLoading(true);

@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { assertCashAvailable, debitBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
+const { resolveListDateRange, sliceHistoryToRange, openingBalanceRow } = require('../utils/fiscalYear');
 
 // ── POST /suppliers/:id/payments ─────────────────────────────────────────────
 // Standalone payment to a supplier (not tied to a specific stock receipt).
@@ -227,6 +228,8 @@ exports.getLedger = async (req, res) => {
     });
     if (!supplier) return res.status(404).json({ message: 'Supplier not found' });
 
+    const range = await resolveListDateRange(req, shopId);
+
     const productsLinked = (supplier.ProductSuppliers || []).map(ps => ({
       product_id: ps.product_id,
       product_name: ps.Product?.name,
@@ -265,8 +268,11 @@ exports.getLedger = async (req, res) => {
     // running_balance mirrors current_payable's actual clamp-at-zero/overflow-to-
     // credit behaviour (see recordPayment/receiveStock) rather than a naive
     // cumulative sum, so it lands on the same number current_payable holds today.
+    // Replayed in full before being narrowed to the fiscal year in view. The
+    // clamp below makes this path-dependent — the balance cannot be rebuilt from
+    // a subset of rows — which is exactly why the slice happens afterwards.
     let running = 0;
-    const history = txns.map(t => {
+    const fullHistory = txns.map(t => {
       if (t.type === 'payment_made') {
         const amt = parseFloat(t.paid_amount || 0);
         running = Math.round(Math.max(0, running - amt) * 100) / 100;
@@ -285,7 +291,11 @@ exports.getLedger = async (req, res) => {
         created_by: t.CreatedBy?.name || null,
         running_balance: running,
       };
-    }).reverse();
+    });
+
+    const { opening, rows } = sliceHistoryToRange(fullHistory, range);
+    const openingRow = openingBalanceRow(opening, range.from);
+    const history = [...(openingRow ? [openingRow] : []), ...rows].reverse();
 
     const totalPaid = txns.reduce((s, t) => s + parseFloat(t.paid_amount || 0), 0);
     const totalStockValue = txns

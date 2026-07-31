@@ -4,6 +4,8 @@ const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { applySupplierStockPayment } = require('../utils/supplierPayment');
 const { postVoucher } = require('../utils/postVoucher');
 const { debitBankAccount, debitCashPayment, paymentAccountCode } = require('../utils/cashHelpers');
+const { resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
+const { parseTransactionDate } = require('../utils/transactionDate');
 
 const stockIncludes = [
   {
@@ -338,8 +340,12 @@ exports.receiveStock = async (req, res) => {
 
     const {
       product_id, branch_id, quantity, supplier_id, purchase_price, notes,
-      payment_status, paid_amount, payment_method, bank_account_id,
+      payment_status, paid_amount, payment_method, bank_account_id, receipt_date,
     } = req.body;
+
+    // Stock received before the software was in use needs its real date, or
+    // migrated purchases all pile into the current fiscal year.
+    const receiptDate = parseTransactionDate(receipt_date, 'receipt date');
     if (!product_id || !branch_id || !quantity) {
       await transaction.rollback();
       return res.status(400).json({ message: 'product_id, branch_id and quantity are required' });
@@ -410,7 +416,7 @@ exports.receiveStock = async (req, res) => {
       });
       await link.update({
         last_purchase_price: unitCost,
-        last_purchase_date: new Date(),
+        last_purchase_date: receiptDate,
         purchase_price: unitCost,
       }, { transaction });
 
@@ -463,7 +469,7 @@ exports.receiveStock = async (req, res) => {
         await db.SupplierTransaction.create({
           shop_id: shopId,
           supplier_id: null,
-          date: new Date(),
+          date: receiptDate,
           type: 'stock_received',
           total_amount: stockValue,
           paid_amount: stockValue,
@@ -475,7 +481,7 @@ exports.receiveStock = async (req, res) => {
 
         await postVoucher(shopId, {
           type: 'payment',
-          date: new Date(),
+          date: receiptDate,
           narration: `Stock purchased (${method}) — ${finalNotes}`,
           createdBy: req.user.id,
           branchId: branch_id,
@@ -505,6 +511,11 @@ exports.movements = async (req, res) => {
     const where = {};
     if (req.query.product_id) where.product_id = req.query.product_id;
     if (req.query.branch_id) where.branch_id = req.query.branch_id;
+
+    // Stock movements carry no business date of their own, so the audit
+    // timestamp is what scopes them to the fiscal year being viewed.
+    const range = await resolveListDateRange(req, shopId);
+    applyDateRangeToWhere(where, 'created_at', range);
 
     const movements = await db.StockMovement.findAll({
       where,

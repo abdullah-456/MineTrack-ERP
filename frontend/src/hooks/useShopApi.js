@@ -8,7 +8,8 @@ export function useShopApi() {
   const [branches, setBranches] = useState([]);
 
   useEffect(() => {
-    if (user?.shop_id) {
+    if (!user) return;
+    if (user.shop_id) {
       setShopId(user.shop_id);
     } else if (isSuperAdmin()) {
       api.get('/branches/shops').then(({ data }) => {
@@ -16,7 +17,7 @@ export function useShopApi() {
         if (first) setShopId(first.id);
       }).catch(() => {});
     }
-  }, [user?.shop_id, isSuperAdmin]);
+  }, [user, isSuperAdmin]);
 
   const shopParams = useCallback(() => {
     if (isSuperAdmin() && shopId) return { shop_id: shopId };
@@ -24,6 +25,10 @@ export function useShopApi() {
   }, [isSuperAdmin, shopId]);
 
   const fetchBranches = useCallback(async () => {
+    if (!user) {
+      setBranches([]);
+      return;
+    }
     try {
       const params = shopParams();
       const { data } = await api.get('/branches', { params });
@@ -31,7 +36,7 @@ export function useShopApi() {
     } catch {
       setBranches([]);
     }
-  }, [shopParams]);
+  }, [shopParams, user]);
 
   useEffect(() => { fetchBranches(); }, [fetchBranches]);
 

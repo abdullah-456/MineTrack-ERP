@@ -5,6 +5,8 @@ const { postVoucher } = require('../utils/postVoucher');
 const { debitBankAccount, creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { computeReturnLineTotal, computeRefundUnitPrice } = require('../utils/saleRefundAmount');
+const { guardWritableDates, handleFiscalYearError, resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
+const { parseTransactionDate } = require('../utils/transactionDate');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sales Returns & Exchange
@@ -129,6 +131,9 @@ exports.list = async (req, res) => {
     if (req.query.status && req.query.status !== 'all') where.status = req.query.status;
     if (req.query.search) where.return_number = { [Op.iLike]: `%${req.query.search}%` };
 
+    const range = await resolveListDateRange(req, shopId);
+    applyDateRangeToWhere(where, 'return_date', range);
+
     const returns = await db.SaleReturn.findAll({
       where,
       include: returnIncludes,
@@ -179,8 +184,13 @@ exports.create = async (req, res) => {
 
     const {
       sale_id, return_type, reason, notes, refund_method,
-      items, exchange_items, settlement_payment_method, bank_account_id,
+      items, exchange_items, settlement_payment_method, bank_account_id, return_date,
     } = req.body;
+
+    // Resolved once and used for the return header and its voucher, so a return
+    // recorded after the fact carries the date it happened. Same bug as sales:
+    // this was hardcoded to new Date() and the caller's value ignored.
+    const returnDate = parseTransactionDate(return_date, 'return date');
 
     if (!sale_id || !['refund', 'exchange'].includes(return_type)) {
       await transaction.rollback();
@@ -312,7 +322,7 @@ exports.create = async (req, res) => {
             }, { transaction });
             if (creditApplied > 0) {
               await db.CustomerTransaction.create({
-                shop_id: shopId, customer_id: customer.id, date: new Date(),
+                shop_id: shopId, customer_id: customer.id, date: returnDate,
                 type: 'return_credit', amount: creditApplied, method: null,
                 related_sale_id: sale.id, notes: `Items returned by customer: ${returnedItemsSummary}`,
                 created_by: req.user.id,
@@ -418,7 +428,8 @@ exports.create = async (req, res) => {
         customer_id: sale.customer_id || null,
         branch_id: sale.branch_id,
         cashier_id: req.user.id,
-        sale_date: new Date(),
+        // The exchange happened on the same day as the return it belongs to.
+        sale_date: returnDate,
         sale_type: 'cash',
         subtotal: exSubtotal,
         discount: 0,
@@ -464,7 +475,7 @@ exports.create = async (req, res) => {
           sale_id: exchangeSale.id,
           amount: returnedValue,
           payment_method: 'store_credit',
-          payment_date: new Date(),
+          payment_date: returnDate,
         }, { transaction });
       }
       if (settlementAmount > 0) {
@@ -474,7 +485,7 @@ exports.create = async (req, res) => {
           sale_id: exchangeSale.id,
           amount: settlementAmount,
           payment_method: method,
-          payment_date: new Date(),
+          payment_date: returnDate,
         }, { transaction });
       }
     }
@@ -487,7 +498,7 @@ exports.create = async (req, res) => {
       customer_id: sale.customer_id || null,
       branch_id: sale.branch_id,
       return_number,
-      return_date: new Date(),
+      return_date: returnDate,
       return_type,
       returned_value: returnedValue,
       refund_amount: refundAmount,
@@ -677,6 +688,8 @@ exports.void = async (req, res) => {
         message: 'Exchange returns cannot be voided automatically because a new invoice was issued. Process an offsetting return on the exchange invoice instead.',
       });
     }
+
+    await guardWritableDates(shopId, ret.return_date, transaction);
 
     const { pending } = await requestOrAllowDelete({
       req, res, shopId, module: 'returns', entityId: ret.id, entityLabel: ret.return_number, transaction,

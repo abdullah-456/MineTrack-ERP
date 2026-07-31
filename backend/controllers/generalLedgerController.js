@@ -4,6 +4,7 @@ const { requireShopId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
 const { ENTITY_TYPES, resolveEntityVoucherIds, listFilterOptions } = require('../utils/ledgerEntityFilter');
 const { fundAccountIds } = require('../utils/cashHelpers');
+const { resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
 
 // In "All Accounts" view, sales post four GL lines (e.g. Cash, Sales, COGS, Stock).
 // Hide the internal COGS ↔ Stock pair so each transaction shows its two main accounts.
@@ -224,11 +225,11 @@ exports.listEntries = async (req, res) => {
     if (singleAccountId) {
       where.account_id = singleAccountId;
     }
-    if (req.query.from || req.query.to) {
-      where.entry_date = {};
-      if (req.query.from) where.entry_date[Op.gte] = new Date(req.query.from);
-      if (req.query.to) where.entry_date[Op.lte] = new Date(`${req.query.to}T23:59:59.999Z`);
-    }
+    // An explicit from/to still wins; otherwise the ledger shows the fiscal year
+    // being viewed, so a new year starts empty and picking a past year shows
+    // exactly that year's postings.
+    const range = await resolveListDateRange(req, shopId);
+    applyDateRangeToWhere(where, 'entry_date', range);
 
     const entityType = req.query.entity_type || null;
     const entityId = req.query.entity_id ? parseInt(req.query.entity_id, 10) : null;
