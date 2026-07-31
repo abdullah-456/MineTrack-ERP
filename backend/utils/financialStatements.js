@@ -459,12 +459,23 @@ function buildBalanceSheet(accounts, balanceMap) {
     }
   }
 
+  // The P&L accounts' cumulative (all-time) balance IS the unclosed remainder on
+  // its own: a year-end close posts a closing voucher that debits/credits those
+  // same account codes back to zero as of the close date, so whatever is left
+  // in them afterward is only what the NEXT, still-open period has earned.
+  // computeUnclosedEarnings needs no extra guard for "has this shop ever closed
+  // a year before" — it already nets correctly whether that answer is yes or no.
+  //
+  // A guard keyed on "does Retained Earnings have a balance" used to sit here,
+  // meant to stop a closed year's own balance sheet from double-plugging its
+  // already-zeroed earnings. It was wrong: once a shop closed its FIRST year
+  // ever, RE keeps a balance forever, so this suppressed the "Current Period
+  // Earnings" line for every later period too — not just the one that had
+  // actually been closed. A real balance sheet went unbalanced by exactly the
+  // new period's unclosed net income the first time a shop closed a year and
+  // then kept trading.
   const unclosedEarnings = computeUnclosedEarnings(accounts, balanceMap);
-  const reAccount = accounts.find(a => a.account_code === '01-RE');
-  const reBal = reAccount ? balanceMap[reAccount.id] : null;
-  const reHasBalance = reBal && Math.abs(naturalAmount('equity', reBal.net)) >= 0.005;
-
-  if (!reHasBalance && Math.abs(unclosedEarnings) >= 0.005) {
+  if (Math.abs(unclosedEarnings) >= 0.005) {
     equity.push({
       account_code: '',
       account_name: 'Current Period Earnings',

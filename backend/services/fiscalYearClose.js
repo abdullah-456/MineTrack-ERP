@@ -20,8 +20,12 @@ const {
 
 const RETAINED_EARNINGS = '01-RE';
 
-async function buildPreCloseChecklist(shopId, fiscalYearId) {
-  const fy = await db.FiscalYear.findOne({ where: { id: fiscalYearId, shop_id: shopId } });
+// `transaction` is optional — the controller's read-only preview calls this
+// with none, which is fine since it only ever sees committed data. closeFiscalYear
+// passes its own transaction through so the checklist sees exactly what that
+// close is about to act on, not a separate, possibly-stale read.
+async function buildPreCloseChecklist(shopId, fiscalYearId, transaction) {
+  const fy = await db.FiscalYear.findOne({ where: { id: fiscalYearId, shop_id: shopId }, transaction });
   if (!fy) {
     const err = new Error('Fiscal year not found');
     err.statusCode = 404;
@@ -34,6 +38,7 @@ async function buildPreCloseChecklist(shopId, fiscalYearId) {
 
   const draftVouchers = await db.Voucher.count({
     where: { shop_id: shopId, status: 'draft' },
+    transaction,
   });
 
   const warnings = [];
@@ -96,7 +101,7 @@ async function closeFiscalYear(shopId, fiscalYearId, userId, { transaction: inje
     throw err;
   }
 
-  const checklist = await buildPreCloseChecklist(shopId, fiscalYearId);
+  const checklist = await buildPreCloseChecklist(shopId, fiscalYearId, injected);
   if (!checklist.can_close) {
     const err = new Error(checklist.blocking_issues.join(' '));
     err.statusCode = 400;

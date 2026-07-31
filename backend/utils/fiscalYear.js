@@ -73,18 +73,52 @@ async function getShopFyConfig(shopId, transaction) {
 
 async function getCurrentFiscalYear(shopId, transaction) {
   const shop = await getShopFyConfig(shopId, transaction);
+  let pointer = null;
   if (shop.current_fiscal_year_id) {
-    const fy = await db.FiscalYear.findOne({
+    pointer = await db.FiscalYear.findOne({
       where: { id: shop.current_fiscal_year_id, shop_id: shopId },
       transaction,
     });
-    if (fy) return fy;
   }
-  return db.FiscalYear.findOne({
-    where: { shop_id: shopId, status: 'open' },
-    order: [['start_date', 'DESC']],
-    transaction,
-  });
+  if (!pointer) {
+    pointer = await db.FiscalYear.findOne({
+      where: { shop_id: shopId, status: 'open' },
+      order: [['start_date', 'DESC']],
+      transaction,
+    });
+  }
+  if (!pointer) return null;
+  return rollCurrentFiscalYearForward(shopId, pointer, transaction);
+}
+
+// ── rollCurrentFiscalYearForward ────────────────────────────────────────────
+// "Current" is supposed to track the calendar, not wait for the first
+// transaction of a new year to notice one has begun. Nothing except closing a
+// year ever advances shop.current_fiscal_year_id — not even posting into a
+// freshly auto-opened year via ensureFiscalYearCoveringDate — so without this a
+// shop that hasn't closed its last year would keep showing that year as
+// "current" indefinitely, whether or not anything had been posted since it
+// ended. Every read of "current" (the dropdown, the year-end prompt, every
+// report/list default) goes through getCurrentFiscalYear, so fixing it here
+// fixes all of them at once.
+//
+// Only ever moves FORWARD: a backdated entry opening an older year, or a race
+// with another request, must never make "current" regress.
+async function rollCurrentFiscalYearForward(shopId, pointer, transaction) {
+  const today = toDateOnly(new Date());
+  if (today <= pointer.end_date) return pointer;
+
+  const covering = await ensureFiscalYearCoveringDate(shopId, today, transaction);
+  if (covering.start_date <= pointer.start_date) return pointer;
+
+  // The old year is left exactly as it was — still 'open', still able to
+  // accept the rest of its own entries. Closing it stays a separate, explicit,
+  // permission-gated action; this only changes what counts as "current".
+  await db.Shop.update(
+    { current_fiscal_year_id: covering.id },
+    { where: { id: shopId }, transaction },
+  );
+  return covering;
 }
 
 async function getFiscalYearForDate(shopId, date, transaction) {

@@ -17,8 +17,11 @@ const {
   assertWritableDate,
   computeEndDate,
   nextFiscalYearStart,
+  previousFiscalYearStart,
   alignStartToJuly1,
   fiscalYearLabelFromStart,
+  getCurrentFiscalYear,
+  toDateOnly,
 } = require('../utils/fiscalYear');
 const { closeFiscalYear } = require('../services/fiscalYearClose');
 const { loadAccounts, aggregateGlByAccount, buildBalanceSheet, buildProfitAndLoss } = require('../utils/financialStatements');
@@ -151,6 +154,29 @@ async function shopWithOverdueYear(transaction) {
   return user ? { fy, shopId: fy.shop_id, userId: user.id } : null;
 }
 
+// A fiscal year built inside the test's own transaction, dated nowhere near any
+// real business data, for tests whose assertion is purely structural (does
+// closing produce a fresh open successor?) rather than about real numbers.
+//
+// shopWithOverdueYear above picks whatever real shop happens to have the
+// earliest overdue year in the live database — right for the accounting-math
+// tests, which want genuine balances to check. But once a shop has real,
+// multi-year history, its "next" year after some overdue one may already exist
+// and already be closed (a real admin closed it for real), which is a
+// perfectly valid state that just isn't what "leaves it open" is testing.
+async function makeSyntheticOverdueYear(transaction) {
+  const user = await db.User.findOne({ attributes: ['id', 'shop_id'], raw: true, transaction });
+  if (!user) return null;
+  const fy = await db.FiscalYear.create({
+    shop_id: user.shop_id,
+    label: 'FY 1901-02 (test fixture)',
+    start_date: '1901-07-01',
+    end_date: '1902-06-30',
+    status: 'open',
+  }, { transaction });
+  return { fy, shopId: user.shop_id, userId: user.id };
+}
+
 describe('year-end close', () => {
   maybe('leaves capital, cash and bank untouched', async () => {
     const t = await db.sequelize.transaction();
@@ -187,9 +213,9 @@ describe('year-end close', () => {
   maybe('opens the following year and leaves it open', async () => {
     const t = await db.sequelize.transaction();
     try {
-      const target = await shopWithOverdueYear(t);
+      const target = await makeSyntheticOverdueYear(t);
       if (!target) {
-        console.warn('  skipped: no shop with a closable year');
+        console.warn('  skipped: no shop to attach a fixture year to');
         return;
       }
       const { shopId, fy, userId } = target;
@@ -300,6 +326,102 @@ describe('posting dates', () => {
 
       const midYear = fy.start_date;
       await expect(assertWritableDate(shopId, midYear, t)).rejects.toThrow(/closed/i);
+    } finally {
+      await t.rollback();
+    }
+  });
+});
+
+// ── "current" tracks the calendar, not the last transaction ────────────────
+//
+// Nothing except closing a year used to advance shop.current_fiscal_year_id —
+// not even posting into a freshly auto-opened year. So a shop that hadn't
+// closed its old year kept showing that year as "current" indefinitely,
+// whether or not anything had been posted since it ended. These tests use a
+// throwaway synthetic shop (just a name — the Shop model needs nothing else)
+// so "does a brand new year get created" can be asserted precisely, without
+// depending on whether the live database happens to already have one.
+async function makeIsolatedShop(transaction) {
+  return db.Shop.create({ name: `__fy_test_shop_${Date.now()}`, setup_completed: true }, { transaction });
+}
+
+describe('current fiscal year tracks the calendar', () => {
+  maybe('rolls forward and creates the new year on its own, with zero transactions posted', async () => {
+    const t = await db.sequelize.transaction();
+    try {
+      const shop = await makeIsolatedShop(t);
+      const yesterday = toDateOnly(new Date(Date.now() - 24 * 3600 * 1000));
+      const ended = await db.FiscalYear.create({
+        shop_id: shop.id,
+        label: 'FY ended (fixture)',
+        start_date: '2000-07-01',
+        end_date: yesterday,
+        status: 'open',
+      }, { transaction: t });
+      await shop.update({ current_fiscal_year_id: ended.id }, { transaction: t });
+
+      const before = await db.FiscalYear.count({ where: { shop_id: shop.id }, transaction: t });
+      const current = await getCurrentFiscalYear(shop.id, t);
+      const after = await db.FiscalYear.count({ where: { shop_id: shop.id }, transaction: t });
+
+      expect(after).toBe(before + 1);
+      expect(current.id).not.toBe(ended.id);
+      const today = toDateOnly(new Date());
+      expect(current.start_date <= today && current.end_date >= today).toBe(true);
+
+      // The reads that drive the dropdown, the year-end prompt, and every
+      // report/list default all go through this same column.
+      await shop.reload({ transaction: t });
+      expect(shop.current_fiscal_year_id).toBe(current.id);
+
+      // The old year is left exactly as it was — still open, not silently
+      // closed. Closing stays a separate, explicit action.
+      await ended.reload({ transaction: t });
+      expect(ended.status).toBe('open');
+    } finally {
+      await t.rollback();
+    }
+  });
+
+  maybe('is idempotent — asking twice does not create a second new year', async () => {
+    const t = await db.sequelize.transaction();
+    try {
+      const shop = await makeIsolatedShop(t);
+      const yesterday = toDateOnly(new Date(Date.now() - 24 * 3600 * 1000));
+      const ended = await db.FiscalYear.create({
+        shop_id: shop.id,
+        label: 'FY ended (fixture)',
+        start_date: '2000-07-01',
+        end_date: yesterday,
+        status: 'open',
+      }, { transaction: t });
+      await shop.update({ current_fiscal_year_id: ended.id }, { transaction: t });
+
+      const first = await getCurrentFiscalYear(shop.id, t);
+      const countAfterFirst = await db.FiscalYear.count({ where: { shop_id: shop.id }, transaction: t });
+      const second = await getCurrentFiscalYear(shop.id, t);
+      const countAfterSecond = await db.FiscalYear.count({ where: { shop_id: shop.id }, transaction: t });
+
+      expect(second.id).toBe(first.id);
+      expect(countAfterSecond).toBe(countAfterFirst);
+    } finally {
+      await t.rollback();
+    }
+  });
+
+  maybe('never regresses "current" to an older year', async () => {
+    const t = await db.sequelize.transaction();
+    try {
+      const fy = await db.FiscalYear.findOne({ order: [['start_date', 'DESC']], transaction: t });
+      if (!fy) {
+        console.warn('  skipped: no fiscal years');
+        return;
+      }
+      const before = await getCurrentFiscalYear(fy.shop_id, t);
+      // Opening an EARLIER (backdated) year must not change what "current" is.
+      await ensureFiscalYearCoveringDate(fy.shop_id, previousFiscalYearStart(fy.start_date), t);
+      const after = await getCurrentFiscalYear(fy.shop_id, t);
+      expect(after.id).toBe(before.id);
     } finally {
       await t.rollback();
     }
