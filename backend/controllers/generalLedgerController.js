@@ -3,6 +3,7 @@ const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
 const { ENTITY_TYPES, resolveEntityVoucherIds, listFilterOptions } = require('../utils/ledgerEntityFilter');
+const { fundAccountIds } = require('../utils/cashHelpers');
 
 // In "All Accounts" view, sales post four GL lines (e.g. Cash, Sales, COGS, Stock).
 // Hide the internal COGS ↔ Stock pair so each transaction shows its two main accounts.
@@ -49,6 +50,75 @@ async function internalPairAccountIds(shopId) {
     stockId: byCode['05-STOCK'],
     voucherIds: paired.map(r => r.voucher_id),
   };
+}
+
+// ── Capital (cash + bank) timeline ───────────────────────────────────────────
+// In the All-Accounts view every row belongs to a different account, so a
+// per-account running balance means nothing there — which is why the column sat
+// empty. What IS meaningful across mixed accounts is the business's own liquid
+// capital: after each posted transaction, how much money is in hand and in the
+// banks combined. That figure is shown once per voucher (on its closing row), so
+// a two-line entry reads as one movement rather than two half-answers.
+//
+// The fund accounts come from cashHelpers.fundAccountIds — the single definition
+// of what counts as cash and bank — so this column and the dashboard pills
+// cannot drift apart. Both count ACTIVE accounts only, so the newest figure here
+// equals Cash + Bank on the dashboard.
+//
+// A consequence worth knowing: deactivating an account removes its money from
+// this column for every row, including historical ones. The column answers "what
+// is my working capital", not "what did the books say that day" — the balance
+// sheet, which counts closed accounts too, is the record for the latter.
+//
+// Cumulative cash + bank balance after every voucher that moved money, oldest
+// first. Vouchers that moved none aren't listed here — capitalAsOf() carries the
+// last known figure forward so a credit sale still shows what the till holds.
+async function capitalTimeline(shopId) {
+  const accountIds = await fundAccountIds(shopId, { activeOnly: true });
+  if (!accountIds.length) return [];
+
+  const moves = await db.GeneralLedger.findAll({
+    where: { shop_id: shopId, account_id: { [Op.in]: accountIds } },
+    attributes: [
+      'voucher_id',
+      [db.sequelize.fn('MIN', db.sequelize.col('entry_date')), 'entry_date'],
+      [db.sequelize.fn('SUM', db.sequelize.literal('debit - credit')), 'delta'],
+    ],
+    group: ['voucher_id'],
+    raw: true,
+  });
+
+  // Ordered the same way the ledger is displayed (reversed), so the balance on a
+  // row always accounts for exactly the vouchers at or below it on screen.
+  moves.sort((a, b) => {
+    const byDate = new Date(a.entry_date) - new Date(b.entry_date);
+    return byDate !== 0 ? byDate : a.voucher_id - b.voucher_id;
+  });
+
+  let running = 0;
+  return moves.map(m => {
+    running = Math.round((running + parseFloat(m.delta || 0)) * 100) / 100;
+    return { voucherId: m.voucher_id, time: new Date(m.entry_date).getTime(), balance: running };
+  });
+}
+
+// Capital as it stood immediately after the voucher at (time, voucherId).
+// Binary search — the timeline is already sorted on that same key.
+function capitalAsOf(timeline, time, voucherId) {
+  let lo = 0;
+  let hi = timeline.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const p = timeline[mid];
+    if (p.time < time || (p.time === time && p.voucherId <= voucherId)) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found === -1 ? 0 : timeline[found].balance;
 }
 
 // ── GET /accounting/chart-of-accounts ────────────────────────────────────────
@@ -141,8 +211,9 @@ exports.getFilterOptions = async (req, res) => {
 //
 // It is also only meaningful for a single account: in the All-Accounts view every
 // row belongs to a different account, so a "running balance" column there was
-// just each row's own account balance stacked into one column. It is omitted
-// unless account_id is set.
+// just each row's own account balance stacked into one column. Without an
+// account_id the column carries the shop's capital (cash + bank) instead — see
+// capitalTimeline above — stamped once per voucher on its closing row.
 exports.listEntries = async (req, res) => {
   try {
     const shopId = requireShopId(req, res);
@@ -180,7 +251,7 @@ exports.listEntries = async (req, res) => {
     }
     if (voucherIdFilter !== null) {
       if (!voucherIdFilter.length) {
-        return res.json({ entries: [] });
+        return res.json({ entries: [], balance_mode: singleAccountId ? 'account' : 'capital' });
       }
       where.voucher_id = { [Op.in]: voucherIdFilter };
     }
@@ -237,6 +308,27 @@ exports.listEntries = async (req, res) => {
       );
     }
 
+    // Mixed-account view: one capital figure per voucher, on the last row that
+    // voucher has on screen, so the pair of legs closes with a single number.
+    let capitalByRowId = null;
+    if (!singleAccountId && entries.length) {
+      const timeline = await capitalTimeline(shopId);
+      const closingRowByVoucher = new Map();
+      entries.forEach(e => {
+        const current = closingRowByVoucher.get(e.voucher_id);
+        if (current === undefined || e.id > current) closingRowByVoucher.set(e.voucher_id, e.id);
+      });
+
+      capitalByRowId = new Map();
+      entries.forEach(e => {
+        if (closingRowByVoucher.get(e.voucher_id) !== e.id) return;
+        capitalByRowId.set(
+          e.id,
+          capitalAsOf(timeline, new Date(e.entry_date).getTime(), e.voucher_id),
+        );
+      });
+    }
+
     const rows = entries.map(e => ({
       id: e.id,
       voucher_id: e.voucher_id,
@@ -249,9 +341,15 @@ exports.listEntries = async (req, res) => {
       debit: parseFloat(e.debit || 0),
       credit: parseFloat(e.credit || 0),
       ...(balanceByEntryId ? { running_balance: balanceByEntryId.get(e.id) ?? 0 } : {}),
+      // Only the closing row of each voucher carries a figure; the rest are left
+      // blank on purpose so one transaction reads as one balance.
+      ...(capitalByRowId && capitalByRowId.has(e.id) ? { running_balance: capitalByRowId.get(e.id) } : {}),
     }));
 
-    return res.json({ entries: rows });
+    return res.json({
+      entries: rows,
+      balance_mode: singleAccountId ? 'account' : 'capital',
+    });
   } catch (error) {
     console.error('listGeneralLedgerEntries error:', error);
     return res.status(500).json({ message: 'Internal server error' });

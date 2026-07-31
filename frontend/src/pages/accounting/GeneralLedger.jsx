@@ -18,6 +18,16 @@ const FILTER_TYPES = [
   { value: 'board_member', labelKey: 'boardMember' },
 ];
 
+// Only the closing row of a voucher carries a balance, so an absent value means
+// "not this row" and prints as a dash. A balance that really is zero must still
+// print as zero — formatPKR dashes those out, which would read as missing data.
+function formatBalance(value, lang) {
+  if (value === undefined || value === null) return '—';
+  const n = parseFloat(value);
+  if (isNaN(n)) return '—';
+  return `Rs. ${n.toLocaleString(lang === 'ur' ? 'ur-PK' : 'en-PK', { maximumFractionDigits: 0 })}`;
+}
+
 export default function GeneralLedger() {
   const { t, lang } = useTheme();
   const { error } = useToast();
@@ -27,6 +37,9 @@ export default function GeneralLedger() {
   const [accounts, setAccounts] = useState([]);
   const [entityOptions, setEntityOptions] = useState({ customers: [], suppliers: [], employees: [], board_members: [], branches: [] });
   const [entries, setEntries] = useState([]);
+  // 'account' → per-account running balance; 'capital' → the shop's cash + bank
+  // total after each transaction, which is what a mixed-account view can show.
+  const [balanceMode, setBalanceMode] = useState('capital');
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState('');
   const [accountId, setAccountId] = useState('');
@@ -68,6 +81,7 @@ export default function GeneralLedger() {
       if (branchId) params.branch_id = branchId;
       const { data } = await api.get('/accounting/general-ledger', { params });
       setEntries(data.entries || []);
+      setBalanceMode(data.balance_mode || 'capital');
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -102,6 +116,10 @@ export default function GeneralLedger() {
 
   const filterTypeLabel = FILTER_TYPES.find(f => f.value === filterType)?.labelKey;
 
+  const balanceHeader = balanceMode === 'account'
+    ? (t('runningBalance') || 'Running Balance')
+    : (t('capitalBalance') || 'Capital (Cash + Bank)');
+
   const reportColumns = [
     { header: t('date') || 'Date', render: e => new Date(e.date).toLocaleDateString('en-PK'), width: 1.1 },
     { header: t('voucherNo') || 'Voucher #', render: e => formatVoucherNumber(e.voucher_number), width: 1.1 },
@@ -109,7 +127,7 @@ export default function GeneralLedger() {
     { header: t('description') || 'Description', key: 'narration', width: 2.4 },
     { header: t('debit') || 'Debit', key: 'debit', money: true, width: 1.1 },
     { header: t('credit') || 'Credit', key: 'credit', money: true, width: 1.1 },
-    { header: t('runningBalance') || 'Balance', key: 'running_balance', money: true, width: 1.2 },
+    { header: balanceHeader, key: 'running_balance', money: true, width: 1.2 },
   ];
   const reportTotals = { __label: t('total') || 'Total', debit: totalDebit, credit: totalCredit };
   const reportFilterList = [
@@ -242,14 +260,15 @@ export default function GeneralLedger() {
                 <th className="text-start p-4">{t('description') || 'Description'}</th>
                 <th className="text-end p-4">{t('debit') || 'Debit'}</th>
                 <th className="text-end p-4">{t('credit') || 'Credit'}</th>
-                <th className="text-end p-4">{t('runningBalance') || 'Running Balance'}</th>
+                <th className="text-end p-4">{balanceHeader}</th>
               </tr>
             </thead>
             <tbody>
               {entries
                 .filter(e => !search.trim() || [
                   e.narration, e.account_name, e.voucher_number, e.entity_name,
-                  String(e.debit), String(e.credit), String(e.running_balance),
+                  String(e.debit), String(e.credit),
+                  e.running_balance === undefined || e.running_balance === null ? '' : String(e.running_balance),
                   e.date ? new Date(e.date).toLocaleDateString('en-PK') : ''
                 ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())))
                 .map((e, idx, arr) => {
@@ -274,7 +293,11 @@ export default function GeneralLedger() {
                     <td className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>{e.narration}</td>
                     <td className="p-4 text-end text-emerald-400">{e.debit > 0 ? formatPKR(e.debit, lang) : '—'}</td>
                     <td className="p-4 text-end text-red-400">{e.credit > 0 ? formatPKR(e.credit, lang) : '—'}</td>
-                    <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(e.running_balance, lang)}</td>
+                    {/* Blank on the opening leg of a transaction — the figure lands
+                        on the closing leg, once per voucher. */}
+                    <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>
+                      {formatBalance(e.running_balance, lang)}
+                    </td>
                   </tr>
                 );
               })}

@@ -1,12 +1,19 @@
 const db = require('../models');
 const { Op } = require('sequelize');
-const { computeLiveCash, computeTotalCashOnHand, resolveOpeningCash } = require('../utils/cashHelpers');
+const {
+  computeLiveCash, computeTotalCashOnHand, computeTotalBank, fundAccountIds, resolveOpeningCash,
+} = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
-const { createAccount } = require('../utils/chartOfAccounts');
+const { createAccount, createFundAccount } = require('../utils/chartOfAccounts');
 
 const round2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
+// First-time setup wizard only. Every balance entered there is by definition an
+// opening balance establishing what the business starts with, so it is always
+// new capital and the accounts share one combined opening voucher. Accounts
+// added LATER go through createFundAccount, which asks whether the money is new
+// or moved from an account that already holds it.
 async function createBankAccountsFromPayload(shopId, bank_accounts, userId, transaction) {
   const bankParent = await db.ChartOfAccount.findOne({ where: { account_code: '05-BANK' }, transaction });
   let bankOpeningTotal = 0;
@@ -33,6 +40,74 @@ async function createBankAccountsFromPayload(shopId, bank_accounts, userId, tran
   }
 
   return { bankOpeningTotal: round2(bankOpeningTotal), bankOpeningLines };
+}
+
+// ── fundBreakdown ───────────────────────────────────────────────────────────
+// Per-account balances behind a Cash or Bank pill, straight from the GL so the
+// lines always add up to the pill total.
+//
+// Deliberately keyed on ledger accounts rather than BankAccount rows: money
+// posted against the shared '05-BANK'/'05-CASH' parent (anything predating
+// per-account linking, or that still hits the bankAccountCode() fallback) has no
+// BankAccount row at all, and listing only those rows left that money
+// unexplained. It surfaces as an "Unassigned" line instead.
+//
+// Active accounts only, so the lines match the pill exactly. A deactivated
+// account's balance is still an asset on the balance sheet — it just isn't part
+// of the working capital the dashboard headlines.
+async function fundBreakdown(shopId, kind) {
+  const accountIds = await fundAccountIds(shopId, { kind, activeOnly: true });
+  if (!accountIds.length) return [];
+
+  const [accounts, balances, funds] = await Promise.all([
+    db.ChartOfAccount.findAll({
+      where: { id: { [Op.in]: accountIds } },
+      attributes: ['id', 'account_code', 'account_name', 'parent_account_id'],
+      raw: true,
+    }),
+    db.GeneralLedger.findAll({
+      where: { shop_id: shopId, account_id: { [Op.in]: accountIds } },
+      attributes: [
+        'account_id',
+        [db.sequelize.fn('SUM', db.sequelize.col('debit')), 'total_debit'],
+        [db.sequelize.fn('SUM', db.sequelize.col('credit')), 'total_credit'],
+      ],
+      group: ['account_id'],
+      raw: true,
+    }),
+    db.BankAccount.findAll({
+      where: { shop_id: shopId },
+      attributes: ['chart_of_account_id', 'bank_name'],
+      raw: true,
+    }),
+  ]);
+
+  const balanceById = {};
+  balances.forEach(b => {
+    balanceById[b.account_id] = round2(parseFloat(b.total_debit || 0) - parseFloat(b.total_credit || 0));
+  });
+  const fundByAccountId = {};
+  funds.forEach(f => { if (f.chart_of_account_id) fundByAccountId[f.chart_of_account_id] = f; });
+
+  return accounts
+    .map(a => {
+      const fund = fundByAccountId[a.id];
+      return {
+        // '05-BANK' is a legacy catch-all: money posted there predates
+        // per-account linking and belongs to some named bank nobody recorded, so
+        // it is labelled rather than shown as if it were an account of its own.
+        // '05-CASH' is NOT the same case — it is the shop's real shared drawer,
+        // which paymentAccountCode() still targets for any cash payment with no
+        // named fund, so it keeps its own name.
+        name: a.account_code === '05-BANK' ? `${a.account_name} (unassigned)` : a.account_name,
+        bank: fund?.bank_name || null,
+        balance: balanceById[a.id] || 0,
+      };
+    })
+    // A shop typically leaves several fund accounts at zero; only the ones
+    // actually holding money explain the pill.
+    .filter(a => a.balance !== 0)
+    .sort((a, b) => b.balance - a.balance);
 }
 
 async function hadNonZeroCashOpening(shopId, transaction) {
@@ -160,6 +235,12 @@ exports.setOpeningCash = async (req, res) => {
 
 // ── POST /api/financial-setup/bank-accounts ───────────────────────────────────
 // Add bank accounts later (from the dashboard bank pill).
+//
+// Routed through createFundAccount rather than the wizard's batch helper so each
+// account carries its own funding_source: an account opened to hold money the
+// shop already has posts as a transfer (capital unchanged) instead of inventing
+// fresh equity. That distinction cannot be expressed in one combined voucher,
+// which is why this no longer shares createBankAccountsFromPayload.
 exports.addBankAccounts = async (req, res) => {
   const shopId = req.user.shop_id;
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
@@ -172,20 +253,23 @@ exports.addBankAccounts = async (req, res) => {
 
   const t = await db.sequelize.transaction();
   try {
-    const { bankOpeningTotal, bankOpeningLines } = await createBankAccountsFromPayload(
-      shopId, validAccounts, req.user.id, t,
-    );
+    const bankParent = await db.ChartOfAccount.findOne({ where: { account_code: '05-BANK' }, transaction: t });
+    if (!bankParent) {
+      await t.rollback();
+      return res.status(500).json({ message: 'Bank parent account is missing from the chart of accounts' });
+    }
 
-    if (bankOpeningTotal > 0) {
-      await postVoucher(shopId, {
-        type: 'opening',
-        date: new Date(),
-        narration: 'Opening bank balances',
+    for (const acct of validAccounts) {
+      await createFundAccount({
+        shopId,
+        accountName: acct.account_name.trim(),
+        parent: bankParent,
+        bank_name: acct.bank_name,
+        account_number: acct.account_number,
+        opening_balance: acct.opening_balance,
+        funding_source: acct.funding_source,
+        source_account_id: acct.source_account_id,
         createdBy: req.user.id,
-        lines: [
-          ...bankOpeningLines,
-          { accountCode: '01-OBE', credit: bankOpeningTotal },
-        ],
       }, t);
     }
 
@@ -194,6 +278,7 @@ exports.addBankAccounts = async (req, res) => {
   } catch (error) {
     await t.rollback();
     console.error('addBankAccounts error:', error);
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -535,32 +620,26 @@ exports.listSessions = async (req, res) => {
 };
 
 // ── GET /api/balances ─────────────────────────────────────────────────────────
-// Returns merged cash-in-hand (shared drawer + all named cash funds, from the
-// GL) and total bank balance for the dashboard.
+// Returns merged cash-in-hand (shared drawer + all named cash funds) and total
+// bank balance for the dashboard. Both sides now come from the GL, over every
+// fund account the shop has — see computeTotalBank for why the old
+// BankAccount/`is_active` sum could not be reconciled with the balance sheet.
 exports.getLiveBalances = async (req, res) => {
   const shopId = req.user.shop_id;
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
 
   try {
-    const [{ openingCash, hasBaseline }, totalCash] = await Promise.all([
+    const [{ openingCash, hasBaseline }, totalCash, totalBank] = await Promise.all([
       computeLiveCash(shopId),
       computeTotalCashOnHand(shopId),
+      computeTotalBank(shopId),
     ]);
-
-    const bankAccounts = await db.BankAccount.findAll({
-      where: { shop_id: shopId, is_active: true, kind: 'bank' },
-      attributes: ['account_name', 'current_balance', 'bank_name'],
-    });
-    const totalBank = bankAccounts.reduce((s, a) => s + parseFloat(a.current_balance || 0), 0);
 
     return res.json({
       cash_in_hand:       totalCash,
-      bank_balance:       Math.round(totalBank * 100) / 100,
-      bank_accounts:      bankAccounts.map(a => ({
-        name:    a.account_name,
-        bank:    a.bank_name,
-        balance: parseFloat(a.current_balance || 0),
-      })),
+      bank_balance:       totalBank,
+      bank_accounts:      await fundBreakdown(shopId, 'bank'),
+      cash_accounts:      await fundBreakdown(shopId, 'cash'),
       opening_cash:       openingCash,
       session_exists:     hasBaseline,
       // BOD Current is director-held — not included in Capital cash/bank above.

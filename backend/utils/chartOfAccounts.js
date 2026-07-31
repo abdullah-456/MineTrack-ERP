@@ -2,6 +2,7 @@
 
 const db = require('../models');
 const { postVoucher } = require('./postVoucher');
+const { fundAccountIds, computeAccountBalance } = require('./cashHelpers');
 
 const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'income', 'expense'];
 const FUND_PARENT_CODES = new Set(['05-BANK', '05-CASH']);
@@ -151,11 +152,95 @@ function fundKindFromParent(parent) {
   return parent.account_code === '05-CASH' ? 'cash' : 'bank';
 }
 
+// ── openingBalanceLines ─────────────────────────────────────────────────────
+// How an opening balance on a new fund account is funded. This used to be
+// hard-coded to 'new_capital', which meant opening an account just to park money
+// you already held booked the whole balance as fresh equity — capital counted
+// the same rupees twice, once in the source account and once in the new one.
+//
+//   new_capital — money entering the business for the first time.
+//                 Dr <new fund> / Cr Opening Balance Equity. Capital rises.
+//   transfer    — money moved from a fund account that already holds it.
+//                 Dr <new fund> / Cr <source fund>. Capital unchanged.
+//
+// A transfer posts as a 'journal', never an 'opening': openingVoucherIds()
+// excludes 'opening' vouchers from cash-flow, so booking a genuine movement out
+// of the till that way would leave the source's cash silently overstated.
+const FUNDING_SOURCES = ['new_capital', 'transfer'];
+
+async function openingBalanceLines({
+  shopId, ledgerAccount, openingBal, fundingSource, sourceAccountId, transaction,
+}) {
+  const debitLine = { accountCode: ledgerAccount.account_code, debit: openingBal };
+
+  if (fundingSource !== 'transfer') {
+    return {
+      type: 'opening',
+      lines: [debitLine, { accountCode: '01-OBE', credit: openingBal }],
+      sourceName: null,
+    };
+  }
+
+  if (!sourceAccountId) {
+    const err = new Error('Select the account this money is being moved from');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Keyed on the LEDGER account, not a BankAccount row, so the shared '05-CASH'
+  // drawer — which has no BankAccount row and is where most shops actually hold
+  // their cash — can be the source like any named fund.
+  const validSourceIds = await fundAccountIds(shopId, { activeOnly: true, transaction });
+  const sourceLedger = validSourceIds.includes(Number(sourceAccountId))
+    ? await db.ChartOfAccount.findByPk(sourceAccountId, { transaction })
+    : null;
+  if (!sourceLedger) {
+    const err = new Error('Source must be one of this shop\'s cash or bank accounts');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Same floor every other payment path enforces — you cannot move out more
+  // than the source holds.
+  const available = await computeAccountBalance(shopId, sourceLedger.id, { transaction });
+  if (available - openingBal < 0) {
+    const err = new Error(`Insufficient balance in ${sourceLedger.account_name}. Available: ${available.toFixed(2)}`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Keep the linked BankAccount's stored balance in step with the ledger. The
+  // shared drawer has no such row, hence the conditional.
+  const sourceFund = await db.BankAccount.findOne({
+    where: { shop_id: shopId, chart_of_account_id: sourceLedger.id },
+    transaction,
+    lock: transaction ? transaction.LOCK.UPDATE : undefined,
+  });
+  if (sourceFund) {
+    await sourceFund.update({
+      current_balance: Math.round((parseFloat(sourceFund.current_balance || 0) - openingBal) * 100) / 100,
+    }, { transaction });
+  }
+
+  return {
+    type: 'journal',
+    lines: [debitLine, { accountCode: sourceLedger.account_code, credit: openingBal }],
+    sourceName: sourceLedger.account_name,
+  };
+}
+
 async function createFundAccount({
   shopId, accountName, parent, bank_name, account_number, opening_balance, accountCode, createdBy,
+  funding_source, source_account_id,
 }, transaction) {
   const kind = fundKindFromParent(parent);
   const openingBal = Math.round((parseFloat(opening_balance) || 0) * 100) / 100;
+  const fundingSource = funding_source || 'new_capital';
+  if (!FUNDING_SOURCES.includes(fundingSource)) {
+    const err = new Error(`funding_source must be one of: ${FUNDING_SOURCES.join(', ')}`);
+    err.statusCode = 400;
+    throw err;
+  }
 
   const ledgerAccount = await createAccount({
     shopId,
@@ -179,15 +264,17 @@ async function createFundAccount({
   }, { transaction });
 
   if (openingBal !== 0) {
+    const { type, lines, sourceName } = await openingBalanceLines({
+      shopId, ledgerAccount, openingBal, fundingSource, sourceAccountId: source_account_id, transaction,
+    });
     await postVoucher(shopId, {
-      type: 'opening',
+      type,
       date: new Date(),
-      narration: `Opening balance — ${bankAccount.account_name}`,
+      narration: sourceName
+        ? `Transfer — ${sourceName} → ${bankAccount.account_name}`
+        : `Opening balance — ${bankAccount.account_name}`,
       createdBy,
-      lines: [
-        { accountCode: ledgerAccount.account_code, debit: openingBal },
-        { accountCode: '01-OBE', credit: openingBal },
-      ],
+      lines,
     }, transaction);
   }
 
@@ -197,6 +284,7 @@ async function createFundAccount({
 module.exports = {
   ACCOUNT_TYPES,
   FUND_PARENT_CODES,
+  FUNDING_SOURCES,
   generateAccountCode,
   createAccount,
   createFundAccount,

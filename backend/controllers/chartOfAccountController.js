@@ -20,7 +20,7 @@ exports.create = async (req, res) => {
 
   const {
     account_name, account_type, parent_account_id, account_code,
-    bank_name, account_number, opening_balance,
+    bank_name, account_number, opening_balance, funding_source, source_account_id,
   } = req.body;
   if (!account_name?.trim()) return res.status(400).json({ message: 'account_name is required' });
   if (!ACCOUNT_TYPES.includes(account_type)) {
@@ -68,6 +68,8 @@ exports.create = async (req, res) => {
         bank_name,
         account_number,
         opening_balance,
+        funding_source,
+        source_account_id,
         accountCode: code,
         createdBy: req.user.id,
       }, transaction);
@@ -91,6 +93,9 @@ exports.create = async (req, res) => {
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
     console.error('createChartOfAccount error:', error);
+    // Funding-source problems (no source picked, source too small) are the
+    // user's to fix, not server faults — surface their own message.
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -207,6 +212,10 @@ exports.remove = async (req, res) => {
       where: { shop_id: shopId, chart_of_account_id: account.id },
     });
 
+    // A fund account can be closed while it still holds money. Doing so drops it
+    // from the dashboard's Cash/Bank capital, which is the point — but the
+    // balance stays on the ledger and the balance sheet, because the business
+    // still owns it until it is transferred out or written off.
     if (await hasPostings(account.id)) {
       await account.update({ is_active: false });
       if (linkedFund) await linkedFund.update({ is_active: false });

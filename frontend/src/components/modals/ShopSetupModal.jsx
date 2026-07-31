@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Building2, Landmark, Plus, Trash2, ChevronRight, ChevronLeft,
   Wallet, CheckCircle2, Loader2, Banknote, ArrowRight, Sparkles,
@@ -34,7 +34,11 @@ function StepDot({ step, current, label, icon: Icon }) {
 }
 
 /* ── Bank Account Row ─────────────────────────────────────────────────────────── */
-function BankRow({ acct, idx, onChange, onRemove, isOnly }) {
+// `fundSources` is only passed when accounts are being added AFTER first-time
+// setup. During the initial wizard every balance is by definition the money the
+// business starts with, so there is nothing to transfer from and the question
+// would be noise.
+function BankRow({ acct, idx, onChange, onRemove, isOnly, fundSources }) {
   return (
     <div
       className="p-4 rounded-xl border transition-all"
@@ -106,6 +110,47 @@ function BankRow({ acct, idx, onChange, onRemove, isOnly }) {
           />
         </div>
       </div>
+      {fundSources?.length > 0 && parseFloat(acct.opening_balance) > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              Where Is This Money From?
+            </label>
+            <select
+              className="input text-sm"
+              value={acct.funding_source || 'new_capital'}
+              onChange={e => onChange(idx, 'funding_source', e.target.value)}
+            >
+              <option value="new_capital">New money coming into the business</option>
+              <option value="transfer">Moved from an existing account</option>
+            </select>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              {acct.funding_source === 'transfer'
+                ? 'Capital stays the same — the money just moves between accounts.'
+                : 'Capital increases by this amount.'}
+            </p>
+          </div>
+          {acct.funding_source === 'transfer' && (
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                Moved From
+              </label>
+              <select
+                className="input text-sm"
+                value={acct.source_account_id || ''}
+                onChange={e => onChange(idx, 'source_account_id', e.target.value)}
+              >
+                <option value="" disabled>Select account…</option>
+                {fundSources.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.account_name} — Rs. {(a.balance || 0).toLocaleString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -130,6 +175,29 @@ export default function ShopSetupModal({
     { account_name: '', bank_name: '', account_number: '', opening_balance: '' }
   ]);
   const [openingCash, setOpeningCash] = useState('');
+
+  // Existing cash/bank accounts a new account's balance could be transferred
+  // from. Only fetched when adding accounts after setup — during the first-time
+  // wizard there is nothing to move money out of yet.
+  const [fundSources, setFundSources] = useState([]);
+  useEffect(() => {
+    if (!isBankOnly) return;
+    let cancelled = false;
+    api.get('/accounting/chart-of-accounts')
+      .then(({ data }) => {
+        if (cancelled) return;
+        const accounts = data.accounts || [];
+        const bankParentId = accounts.find(a => a.account_code === '05-BANK')?.id;
+        const cashParentId = accounts.find(a => a.account_code === '05-CASH')?.id;
+        setFundSources(accounts.filter(a => a.is_active && a.balance > 0 && (
+          a.account_code === '05-CASH'
+          || a.parent_account_id === bankParentId
+          || a.parent_account_id === cashParentId
+        )));
+      })
+      .catch(() => setFundSources([]));
+    return () => { cancelled = true; };
+  }, [isBankOnly]);
 
   const { step: stepKey, goTo, goPrev, clearStepParam } = useWizardSteps(SETUP_STEPS, {
     paramName: 'setupStep',
@@ -335,6 +403,7 @@ export default function ShopSetupModal({
                     onChange={updateAccount}
                     onRemove={removeAccount}
                     isOnly={bankAccounts.length === 1}
+                    fundSources={fundSources}
                   />
                 ))}
               </div>

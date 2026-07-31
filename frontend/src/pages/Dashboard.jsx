@@ -19,6 +19,15 @@ import {
 
 const POLL_MS = 30000;
 
+// Per-account breakdown behind a Cash or Bank pill. The lines are GL balances
+// for the shop's active fund accounts, so they always add up to the pill total.
+function fundTooltip(accounts) {
+  if (!accounts?.length) return '';
+  return accounts
+    .map(a => `${a.name}: Rs. ${(a.balance || 0).toLocaleString()}`)
+    .join(' | ');
+}
+
 function StatCard({ title, value, sub, icon: Icon, change, color, prefix = '', onClick }) {
   const isUp = change !== undefined && parseFloat(change) > 0;
   return (
@@ -272,9 +281,10 @@ export default function Dashboard() {
                   color: 'rgb(16,185,129)',
                 }}
                 title={
-                  balances.session_exists
+                  fundTooltip(balances.cash_accounts)
+                  || (balances.session_exists
                     ? (t('clickToUpdateCash') || 'Click to update opening cash balance')
-                    : (t('clickToSetCash') || 'Click to set your opening cash balance')
+                    : (t('clickToSetCash') || 'Click to set your opening cash balance'))
                 }
               >
                 <Wallet className="w-3.5 h-3.5" />
@@ -290,10 +300,8 @@ export default function Dashboard() {
                   color: 'rgb(99,102,241)',
                 }}
                 title={
-                  balances.bank_accounts?.length
-                    ? (balances.bank_accounts.map(a => `${a.name}: Rs. ${a.balance?.toLocaleString()}`).join(' | ')
-                      || (t('clickToUpdateBank') || 'Click to add or update bank accounts'))
-                    : (t('clickToAddBank') || 'Click to add bank accounts and opening balances')
+                  fundTooltip(balances.bank_accounts)
+                  || (t('clickToAddBank') || 'Click to add bank accounts and opening balances')
                 }
               >
                 <Banknote className="w-3.5 h-3.5" />

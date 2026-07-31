@@ -26,6 +26,8 @@ const FUND_PARENT_CODES = new Set(['05-BANK', '05-CASH']);
 const EMPTY = {
   account_name: '', account_type: 'asset', parent_account_id: '', account_code: '',
   opening_balance: '', bank_name: '', account_number: '', is_active: true,
+  // Defaults to new money so behaviour is unchanged when the question is ignored.
+  funding_source: 'new_capital', source_account_id: '',
 };
 
 function flattenTree(accounts) {
@@ -124,6 +126,11 @@ export default function ChartOfAccounts() {
     || (bankParentId && account.parent_account_id === bankParentId)
     || (cashParentId && account.parent_account_id === cashParentId && account.account_code !== '05-CASH');
 
+  // Accounts a transfer can draw from: every cash/bank fund that currently holds
+  // money. The shared '05-CASH' drawer is included — it has no bank_accounts row
+  // of its own but is where most shops actually keep their cash.
+  const fundSourceOptions = accounts.filter(a => isPaymentAccount(a) && a.is_active && a.balance > 0);
+
   const setF = (k) => (e) => {
     const value = k === 'is_active' ? e.target.checked : e.target.value;
     setForm(f => {
@@ -167,6 +174,8 @@ export default function ChartOfAccounts() {
             opening_balance: form.opening_balance,
             bank_name: fundKind === 'bank' ? form.bank_name : undefined,
             account_number: fundKind === 'bank' ? form.account_number : undefined,
+            funding_source: form.funding_source,
+            source_account_id: form.funding_source === 'transfer' ? form.source_account_id : undefined,
           } : {}),
         });
         success(t('accountCreated'));
@@ -345,6 +354,37 @@ export default function ChartOfAccounts() {
               <div>
                 <FormLabel>{t('openingBalance')}</FormLabel>
                 <input className="input" type="number" min="0" step="0.01" placeholder="0.00" value={form.opening_balance} onChange={setF('opening_balance')} />
+              </div>
+            )}
+            {/* Where an opening balance comes from decides whether capital grows.
+                Without this the app booked every opening balance as fresh equity,
+                so opening an account to hold money you already had counted the
+                same rupees twice. */}
+            {isFundCreate && parseFloat(form.opening_balance) > 0 && (
+              <div>
+                <FormLabel>{t('whereFrom') || 'Where Is This Money From?'}</FormLabel>
+                <select className="input" value={form.funding_source} onChange={setF('funding_source')}>
+                  <option value="new_capital">{t('fundingNewCapital') || 'New money coming into the business'}</option>
+                  <option value="transfer">{t('fundingTransfer') || 'Moved from an existing account'}</option>
+                </select>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                  {form.funding_source === 'transfer'
+                    ? (t('fundingTransferHint') || 'Capital stays the same — the money just moves between accounts.')
+                    : (t('fundingNewCapitalHint') || 'Capital increases by this amount.')}
+                </p>
+                {form.funding_source === 'transfer' && (
+                  <div className="mt-3">
+                    <FormLabel>{t('movedFrom') || 'Moved From'}</FormLabel>
+                    <select className="input" required value={form.source_account_id} onChange={setF('source_account_id')}>
+                      <option value="" disabled>{t('selectAccount') || 'Select account…'}</option>
+                      {fundSourceOptions.map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.account_name} — {formatPKR(a.balance, lang)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             )}
             {modal === 'create' && !isFundForm && (

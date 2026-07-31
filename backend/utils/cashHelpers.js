@@ -30,31 +30,73 @@ async function cashParentAccount(transaction) {
   return db.ChartOfAccount.findOne({ where: { account_code: '05-CASH' }, transaction });
 }
 
-// Every account that holds this shop's cash: the shared Cash in Hand (05-CASH)
-// plus every named cash fund nested under it.
+// ── fundAccountIds ──────────────────────────────────────────────────────────
+// Every account that holds this shop's liquid money: the shared Cash in Hand
+// (05-CASH) and Bank (05-BANK) parents plus every named fund nested under them.
+// Options: { kind: 'cash' | 'bank' | null, activeOnly, transaction }.
 //
 // Single definition on purpose. computeTotalCashOnHand used to include the
 // sub-accounts while computeCashFlow counted only the parent — so the dashboard
 // total, the chart-of-accounts tree, and the balance that gates every cash
 // payment disagreed with each other the moment a shop created a petty-cash
 // fund, and the payment guard used the narrowest of the three.
-async function cashAccountIds(shopId, transaction) {
-  const parent = await cashParentAccount(transaction);
-  if (!parent) return [];
+//
+// The parents themselves stay in the set: postings made before per-account
+// linking existed (and anything that still hits the bankAccountCode() fallback)
+// sit directly on '05-BANK'/'05-CASH' with no BankAccount row of their own.
+// Dropping them would silently lose real money from every total.
+//
+// activeOnly drops accounts the shop has switched off. Deactivating is how a
+// user says "this is no longer part of my working money", so the headline
+// capital figures honour it — but the ledger and the balance sheet do NOT, on
+// purpose: a closed account's balance is still an asset the business owns until
+// it is transferred out or written off.
+const FUND_PARENT_BY_KIND = { cash: '05-CASH', bank: '05-BANK' };
 
-  const children = await db.ChartOfAccount.findAll({
-    where: { parent_account_id: parent.id, shop_id: shopId },
+async function fundAccountIds(shopId, { kind = null, activeOnly = false, transaction } = {}) {
+  const codes = kind ? [FUND_PARENT_BY_KIND[kind]] : Object.values(FUND_PARENT_BY_KIND);
+  const parents = await db.ChartOfAccount.findAll({
+    where: { account_code: { [Op.in]: codes.filter(Boolean) } },
     attributes: ['id'],
+    raw: true,
     transaction,
   });
-  return [parent.id, ...children.map(a => a.id)];
+  if (!parents.length) return [];
+  const parentIds = parents.map(p => p.id);
+
+  const childWhere = { parent_account_id: { [Op.in]: parentIds }, shop_id: shopId };
+  if (activeOnly) childWhere.is_active = true;
+  const children = await db.ChartOfAccount.findAll({
+    where: childWhere,
+    attributes: ['id'],
+    raw: true,
+    transaction,
+  });
+  const ids = [...parentIds, ...children.map(a => a.id)];
+  if (!activeOnly) return ids;
+
+  // The ledger account and its bank_accounts row are switched off together, but
+  // check both so a row left inconsistent by older data still counts as closed.
+  const closed = await db.BankAccount.findAll({
+    where: { shop_id: shopId, is_active: false },
+    attributes: ['chart_of_account_id'],
+    raw: true,
+    transaction,
+  });
+  const closedIds = new Set(closed.map(f => f.chart_of_account_id).filter(Boolean));
+  return ids.filter(id => !closedIds.has(id));
 }
 
-// All liquid cash for this shop, merged from the GL.
-async function computeTotalCashOnHand(shopId, { transaction } = {}) {
-  const accountIds = await cashAccountIds(shopId, transaction);
-  if (!accountIds.length) return 0;
+async function cashAccountIds(shopId, transaction) {
+  // Deliberately NOT activeOnly: this set backs computeCashFlow and the payment
+  // guard, which are about money that physically exists, not about what the
+  // dashboard chooses to headline.
+  return fundAccountIds(shopId, { kind: 'cash', transaction });
+}
 
+// Net GL balance across a set of accounts for this shop.
+async function sumGlBalance(shopId, accountIds, transaction) {
+  if (!accountIds.length) return 0;
   const agg = await db.GeneralLedger.findOne({
     where: { shop_id: shopId, account_id: { [Op.in]: accountIds } },
     attributes: [
@@ -65,6 +107,34 @@ async function computeTotalCashOnHand(shopId, { transaction } = {}) {
     transaction,
   });
   return round2(parseFloat(agg?.total_debit || 0) - parseFloat(agg?.total_credit || 0));
+}
+
+// Net GL balance of a single account for this shop. Works uniformly for a named
+// fund and for the shared '05-CASH' drawer, which has no BankAccount row of its
+// own and so has no current_balance to read.
+async function computeAccountBalance(shopId, accountId, { transaction } = {}) {
+  return sumGlBalance(shopId, [accountId], transaction);
+}
+
+// All liquid cash for this shop, merged from the GL — the Cash pill. Active
+// accounts only, matching computeTotalBank.
+async function computeTotalCashOnHand(shopId, { transaction } = {}) {
+  const ids = await fundAccountIds(shopId, { kind: 'cash', activeOnly: true, transaction });
+  return sumGlBalance(shopId, ids, transaction);
+}
+
+// ── computeTotalBank ────────────────────────────────────────────────────────
+// All bank money for this shop, from the GL — the mirror of
+// computeTotalCashOnHand, and deliberately the same shape.
+//
+// The dashboard used to sum BankAccount.current_balance while the cash figure
+// beside it came from the GL, so the two pills were computed from different
+// sources and could not be reconciled with each other or with the ledger.
+// Reading the ledger for both sides fixes that; both then honour activeOnly the
+// same way, so Cash + Bank is one coherent "working capital" figure.
+async function computeTotalBank(shopId, { transaction } = {}) {
+  const ids = await fundAccountIds(shopId, { kind: 'bank', activeOnly: true, transaction });
+  return sumGlBalance(shopId, ids, transaction);
 }
 
 // ── computeCashFlow ─────────────────────────────────────────────────────────────
@@ -363,6 +433,7 @@ function bankAccountCode(bankAcc) {
 }
 
 module.exports = {
+  fundAccountIds, cashAccountIds, computeTotalBank, computeAccountBalance,
   computeLiveCash, computeTotalCashOnHand, computeCashFlow, resolveOpeningCash, ensureTodaySession,
   assertCashAvailable, assertBankAvailable,
   debitBankAccount, debitCashPayment, creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode,
