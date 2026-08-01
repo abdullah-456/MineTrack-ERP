@@ -13,6 +13,18 @@ import FormLabel from '../../components/ui/FormLabel';
 import FundAccountSelect from '../../components/ui/FundAccountSelect';
 import api from '../../api/axios';
 
+// Which running figure a row's "Running" column should show. Mirrors the
+// backend's own bucket membership (boardMemberLedgerController.js CURRENT_TYPES)
+// so a row is classified the same way here as it is server-side, falling back
+// to type when account_bucket predates that column.
+const CURRENT_TYPES = new Set([
+  'personal_deposit', 'transfer_to_capital', 'transfer_from_capital',
+  'current_payment', 'current_receipt',
+]);
+const isCurrentRow = (txn) => (txn.account_bucket
+  ? txn.account_bucket.startsWith('current')
+  : CURRENT_TYPES.has(txn.type));
+
 const TXN_LABELS = {
   opening_balance: 'Opening Investment',
   contribution: 'Investment Received',
@@ -240,7 +252,7 @@ export default function BoardMemberLedger() {
                   </td>
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>{txn.notes || '—'}</td>
                   <td className="p-4 text-end font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
-                    {tab === 'current'
+                    {isCurrentRow(txn)
                       ? `C ${formatPKR(txn.running_current_cash, lang)} / B ${formatPKR(txn.running_current_bank, lang)}`
                       : formatPKR(txn.running_investment ?? txn.running_balance, lang)}
                   </td>
