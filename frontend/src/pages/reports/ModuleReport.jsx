@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
-import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
+import { useShopApi, formatPKR, formatPKROrZero, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
@@ -77,46 +77,61 @@ const ICONS = {
   TrendingUp, Package, ShoppingCart, Building2, Receipt, BookOpen, UserCheck, Crown,
 };
 
+// entityParam/entityLabelKey/entityOptionsKey drive the "narrow to one X" filter
+// generically — see the effect below that fetches each module's own
+// filter-options endpoint. `accounting` uses `staticEntityOptions` instead of a
+// fetch: voucher type is a fixed enum, not a lookup table.
+const VOUCHER_TYPES = ['payment', 'receipt', 'journal', 'contra', 'opening', 'closing'];
+
 const MODULE_META = {
   purchases: {
     titleKey: 'purchasesSummaryReport', title: 'Purchases Report',
     subKey: 'purchasesReportSub', sub: 'Stock received, payments, credit purchases & supplier payables',
     icon: ShoppingCart, accent: 'indigo', endpoint: '/reports/modules/purchases/summary', perm: 'purchases',
+    entityParam: 'supplier_id', entityLabelKey: 'supplier', optionsEndpoint: '/reports/modules/purchases/filter-options', entityOptionsKey: 'suppliers',
   },
   inventory: {
     titleKey: 'inventorySummaryReport', title: 'Inventory Report',
     subKey: 'inventoryReportSub', sub: 'Stock movements, on-hand value & low stock',
     icon: Package, accent: 'blue', endpoint: '/reports/modules/inventory/summary', perm: 'inventory',
+    entityParam: 'product_id', entityLabelKey: 'product', optionsEndpoint: '/reports/modules/inventory/filter-options', entityOptionsKey: 'products',
   },
   customers: {
     titleKey: 'customersSummaryReport', title: 'Customers Report',
     subKey: 'customersReportSub', sub: 'Charges, recoveries, returns & receivables',
     icon: Users, accent: 'cyan', endpoint: '/reports/modules/customers/summary', perm: 'customers',
+    entityParam: 'customer_id', entityLabelKey: 'customer', optionsEndpoint: '/reports/modules/customers/filter-options', entityOptionsKey: 'customers',
   },
   suppliers: {
     titleKey: 'suppliersSummaryReport', title: 'Suppliers Report',
     subKey: 'suppliersReportSub', sub: 'Stock in, payments out, payables & advances',
     icon: Building2, accent: 'amber', endpoint: '/reports/modules/suppliers/summary', perm: 'suppliers',
+    entityParam: 'supplier_id', entityLabelKey: 'supplier', optionsEndpoint: '/reports/modules/suppliers/filter-options', entityOptionsKey: 'suppliers',
   },
   expenses: {
     titleKey: 'expensesSummaryReport', title: 'Expenses Report',
     subKey: 'expensesReportSub', sub: 'Cash and bank outgoings by category',
     icon: Receipt, accent: 'rose', endpoint: '/reports/modules/expenses/summary', perm: 'expenses',
+    entityParam: 'category', entityLabelKey: 'category', optionsEndpoint: '/reports/modules/expenses/filter-options', entityOptionsKey: 'categories',
   },
   accounting: {
     titleKey: 'accountingSummaryReport', title: 'Accounting Report',
     subKey: 'accountingReportSub', sub: 'Receipts, payments, journals & voucher activity',
     icon: BookOpen, accent: 'violet', endpoint: '/reports/modules/accounting/summary', perm: 'accounting',
+    entityParam: 'voucher_type', entityLabelKey: 'voucherType',
+    staticEntityOptions: VOUCHER_TYPES.map(v => ({ id: v, name: v })),
   },
   employees: {
     titleKey: 'employeesSummaryReport', title: 'Employees / HR Report',
     subKey: 'employeesReportSub', sub: 'Salary, advances, loans, recoveries & dues',
     icon: UserCheck, accent: 'teal', endpoint: '/reports/modules/employees/summary', perm: 'employees',
+    entityParam: 'employee_id', entityLabelKey: 'employee', optionsEndpoint: '/reports/modules/employees/filter-options', entityOptionsKey: 'employees',
   },
   board: {
     titleKey: 'boardSummaryReport', title: 'Board / Capital Report',
     subKey: 'boardReportSub', sub: 'Contributions, withdrawals & member balances',
     icon: Crown, accent: 'yellow', endpoint: '/reports/modules/board/summary', perm: 'board_directors',
+    entityParam: 'board_member_id', entityLabelKey: 'boardMember', optionsEndpoint: '/reports/modules/board/filter-options', entityOptionsKey: 'board_members',
   },
 };
 
@@ -145,7 +160,10 @@ function FlowCard({ card, lang, onClick }) {
         </div>
         <ExternalLink className={`w-3.5 h-3.5 shrink-0 opacity-50 ${toneClass.split(' ')[0]}`} />
       </div>
-      <div className={`text-xl font-bold ${toneClass.split(' ')[0]}`}>{formatPKR(card.amount, lang)}</div>
+      {/* A real zero must read as "Rs. 0", not the same dash a genuinely
+          missing figure would show — otherwise a quiet day looks identical
+          to a card that failed to fetch. */}
+      <div className={`text-xl font-bold ${toneClass.split(' ')[0]}`}>{formatPKROrZero(card.amount, lang)}</div>
       {card.extra && <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>{card.extra}</p>}
       {card.hint && <p className="mt-2 text-[11px] leading-snug" style={{ color: 'var(--text-muted)' }}>{card.hint}</p>}
       <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide opacity-70" style={{ color: 'var(--text-muted)' }}>
@@ -238,10 +256,28 @@ export default function ModuleReport({ moduleKey: moduleKeyProp }) {
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(todayStr());
   const [branchId, setBranchId] = useState('');
+  const [entityId, setEntityId] = useState('');
+  const [entityOptions, setEntityOptions] = useState(null);
   const [tab, setTab] = useState('');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [cardModal, setCardModal] = useState(null);
+
+  // Switching modules means switching what the entity filter even means
+  // (Supplier on Purchases vs Employee on Employees) — reset both the
+  // selection and the stale options list rather than carrying one module's
+  // picked id into another's differently-shaped query param.
+  useEffect(() => {
+    setEntityId('');
+    if (!meta) { setEntityOptions(null); return; }
+    if (meta.staticEntityOptions) { setEntityOptions(meta.staticEntityOptions); return; }
+    if (!meta.optionsEndpoint) { setEntityOptions(null); return; }
+    let cancelled = false;
+    api.get(meta.optionsEndpoint, { params: shopParams() })
+      .then(({ data: res }) => { if (!cancelled) setEntityOptions(res[meta.entityOptionsKey] || []); })
+      .catch(() => { if (!cancelled) setEntityOptions([]); });
+    return () => { cancelled = true; };
+  }, [meta, shopParams]);
 
   const fetchReport = useCallback(async () => {
     if (!meta) return;
@@ -249,6 +285,7 @@ export default function ModuleReport({ moduleKey: moduleKeyProp }) {
     try {
       const params = { ...shopParams(), from, to };
       if (branchId) params.branch_id = branchId;
+      if (entityId && meta.entityParam) params[meta.entityParam] = entityId;
       const { data: res } = await api.get(meta.endpoint, { params });
       setData(res);
       const firstTab = res.tabs?.[0]?.id || '';
@@ -259,11 +296,15 @@ export default function ModuleReport({ moduleKey: moduleKeyProp }) {
     } finally {
       setLoading(false);
     }
-  }, [meta, shopParams, from, to, branchId, error, t]);
+  }, [meta, shopParams, from, to, branchId, entityId, error, t]);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
-  const filters = buildReportFilterList({ t, from, to, branchId, branches });
+  const entityLabel = meta ? (t(meta.entityLabelKey) || meta.entityLabelKey) : undefined;
+  const filters = buildReportFilterList({
+    t, from, to, branchId, branches,
+    entityLabel, entityValue: entityId, entityOptions,
+  });
 
   const buildFullDocument = useCallback(() => {
     if (!data?.pdf || !meta) return null;
@@ -329,6 +370,10 @@ export default function ModuleReport({ moduleKey: moduleKeyProp }) {
         onToChange={setTo}
         onBranchChange={setBranchId}
         onRefresh={fetchReport}
+        entityLabel={entityLabel}
+        entityValue={entityId}
+        entityOptions={entityOptions}
+        onEntityChange={setEntityId}
       />
 
       {loading && !data ? (

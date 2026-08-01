@@ -21,6 +21,14 @@ export default function FinancialReportFilters({
   onAsOfChange,
   onBranchChange,
   onRefresh,
+  // Module-specific "narrow to one X" filter — e.g. Customer on Sales,
+  // Supplier on Purchases. Only rendered when entityOptions is given, so
+  // pages that don't need one (this component is shared across every report)
+  // are completely unaffected.
+  entityLabel,
+  entityValue = '',
+  entityOptions,
+  onEntityChange,
 }) {
   const { t } = useTheme();
   const { shopParams } = useShopApi();
@@ -85,6 +93,17 @@ export default function FinancialReportFilters({
           </select>
         </div>
       )}
+      {entityOptions && (
+        <div className="flex flex-col gap-1.5 min-w-[180px]">
+          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{entityLabel}</span>
+          <select className="input text-xs" value={entityValue} onChange={e => onEntityChange?.(e.target.value)}>
+            <option value="">{t('all') || 'All'} {entityLabel}</option>
+            {entityOptions.map(o => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
       {onRefresh && (
         <button type="button" onClick={onRefresh} className="btn-secondary flex items-center gap-2">
           <RefreshCw className="w-4 h-4" />{t('refresh') || 'Refresh'}
@@ -94,7 +113,10 @@ export default function FinancialReportFilters({
   );
 }
 
-export function buildReportFilterList({ t, from, to, asOf, branchId, branches, mode = 'period' }) {
+export function buildReportFilterList({
+  t, from, to, asOf, branchId, branches, mode = 'period',
+  entityLabel, entityValue, entityOptions,
+}) {
   const list = [];
   if (mode === 'period') {
     if (from) list.push({ label: t('from') || 'From', value: from });
@@ -105,6 +127,10 @@ export function buildReportFilterList({ t, from, to, asOf, branchId, branches, m
   if (branchId) {
     const branch = branches.find(b => String(b.id) === String(branchId));
     list.push({ label: t('location') || 'Location', value: branch?.name || branchId });
+  }
+  if (entityValue && entityOptions) {
+    const opt = entityOptions.find(o => String(o.id) === String(entityValue));
+    list.push({ label: entityLabel, value: opt?.name || entityValue });
   }
   return list;
 }

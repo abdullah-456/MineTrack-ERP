@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
-import { useShopApi, formatPKR, formatQty } from '../../hooks/useShopApi';
+import { useShopApi, formatPKR, formatPKROrZero, formatQty } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
@@ -57,7 +57,10 @@ function FlowCard({ icon: Icon, tone, title, amount, hint, lang, extra, onClick 
         </div>
         <ExternalLink className={`w-3.5 h-3.5 shrink-0 opacity-50 ${toneClass.split(' ')[0]}`} />
       </div>
-      <div className={`text-xl font-bold ${toneClass.split(' ')[0]}`}>{formatPKR(amount, lang)}</div>
+      {/* A real zero must read as "Rs. 0", not the same dash a genuinely
+          missing figure would show — otherwise a quiet day looks identical
+          to a card that failed to fetch. */}
+      <div className={`text-xl font-bold ${toneClass.split(' ')[0]}`}>{formatPKROrZero(amount, lang)}</div>
       {extra}
       {hint && <p className="mt-2 text-[11px] leading-snug" style={{ color: 'var(--text-muted)' }}>{hint}</p>}
       <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide opacity-70" style={{ color: 'var(--text-muted)' }}>
@@ -91,17 +94,28 @@ export default function SalesReport() {
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(todayStr());
   const [branchId, setBranchId] = useState('');
+  const [customerId, setCustomerId] = useState('');
+  const [customerOptions, setCustomerOptions] = useState(null);
   const [tab, setTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [customerModal, setCustomerModal] = useState(null); // customer row from by_customer / debtors
   const [cardModal, setCardModal] = useState(null); // money-flow KPI breakdown
 
+  // The customer picker's own list — fetched once, independent of the date
+  // range/branch, so narrowing the period doesn't also shrink who you can pick.
+  useEffect(() => {
+    api.get('/reports/modules/sales/filter-options', { params: shopParams() })
+      .then(({ data: res }) => setCustomerOptions(res.customers || []))
+      .catch(() => setCustomerOptions([]));
+  }, [shopParams]);
+
   const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
       const params = { ...shopParams(), from, to };
       if (branchId) params.branch_id = branchId;
+      if (customerId) params.customer_id = customerId;
       const { data: res } = await api.get('/reports/modules/sales/summary', { params });
       setData(res);
     } catch (e) {
@@ -110,7 +124,7 @@ export default function SalesReport() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, from, to, branchId, error, t]);
+  }, [shopParams, from, to, branchId, customerId, error, t]);
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
@@ -211,7 +225,10 @@ export default function SalesReport() {
     };
     if (map[key]) setCardModal(map[key]);
   };
-  const filters = buildReportFilterList({ t, from, to, branchId, branches });
+  const filters = buildReportFilterList({
+    t, from, to, branchId, branches,
+    entityLabel: t('customer') || 'Customer', entityValue: customerId, entityOptions: customerOptions,
+  });
 
   const money = (n) => formatPKR(n, 'en'); // English for PDF
 
@@ -404,6 +421,10 @@ export default function SalesReport() {
         onToChange={setTo}
         onBranchChange={setBranchId}
         onRefresh={fetchReport}
+        entityLabel={t('customer') || 'Customer'}
+        entityValue={customerId}
+        entityOptions={customerOptions}
+        onEntityChange={setCustomerId}
       />
 
       {loading && !data ? (

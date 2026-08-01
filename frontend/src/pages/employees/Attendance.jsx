@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { CalendarCheck, Loader2, Save, CheckCircle2, XCircle, Coffee } from 'lucide-react';
+import { CalendarCheck, Loader2, Save } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
@@ -9,12 +9,19 @@ import api from '../../api/axios';
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStr = () => new Date().toISOString().slice(0, 7);
 
+// Letter shown on the cell/button itself — P/A/L — so status reads without
+// relying on color alone. Order doubles as the click-cycle order: 1st click
+// on an unmarked cell lands on present, 2nd on absent, 3rd on leave.
 const STATUS_META = {
-  present: { labelKey: 'present', fallback: 'Present', badge: 'badge-green', icon: CheckCircle2, cell: 'rgb(16,185,129)' },
-  absent:  { labelKey: 'absent',  fallback: 'Absent',  badge: 'badge-red',   icon: XCircle,       cell: 'rgb(239,68,68)' },
-  leave:   { labelKey: 'leave',   fallback: 'Leave',    badge: 'badge-yellow', icon: Coffee,       cell: 'rgb(245,158,11)' },
+  present: { labelKey: 'present', fallback: 'Present', badge: 'badge-green', letter: 'P', cell: 'rgb(16,185,129)' },
+  absent:  { labelKey: 'absent',  fallback: 'Absent',  badge: 'badge-red',   letter: 'A', cell: 'rgb(239,68,68)' },
+  leave:   { labelKey: 'leave',   fallback: 'Leave',    badge: 'badge-yellow', letter: 'L', cell: 'rgb(245,158,11)' },
 };
 const STATUS_ORDER = ['present', 'absent', 'leave'];
+const nextStatus = (current) => {
+  const idx = current ? STATUS_ORDER.indexOf(current) : -1;
+  return STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
+};
 
 export default function Attendance() {
   const { t, lang } = useTheme();
@@ -97,6 +104,7 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
 
   const statusFor = (emp) => pending[emp.id]?.status ?? emp.status;
   const setStatus = (empId, status) => setPending(p => ({ ...p, [empId]: { ...p[empId], status } }));
+  const cycleStatus = (emp) => setStatus(emp.id, nextStatus(statusFor(emp)));
   const markAllPresent = () => {
     const next = {};
     employees.forEach(e => { next[e.id] = { ...pending[e.id], status: 'present' }; });
@@ -170,24 +178,21 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
                     <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.designation || '—'}</td>
                     {branches.length !== 1 && <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.branch?.name || '—'}</td>}
                     <td className="p-4">
-                      <div className="flex justify-end gap-1.5">
-                        {STATUS_ORDER.map(s => {
-                          const meta = STATUS_META[s];
-                          const Icon = meta.icon;
-                          const active = status === s;
-                          return (
-                            <button
-                              key={s}
-                              type="button"
-                              onClick={() => setStatus(emp.id, s)}
-                              title={t(meta.labelKey) || meta.fallback}
-                              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${active ? meta.badge : 'hover:bg-white/10'}`}
-                              style={!active ? { color: 'var(--text-muted)' } : undefined}
-                            >
-                              <Icon className="w-4 h-4" />
-                            </button>
-                          );
-                        })}
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => cycleStatus(emp)}
+                          title={status ? (t(STATUS_META[status]?.labelKey) || STATUS_META[status]?.fallback) : (t('unmarked') || 'Unmarked')}
+                          className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm transition-opacity hover:opacity-80"
+                          style={{
+                            background: status ? STATUS_META[status]?.cell : 'var(--bg-elevated)',
+                            border: status ? 'none' : '1px dashed var(--border-subtle)',
+                            color: status ? '#fff' : 'var(--text-muted)',
+                            boxShadow: isDirty ? '0 0 0 2px var(--text-primary)' : 'none',
+                          }}
+                        >
+                          {status ? STATUS_META[status]?.letter : ''}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -254,10 +259,7 @@ function MonthView({ shopParams, branchId, t, error, success }) {
   // only ever moves to the next of the three, wrapping around indefinitely.
   const cycle = (employeeId, day) => {
     if (`${data.month}-${day}` > todayStr()) return;
-    const current = statusFor(employeeId, day);
-    const idx = current ? STATUS_ORDER.indexOf(current) : -1;
-    const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
-    setPending(p => ({ ...p, [`${employeeId}:${day}`]: next }));
+    setPending(p => ({ ...p, [`${employeeId}:${day}`]: nextStatus(statusFor(employeeId, day)) }));
   };
 
   const dirtyCount = Object.keys(pending).length;
@@ -357,13 +359,16 @@ function MonthView({ shopParams, branchId, t, error, success }) {
                           disabled={future}
                           onClick={() => cycle(emp.id, d)}
                           title={status ? (t(STATUS_META[status]?.labelKey) || status) : (t('unmarked') || 'Unmarked')}
-                          className="w-5 h-5 rounded flex items-center justify-center mx-auto transition-opacity hover:opacity-80 disabled:opacity-30"
+                          className="w-6 h-6 rounded flex items-center justify-center mx-auto font-bold text-[10px] leading-none transition-opacity hover:opacity-80 disabled:opacity-30"
                           style={{
                             background: status ? STATUS_META[status]?.cell : 'var(--bg-elevated)',
                             border: status ? 'none' : '1px dashed var(--border-subtle)',
+                            color: status ? '#fff' : 'var(--text-muted)',
                             boxShadow: isDirty ? '0 0 0 2px var(--text-primary)' : 'none',
                           }}
-                        />
+                        >
+                          {status ? STATUS_META[status]?.letter : ''}
+                        </button>
                       </td>
                     );
                   })}

@@ -187,6 +187,18 @@ router.get('/reports/modules/accounting/summary', authorize('accounting', 'read'
 router.get('/reports/modules/employees/summary', authorize('employees', 'read'), moduleReportsController.employeesSummary);
 router.get('/reports/modules/board/summary', authorize('board_directors', 'read'), moduleReportsController.boardSummary);
 
+// Entity-picker options for each report's "narrow to one X" filter — gated on
+// the same permission as that module's own summary route, not shared, so a
+// user without accounting:read can still filter their own module's report.
+router.get('/reports/modules/sales/filter-options', authorize('sales', 'read'), moduleReportsController.salesFilterOptions);
+router.get('/reports/modules/purchases/filter-options', authorize('purchases', 'read'), moduleReportsController.purchasesFilterOptions);
+router.get('/reports/modules/inventory/filter-options', authorize('inventory', 'read'), moduleReportsController.inventoryFilterOptions);
+router.get('/reports/modules/customers/filter-options', authorize('customers', 'read'), moduleReportsController.customersFilterOptions);
+router.get('/reports/modules/suppliers/filter-options', authorize('suppliers', 'read'), moduleReportsController.suppliersFilterOptions);
+router.get('/reports/modules/expenses/filter-options', authorize('expenses', 'read'), moduleReportsController.expensesFilterOptions);
+router.get('/reports/modules/employees/filter-options', authorize('employees', 'read'), moduleReportsController.employeesFilterOptions);
+router.get('/reports/modules/board/filter-options', authorize('board_directors', 'read'), moduleReportsController.boardFilterOptions);
+
 // Financial Setup (first-time wizard) & Cash Sessions
 router.post(  '/financial-setup',                 financialSetupController.completeSetup);
 router.post(  '/financial-setup/skip',          financialSetupController.skipSetup);

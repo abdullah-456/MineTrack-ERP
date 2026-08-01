@@ -51,6 +51,7 @@ exports.salesSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    const customerId = req.query.customer_id ? parseInt(req.query.customer_id, 10) : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
     const saleWhere = {
@@ -59,6 +60,7 @@ exports.salesSummary = async (req, res) => {
       sale_date: { [Op.between]: [fromDate, toDate] },
     };
     if (branchId) saleWhere.branch_id = branchId;
+    if (customerId) saleWhere.customer_id = customerId;
 
     const sales = await db.Sale.findAll({
       where: saleWhere,
@@ -84,6 +86,7 @@ exports.salesSummary = async (req, res) => {
       return_date: { [Op.between]: [fromDate, toDate] },
     };
     if (branchId) returnWhere.branch_id = branchId;
+    if (customerId) returnWhere.customer_id = customerId;
 
     let returns = [];
     try {
@@ -95,7 +98,7 @@ exports.salesSummary = async (req, res) => {
     } catch {
       // Older schemas may use created_at only — fall back without branch/date constraints beyond shop
       returns = await db.SaleReturn.findAll({
-        where: { shop_id: shopId, status: 'completed' },
+        where: { shop_id: shopId, status: 'completed', ...(customerId ? { customer_id: customerId } : {}) },
         attributes: ['id', 'refund_amount', 'refund_method', 'return_date', 'created_at', 'sale_id', 'customer_id'],
         include: [{ model: db.Customer, attributes: ['id', 'name'] }],
       });
@@ -110,15 +113,20 @@ exports.salesSummary = async (req, res) => {
       type: 'payment_received',
       date: { [Op.between]: [fromDate, toDate] },
     };
+    if (customerId) recoveryWhere.customer_id = customerId;
     const recoveries = await db.CustomerTransaction.findAll({
       where: recoveryWhere,
       include: [{ model: db.Customer, attributes: ['id', 'name', 'phone'] }],
       order: [['date', 'DESC']],
     });
 
-    // Snapshot: outstanding receivables / customer advances (shop-wide; not period-bound)
+    // Snapshot: outstanding receivables / customer advances (shop-wide; not period-bound).
+    // Narrowed to the one customer when filtered, so "Sales Report -> Customer: X" reads
+    // as everything about X rather than X's sales plus everyone else's receivables.
+    const customerSnapshotWhere = { shop_id: shopId, status: 'active' };
+    if (customerId) customerSnapshotWhere.id = customerId;
     const customers = await db.Customer.findAll({
-      where: { shop_id: shopId, status: 'active' },
+      where: customerSnapshotWhere,
       attributes: ['id', 'name', 'phone', 'current_balance', 'credit_limit'],
       order: [['name', 'ASC']],
     });
@@ -274,6 +282,7 @@ exports.salesSummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      customer_id: customerId || null,
       flow: {
         // Clear money language for the UI
         incomings: {
@@ -397,6 +406,7 @@ exports.purchasesSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    const supplierId = req.query.supplier_id ? parseInt(req.query.supplier_id, 10) : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
     const grnWhere = {
@@ -405,6 +415,7 @@ exports.purchasesSummary = async (req, res) => {
       receipt_date: { [Op.between]: [fromDate, toDate] },
     };
     if (branchId) grnWhere.branch_id = branchId;
+    if (supplierId) grnWhere.supplier_id = supplierId;
 
     const receipts = await db.GoodsReceiptNote.findAll({
       where: grnWhere,
@@ -420,14 +431,19 @@ exports.purchasesSummary = async (req, res) => {
       shop_id: shopId,
       date: { [Op.between]: [fromDate, toDate] },
     };
+    if (supplierId) txnWhere.supplier_id = supplierId;
     const transactions = await db.SupplierTransaction.findAll({
       where: txnWhere,
       include: [{ model: db.Supplier, attributes: ['id', 'company_name', 'name'] }],
       order: [['date', 'DESC']],
     });
 
+    // Shop-wide payables/advances snapshot, narrowed to the one supplier when
+    // filtered — see the matching comment in salesSummary's customer snapshot.
+    const supplierSnapshotWhere = { shop_id: shopId, status: 'active' };
+    if (supplierId) supplierSnapshotWhere.id = supplierId;
     const suppliers = await db.Supplier.findAll({
-      where: { shop_id: shopId, status: 'active' },
+      where: supplierSnapshotWhere,
       attributes: ['id', 'company_name', 'name', 'phone', 'current_payable', 'credit_balance'],
       order: [['company_name', 'ASC']],
     });
@@ -566,6 +582,7 @@ exports.purchasesSummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      supplier_id: supplierId || null,
       cards: [
         {
           key: 'stock_received',
@@ -764,10 +781,12 @@ exports.inventorySummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    const productId = req.query.product_id ? parseInt(req.query.product_id, 10) : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
     const moveWhere = { created_at: { [Op.between]: [fromDate, toDate] } };
     if (branchId) moveWhere.branch_id = branchId;
+    if (productId) moveWhere.product_id = productId;
 
     const movements = await db.StockMovement.findAll({
       where: moveWhere,
@@ -779,6 +798,7 @@ exports.inventorySummary = async (req, res) => {
     });
 
     const productWhere = { shop_id: shopId, status: 'active' };
+    if (productId) productWhere.id = productId;
     const stockInclude = {
       model: db.Stock,
       as: 'Stock',
@@ -889,6 +909,7 @@ exports.inventorySummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      product_id: productId || null,
       cards: [
         {
           key: 'stock_in',
@@ -1041,16 +1062,21 @@ exports.customersSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    const customerId = req.query.customer_id ? parseInt(req.query.customer_id, 10) : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
+    const txnWhere = { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } };
+    if (customerId) txnWhere.customer_id = customerId;
     const txns = await db.CustomerTransaction.findAll({
-      where: { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } },
+      where: txnWhere,
       include: [{ model: db.Customer, attributes: ['id', 'name', 'phone', 'current_balance'] }],
       order: [['date', 'DESC']],
     });
 
+    const customerSnapshotWhere = { shop_id: shopId, status: 'active' };
+    if (customerId) customerSnapshotWhere.id = customerId;
     const customers = await db.Customer.findAll({
-      where: { shop_id: shopId, status: 'active' },
+      where: customerSnapshotWhere,
       attributes: ['id', 'name', 'phone', 'current_balance', 'credit_limit'],
       order: [['name', 'ASC']],
     });
@@ -1133,6 +1159,7 @@ exports.customersSummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      customer_id: customerId || null,
       cards: [
         {
           key: 'charges',
@@ -1283,16 +1310,21 @@ exports.suppliersSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    const supplierId = req.query.supplier_id ? parseInt(req.query.supplier_id, 10) : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
+    const txnWhere = { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } };
+    if (supplierId) txnWhere.supplier_id = supplierId;
     const transactions = await db.SupplierTransaction.findAll({
-      where: { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } },
+      where: txnWhere,
       include: [{ model: db.Supplier, attributes: ['id', 'company_name', 'name'] }],
       order: [['date', 'DESC']],
     });
 
+    const supplierSnapshotWhere = { shop_id: shopId, status: 'active' };
+    if (supplierId) supplierSnapshotWhere.id = supplierId;
     const suppliers = await db.Supplier.findAll({
-      where: { shop_id: shopId, status: 'active' },
+      where: supplierSnapshotWhere,
       attributes: ['id', 'company_name', 'name', 'phone', 'current_payable', 'credit_balance'],
       order: [['company_name', 'ASC']],
     });
@@ -1368,6 +1400,7 @@ exports.suppliersSummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      supplier_id: supplierId || null,
       cards: [
         {
           key: 'stock_received',
@@ -1494,6 +1527,7 @@ exports.expensesSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    const category = req.query.category ? String(req.query.category).trim() : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
     const expWhere = {
@@ -1502,6 +1536,9 @@ exports.expensesSummary = async (req, res) => {
       expense_date: { [Op.between]: [fromDate, toDate] },
     };
     if (branchId) expWhere.branch_id = branchId;
+    // Exact match — category is free text (no categories table), so this is the
+    // same string the by_category breakdown already groups on.
+    if (category) expWhere.category = category;
 
     const expenses = await db.Expense.findAll({
       where: expWhere,
@@ -1560,6 +1597,7 @@ exports.expensesSummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      category: category || null,
       cards: [
         {
           key: 'total_outgoings',
@@ -1685,6 +1723,10 @@ exports.accountingSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    // Voucher type is a fixed enum, not a linked entity — see backend/models/voucher.js.
+    // The by_type tab already groups on this same column.
+    const VOUCHER_TYPES = ['payment', 'receipt', 'journal', 'contra', 'opening', 'closing'];
+    const voucherType = VOUCHER_TYPES.includes(req.query.voucher_type) ? req.query.voucher_type : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
     const voucherWhere = {
@@ -1693,6 +1735,7 @@ exports.accountingSummary = async (req, res) => {
       voucher_date: { [Op.between]: [fromDate, toDate] },
     };
     if (branchId) voucherWhere.branch_id = branchId;
+    if (voucherType) voucherWhere.voucher_type = voucherType;
 
     const vouchers = await db.Voucher.findAll({
       where: voucherWhere,
@@ -1765,6 +1808,7 @@ exports.accountingSummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      voucher_type: voucherType || null,
       cards: [
         {
           key: 'receipts_in',
@@ -1905,6 +1949,7 @@ exports.employeesSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    const employeeId = req.query.employee_id ? parseInt(req.query.employee_id, 10) : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
     const empInclude = {
@@ -1913,14 +1958,17 @@ exports.employeesSummary = async (req, res) => {
       ...(branchId ? { where: { branch_id: branchId } } : {}),
     };
 
+    const txnWhere = { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } };
+    if (employeeId) txnWhere.employee_id = employeeId;
     const txns = await db.EmployeeTransaction.findAll({
-      where: { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } },
+      where: txnWhere,
       include: [empInclude],
       order: [['date', 'DESC']],
     });
 
     const empWhere = { shop_id: shopId, status: 'active' };
     if (branchId) empWhere.branch_id = branchId;
+    if (employeeId) empWhere.id = employeeId;
     const employees = await db.Employee.findAll({
       where: empWhere,
       attributes: ['id', 'name', 'phone', 'current_payable'],
@@ -1988,6 +2036,7 @@ exports.employeesSummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      employee_id: employeeId || null,
       cards: [
         {
           key: 'salary_paid',
@@ -2120,16 +2169,21 @@ exports.boardSummary = async (req, res) => {
 
     const { from, to } = defaultRange(req.query);
     const branchId = parseBranchId(req.query);
+    const memberId = req.query.board_member_id ? parseInt(req.query.board_member_id, 10) : undefined;
     const { fromDate, toDate } = rangeDates(from, to);
 
+    const txnWhere = { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } };
+    if (memberId) txnWhere.board_member_id = memberId;
     const txns = await db.BoardMemberTransaction.findAll({
-      where: { shop_id: shopId, date: { [Op.between]: [fromDate, toDate] } },
+      where: txnWhere,
       include: [{ model: db.BoardMember, attributes: ['id', 'name', 'current_balance'] }],
       order: [['date', 'DESC']],
     });
 
+    const memberSnapshotWhere = { shop_id: shopId };
+    if (memberId) memberSnapshotWhere.id = memberId;
     const members = await db.BoardMember.findAll({
-      where: { shop_id: shopId },
+      where: memberSnapshotWhere,
       attributes: ['id', 'name', 'phone', 'current_balance'],
       order: [['name', 'ASC']],
     });
@@ -2202,6 +2256,7 @@ exports.boardSummary = async (req, res) => {
       from,
       to,
       branch_id: branchId || null,
+      board_member_id: memberId || null,
       cards: [
         {
           key: 'contributions',
@@ -2316,6 +2371,114 @@ exports.boardSummary = async (req, res) => {
     });
   } catch (error) {
     console.error('boardSummary report error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// ── Filter options for the "narrow to one X" dropdown on each report ────────
+// Cheap id+name lookups, unscoped by date/branch/status — the picker itself
+// shouldn't shrink when the date range narrows, and an inactive/terminated
+// entity with historical activity in the period must still be selectable.
+// Same shape and same no-status-filter precedent as
+// utils/ledgerEntityFilter.js's listFilterOptions (used by the General
+// Ledger), just split one per module so each is gated on that module's own
+// permission instead of everything piggybacking on 'accounting:read'.
+async function nameList(model, where, attributes, order, nameOf) {
+  const rows = await model.findAll({ where, attributes, order, raw: true });
+  return rows.map(r => ({ id: r.id, name: nameOf(r) }));
+}
+
+exports.salesFilterOptions = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const customers = await nameList(
+      db.Customer, { shop_id: shopId }, ['id', 'name'], [['name', 'ASC']], c => c.name,
+    );
+    return res.json({ customers });
+  } catch (error) {
+    console.error('salesFilterOptions error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+exports.customersFilterOptions = exports.salesFilterOptions;
+
+exports.purchasesFilterOptions = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const suppliers = await nameList(
+      db.Supplier, { shop_id: shopId }, ['id', 'company_name', 'name'], [['company_name', 'ASC']],
+      s => supplierName(s),
+    );
+    return res.json({ suppliers });
+  } catch (error) {
+    console.error('purchasesFilterOptions error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+exports.suppliersFilterOptions = exports.purchasesFilterOptions;
+
+exports.inventoryFilterOptions = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const products = await nameList(
+      db.Product, { shop_id: shopId }, ['id', 'name', 'sku'], [['name', 'ASC']],
+      p => (p.sku ? `${p.name} (${p.sku})` : p.name),
+    );
+    return res.json({ products });
+  } catch (error) {
+    console.error('inventoryFilterOptions error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// Category has no lookup table (Expense.category is free text) — the option
+// list is whatever distinct values this shop has actually used, id === name
+// so it round-trips straight into the `category` query param unchanged.
+exports.expensesFilterOptions = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const rows = await db.Expense.findAll({
+      where: { shop_id: shopId },
+      attributes: [[db.sequelize.fn('DISTINCT', db.sequelize.col('category')), 'category']],
+      order: [['category', 'ASC']],
+      raw: true,
+    });
+    const categories = rows.map(r => r.category).filter(Boolean).map(c => ({ id: c, name: c }));
+    return res.json({ categories });
+  } catch (error) {
+    console.error('expensesFilterOptions error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.employeesFilterOptions = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const employees = await nameList(
+      db.Employee, { shop_id: shopId }, ['id', 'name'], [['name', 'ASC']], e => e.name,
+    );
+    return res.json({ employees });
+  } catch (error) {
+    console.error('employeesFilterOptions error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.boardFilterOptions = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const boardMembers = await nameList(
+      db.BoardMember, { shop_id: shopId }, ['id', 'name'], [['name', 'ASC']], m => m.name,
+    );
+    return res.json({ board_members: boardMembers });
+  } catch (error) {
+    console.error('boardFilterOptions error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
