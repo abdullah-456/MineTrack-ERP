@@ -7,6 +7,7 @@ const categoryController = require('../controllers/categoryController');
 const inventoryController = require('../controllers/inventoryController');
 const customerController = require('../controllers/customerController');
 const employeeController = require('../controllers/employeeController');
+const attendanceController = require('../controllers/attendanceController');
 const saleController = require('../controllers/saleController');
 const invoiceController = require('../controllers/invoiceController');
 const saleReturnController = require('../controllers/saleReturnController');
@@ -123,6 +124,12 @@ router.post(  '/employees/:id/loans',    authorize('employees', 'update'), emplo
 router.post(  '/employees/:id/receive-loan-payment', authorize('employees', 'update'), employeeLedgerController.receiveLoanPayment);
 router.post(  '/employees/:id/opening-balance', authorize('employees', 'update'), employeeLedgerController.recordOpeningBalance);
 router.post(  '/employees/:id/give-salary', authorize('employees', 'update'), employeeLedgerController.giveSalary);
+
+// Attendance
+router.get(   '/attendance',        authorize('attendance', 'read'),   attendanceController.getDay);
+router.get(   '/attendance/month',  authorize('attendance', 'read'),   attendanceController.getMonth);
+router.get(   '/attendance/summary', authorize('attendance', 'read'),  attendanceController.getSummary);
+router.post(  '/attendance/mark',   authorize('attendance', 'create'), attendanceController.mark);
 
 // Sales
 router.get(   '/sales',                  authorize('sales', 'read'),   saleController.list);

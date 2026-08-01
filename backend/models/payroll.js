@@ -48,6 +48,21 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DECIMAL(15, 2),
       defaultValue: 0.00
     },
+    // Portion of `deductions` from unpaid absence (see giveSalary) — kept
+    // separate, same reasoning as advance_deduction, so payslips can itemize
+    // "N days absent × daily rate" instead of a single combined figure.
+    attendance_deduction: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0.00
+    },
+    absent_days: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0
+    },
+    leave_days: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0
+    },
     net_pay: {
       type: DataTypes.DECIMAL(15, 2),
       allowNull: false

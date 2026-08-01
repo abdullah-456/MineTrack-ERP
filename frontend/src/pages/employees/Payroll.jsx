@@ -13,6 +13,7 @@ import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import { useHighlightRow } from '../../hooks/useHighlightRow';
+import { getCompany } from '../../utils/reportExport';
 
 export default function Payroll() {
   const { t, lang } = useTheme();
@@ -22,6 +23,16 @@ export default function Payroll() {
   const isRTL = lang === 'ur';
   const { isHighlighted } = useHighlightRow();
   const currentMonth = new Date().toISOString().slice(0, 7);
+
+  // The shop's own wording for the absence deduction, if they've set one
+  // (Company Profile settings) — falls back to the translated default.
+  // Controls both the Give Salary checkbox and the breakdown line below.
+  const [absenceDeductionLabel, setAbsenceDeductionLabel] = useState(t('deductForAbsences') || 'Deduct for absences');
+  useEffect(() => {
+    getCompany().then(c => {
+      if (c.attendance_deduction_label) setAbsenceDeductionLabel(c.attendance_deduction_label);
+    });
+  }, []);
 
   const [employees, setEmployees] = useState([]);
   const [latestPayslips, setLatestPayslips] = useState({});
@@ -33,7 +44,11 @@ export default function Payroll() {
   const [modalEmp, setModalEmp] = useState(null); // employee row the modal is for
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [advanceForSelectedMonth, setAdvanceForSelectedMonth] = useState(0);
-  const [salaryForm, setSalaryForm] = useState({ month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '' });
+  const [salaryForm, setSalaryForm] = useState({
+    month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
+    deduct_for_absence: false, count_leave_as_absence: false,
+  });
+  const [attendanceSummary, setAttendanceSummary] = useState(null);
   const [paidMonths, setPaidMonths] = useState(new Set()); // months already given for modalEmp
   const [monthError, setMonthError] = useState(''); // only set right after an invalid pick attempt
 
@@ -68,9 +83,21 @@ export default function Payroll() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const fetchAttendanceSummary = useCallback(async (employeeId, month) => {
+    try {
+      const { data } = await api.get('/attendance/summary', { params: { ...shopParams(), employee_id: employeeId, month } });
+      setAttendanceSummary(data);
+    } catch {
+      setAttendanceSummary(null);
+    }
+  }, [shopParams]);
+
   const openGiveSalary = async (emp) => {
     setModalEmp(emp);
-    setSalaryForm({ month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '' });
+    setSalaryForm({
+      month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
+      deduct_for_absence: false, count_leave_as_absence: false,
+    });
     setPaidMonths(new Set());
     setMonthError('');
     setLedgerLoading(true);
@@ -85,6 +112,7 @@ export default function Payroll() {
         .filter(t2 => t2.type === 'advance_given' && !t2.cleared && t2.for_month === nextMonth)
         .reduce((s, t2) => s + parseFloat(t2.amount || 0), 0);
       setAdvanceForSelectedMonth(pending);
+      fetchAttendanceSummary(emp.id, nextMonth);
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
       setAdvanceForSelectedMonth(0);
@@ -102,12 +130,13 @@ export default function Payroll() {
         .filter(t2 => t2.type === 'advance_given' && !t2.cleared && t2.for_month === month)
         .reduce((s, t2) => s + parseFloat(t2.amount || 0), 0);
       setAdvanceForSelectedMonth(pending);
+      fetchAttendanceSummary(modalEmp.id, month);
     } catch {
       setAdvanceForSelectedMonth(0);
     } finally {
       setLedgerLoading(false);
     }
-  }, [modalEmp, shopParams]);
+  }, [modalEmp, shopParams, fetchAttendanceSummary]);
 
   // Blocks re-selecting a month whose salary was already given — the native
   // `min` bound on the input already greys these out for the common
@@ -139,7 +168,20 @@ export default function Payroll() {
   const grossSalary = basicSalary + bonusVal;
   const taxPercentVal = Math.min(100, Math.max(0, parseFloat(salaryForm.tax_deduction_percent) || 0));
   const taxDeductionVal = Math.round((grossSalary * taxPercentVal / 100) * 100) / 100;
-  const netPayPreview = Math.round((grossSalary - taxDeductionVal - advanceForSelectedMonth) * 100) / 100;
+
+  // Mirrors employeeLedgerController.giveSalary exactly — real days in the
+  // selected month, not a fixed divisor — so this preview never disagrees with
+  // what actually gets saved.
+  const [previewYear, previewMon] = salaryForm.month.split('-').map(Number);
+  const daysInSelectedMonth = new Date(previewYear, previewMon, 0).getDate();
+  const absentDaysVal = attendanceSummary?.absent_days || 0;
+  const leaveDaysVal = attendanceSummary?.leave_days || 0;
+  const deductDaysVal = absentDaysVal + (salaryForm.count_leave_as_absence ? leaveDaysVal : 0);
+  const attendanceDeductionVal = salaryForm.deduct_for_absence
+    ? Math.round((basicSalary / daysInSelectedMonth) * deductDaysVal * 100) / 100
+    : 0;
+
+  const netPayPreview = Math.round((grossSalary - taxDeductionVal - advanceForSelectedMonth - attendanceDeductionVal) * 100) / 100;
 
   const submitSalary = async (e) => {
     e.preventDefault();
@@ -162,6 +204,8 @@ export default function Payroll() {
         method: salaryForm.method,
         bank_account_id: salaryForm.bank_account_id,
         date: salaryForm.date || undefined,
+        deduct_for_absence: salaryForm.deduct_for_absence,
+        count_leave_as_absence: salaryForm.count_leave_as_absence,
         ...shopParams(),
       });
       success(t('salaryGiven') || 'Salary given successfully');
@@ -349,6 +393,33 @@ export default function Payroll() {
               />
             </div>
 
+            {attendanceSummary && (attendanceSummary.absent_days > 0 || attendanceSummary.leave_days > 0 || attendanceSummary.present_days > 0) && (
+              <div className="rounded-lg p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {attendanceSummary.present_days} {t('present') || 'present'} · {attendanceSummary.absent_days} {t('absent') || 'absent'} · {attendanceSummary.leave_days} {t('leave') || 'leave'}
+                  {' '}({formatMonthLabel(salaryForm.month)})
+                </p>
+                <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={salaryForm.deduct_for_absence}
+                    onChange={e => setSalaryForm(f => ({ ...f, deduct_for_absence: e.target.checked }))}
+                  />
+                  {absenceDeductionLabel}
+                </label>
+                {salaryForm.deduct_for_absence && (
+                  <label className="flex items-center gap-2 text-sm ps-6 cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={salaryForm.count_leave_as_absence}
+                      onChange={e => setSalaryForm(f => ({ ...f, count_leave_as_absence: e.target.checked }))}
+                    />
+                    {t('countLeaveAsAbsence') || 'Also deduct for leave days'}
+                  </label>
+                )}
+              </div>
+            )}
+
             <div className="rounded-lg p-3 space-y-1 text-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
               {ledgerLoading ? (
                 <div className="flex justify-center py-2"><Loader2 className="w-4 h-4 animate-spin text-cyan-400" /></div>
@@ -370,6 +441,11 @@ export default function Payroll() {
                   {advanceForSelectedMonth > 0 && (
                     <div className="flex justify-between text-red-400">
                       <span>- {t('advanceDeduction') || 'Advance Deduction'}</span><span>-{formatPKR(advanceForSelectedMonth, lang)}</span>
+                    </div>
+                  )}
+                  {attendanceDeductionVal > 0 && (
+                    <div className="flex justify-between text-red-400">
+                      <span>- {absenceDeductionLabel} ({deductDaysVal}d)</span><span>-{formatPKR(attendanceDeductionVal, lang)}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-bold pt-1" style={{ borderTop: '1px solid var(--border-subtle)', color: netPayPreview < 0 ? 'rgb(239,68,68)' : 'var(--text-primary)' }}>

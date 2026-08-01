@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
-import { Building2, Mail, Phone, MapPin, User, ImageUp, Trash2, Loader2 } from 'lucide-react';
+import { Building2, Mail, Phone, MapPin, User, ImageUp, Trash2, Loader2, Tag } from 'lucide-react';
 import api from '../../api/axios';
 import { clearCompanyCache } from '../../utils/reportExport';
 import FormLabel from '../../components/ui/FormLabel';
@@ -44,6 +44,7 @@ export default function CompanyProfile() {
 
   const [form, setForm] = useState({
     name: '', owner_name: '', email: '', phone: '', address: '', logo_url: '',
+    attendance_deduction_label: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
@@ -59,6 +60,7 @@ export default function CompanyProfile() {
         if (alive) setForm({
           name: c.name || '', owner_name: c.owner_name || '', email: c.email || '',
           phone: c.phone || '', address: c.address || '', logo_url: c.logo_url || '',
+          attendance_deduction_label: c.attendance_deduction_label || '',
         });
       } catch {
         showError(t('somethingWrong'));
@@ -207,6 +209,27 @@ export default function CompanyProfile() {
                   className="input-field pl-9 resize-none" />
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Payroll terminology */}
+        <div className="card space-y-4">
+          <h2 className="font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+            <Tag className="w-4 h-4 text-brand-400" /> {t('payrollTerminology') || 'Payroll Terminology'}
+          </h2>
+          <div>
+            <label className="form-label">{t('attendanceDeductionLabel') || 'Absence Deduction Label'}</label>
+            <input
+              value={form.attendance_deduction_label}
+              onChange={set('attendance_deduction_label')}
+              maxLength={60}
+              placeholder={t('deductForAbsences') || 'Deduct for absences'}
+              className="input-field"
+            />
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              {t('attendanceDeductionLabelHint')
+                || 'Shown on the Give Salary checkbox and on payslips. Leave blank to use the default wording.'}
+            </p>
           </div>
         </div>
 

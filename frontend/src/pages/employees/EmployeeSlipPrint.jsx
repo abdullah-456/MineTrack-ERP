@@ -72,7 +72,7 @@ export default function EmployeeSlipPrint() {
   const isIncoming = txn.type === 'loan_repayment';
   const headlineAmount = payroll ? payroll.net_pay : txn.amount;
   const taxDeduction = payroll
-    ? (payroll.tax_deduction ?? Math.max(0, (payroll.deductions || 0) - (payroll.advance_deduction || 0)))
+    ? (payroll.tax_deduction ?? Math.max(0, (payroll.deductions || 0) - (payroll.advance_deduction || 0) - (payroll.attendance_deduction || 0)))
     : 0;
   const taxPercent = payroll?.tax_deduction_percent || 0;
   const taxLabel = taxPercent > 0
@@ -143,6 +143,15 @@ export default function EmployeeSlipPrint() {
                   {taxDeduction > 0 ? `−${fmt(taxDeduction)}` : '-'}
                 </td>
               </tr>
+              {payroll.attendance_deduction > 0 && (
+                <tr>
+                  <td style={{ color: INK_SOFT }}>
+                    {company.attendance_deduction_label || t('absenceDeduction') || 'Absence Deduction'}
+                    {' '}({payroll.absent_days}{t('daysAbbrev') || 'd'}{payroll.leave_days > 0 ? ` + ${payroll.leave_days}${t('daysAbbrev') || 'd'} ${t('leave') || 'leave'}` : ''})
+                  </td>
+                  <td className="num" style={{ color: '#b91c1c' }}>−{fmt(payroll.attendance_deduction)}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ color: INK_SOFT }}>{t('others') || 'Others'}</td>
                 <td className="num">-</td>

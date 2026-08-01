@@ -1,0 +1,381 @@
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { CalendarCheck, Loader2, Save, CheckCircle2, XCircle, Coffee } from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
+import { useToast } from '../../context/ToastContext';
+import { useShopApi } from '../../hooks/useShopApi';
+import PageHeader from '../../components/ui/PageHeader';
+import api from '../../api/axios';
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const monthStr = () => new Date().toISOString().slice(0, 7);
+
+const STATUS_META = {
+  present: { labelKey: 'present', fallback: 'Present', badge: 'badge-green', icon: CheckCircle2, cell: 'rgb(16,185,129)' },
+  absent:  { labelKey: 'absent',  fallback: 'Absent',  badge: 'badge-red',   icon: XCircle,       cell: 'rgb(239,68,68)' },
+  leave:   { labelKey: 'leave',   fallback: 'Leave',    badge: 'badge-yellow', icon: Coffee,       cell: 'rgb(245,158,11)' },
+};
+const STATUS_ORDER = ['present', 'absent', 'leave'];
+
+export default function Attendance() {
+  const { t, lang } = useTheme();
+  const { error, success } = useToast();
+  const { shopParams, branches } = useShopApi();
+  const isRTL = lang === 'ur';
+
+  const [tab, setTab] = useState('today'); // 'today' | 'month'
+  const [branchId, setBranchId] = useState('');
+  const showBranchFilter = branches.length > 1;
+
+  return (
+    <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
+      <PageHeader
+        icon={CalendarCheck}
+        accent="emerald"
+        title={t('attendance') || 'Attendance'}
+        subtitle={t('attendanceSub') || 'Mark daily attendance and review the month at a glance'}
+      />
+
+      <div className="glass-card p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setTab('today')}
+            className={tab === 'today' ? 'btn-primary text-sm' : 'btn-secondary text-sm'}
+          >
+            {t('today') || 'Today'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('month')}
+            className={tab === 'month' ? 'btn-primary text-sm' : 'btn-secondary text-sm'}
+          >
+            {t('monthView') || 'Month View'}
+          </button>
+        </div>
+        {showBranchFilter && (
+          <select className="input max-w-xs" value={branchId} onChange={e => setBranchId(e.target.value)}>
+            <option value="">{t('allBranches') || 'All branches'}</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        )}
+      </div>
+
+      {tab === 'today'
+        ? <TodayView shopParams={shopParams} branchId={branchId} branches={branches} t={t} error={error} success={success} />
+        : <MonthView shopParams={shopParams} branchId={branchId} t={t} error={error} success={success} />}
+    </div>
+  );
+}
+
+// ── Today: the fast daily path ───────────────────────────────────────────────
+function TodayView({ shopParams, branchId, branches, t, error, success }) {
+  const [date, setDate] = useState(todayStr());
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  // Local edits keyed by employee id, seeded from the fetched roster and
+  // merged on save — lets the whole grid be adjusted before one save call
+  // instead of round-tripping per row.
+  const [pending, setPending] = useState({});
+
+  const fetchDay = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { ...shopParams(), date };
+      if (branchId) params.branch_id = branchId;
+      const { data } = await api.get('/attendance', { params });
+      setEmployees(data.employees || []);
+      setPending({});
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setLoading(false);
+    }
+  }, [shopParams, branchId, date, error, t]);
+
+  useEffect(() => { fetchDay(); }, [fetchDay]);
+
+  const statusFor = (emp) => pending[emp.id]?.status ?? emp.status;
+  const setStatus = (empId, status) => setPending(p => ({ ...p, [empId]: { ...p[empId], status } }));
+  const markAllPresent = () => {
+    const next = {};
+    employees.forEach(e => { next[e.id] = { ...pending[e.id], status: 'present' }; });
+    setPending(next);
+  };
+
+  const dirtyCount = Object.keys(pending).length;
+
+  const handleSave = async () => {
+    const entries = Object.entries(pending)
+      .filter(([, v]) => v.status)
+      .map(([employee_id, v]) => ({ employee_id: parseInt(employee_id, 10), status: v.status }));
+    if (!entries.length) return;
+    setSaving(true);
+    try {
+      await api.post('/attendance/mark', { ...shopParams(), date, entries });
+      success(t('attendanceSaved') || 'Attendance saved');
+      fetchDay();
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="glass-card p-4 flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('date') || 'Date'}</span>
+          <input className="input" type="date" max={todayStr()} value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+        <button type="button" onClick={markAllPresent} className="btn-secondary text-sm self-end">
+          {t('markAllPresent') || 'Mark all present'}
+        </button>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirtyCount || saving}
+          className="btn-primary flex items-center gap-2 text-sm self-end"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {t('save') || 'Save'}{dirtyCount > 0 ? ` (${dirtyCount})` : ''}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-emerald-400" /></div>
+      ) : (
+        <div className="glass-card overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                <th className="text-start p-4">{t('name') || 'Name'}</th>
+                <th className="text-start p-4">{t('designation') || 'Designation'}</th>
+                {branches.length !== 1 && <th className="text-start p-4">{t('branch') || 'Branch'}</th>}
+                <th className="text-end p-4">{t('status') || 'Status'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map(emp => {
+                const status = statusFor(emp);
+                const isDirty = !!pending[emp.id];
+                return (
+                  <tr
+                    key={emp.id}
+                    style={{ borderBottom: '1px solid var(--border-subtle)', background: isDirty ? 'rgba(16,185,129,0.05)' : undefined }}
+                  >
+                    <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{emp.name}</td>
+                    <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.designation || '—'}</td>
+                    {branches.length !== 1 && <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.branch?.name || '—'}</td>}
+                    <td className="p-4">
+                      <div className="flex justify-end gap-1.5">
+                        {STATUS_ORDER.map(s => {
+                          const meta = STATUS_META[s];
+                          const Icon = meta.icon;
+                          const active = status === s;
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => setStatus(emp.id, s)}
+                              title={t(meta.labelKey) || meta.fallback}
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${active ? meta.badge : 'hover:bg-white/10'}`}
+                              style={!active ? { color: 'var(--text-muted)' } : undefined}
+                            >
+                              <Icon className="w-4 h-4" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {employees.length === 0 && (
+                <tr><td colSpan={4} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEmployees') || 'No employees'}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Month: review / backfill the whole roster at once ────────────────────────
+// Mirrors TodayView's stage-then-save shape: clicking cells only edits local
+// state, nothing is sent until Save is pressed. The previous version saved
+// each click immediately with no Save button and no way to tell it had
+// worked, and the cycle had a dead end at "leave" — clicking further did
+// nothing at all, which is what read as "not saved from here".
+function MonthView({ shopParams, branchId, t, error, success }) {
+  const [month, setMonth] = useState(monthStr());
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  // Local edits keyed by `${employeeId}:${day}`, merged over the fetched grid
+  // and only sent to the server on Save.
+  const [pending, setPending] = useState({});
+
+  const fetchMonth = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { ...shopParams(), month };
+      if (branchId) params.branch_id = branchId;
+      const { data: res } = await api.get('/attendance/month', { params });
+      setData(res);
+      setPending({});
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setLoading(false);
+    }
+  }, [shopParams, branchId, month, error, t]);
+
+  useEffect(() => { fetchMonth(); }, [fetchMonth]);
+
+  const days = useMemo(() => {
+    if (!data) return [];
+    const [y, m] = data.month.split('-').map(Number);
+    const count = new Date(y, m, 0).getDate();
+    return Array.from({ length: count }, (_, i) => String(i + 1).padStart(2, '0'));
+  }, [data]);
+
+  const statusFor = (employeeId, day) => {
+    const key = `${employeeId}:${day}`;
+    if (pending[key]) return pending[key];
+    return data.employees.find(e => e.id === employeeId)?.days?.[day]?.status || null;
+  };
+
+  // Always cycles within the three real statuses — no dead end. A cell that
+  // was never marked starts at "present" on the first click; from there it
+  // only ever moves to the next of the three, wrapping around indefinitely.
+  const cycle = (employeeId, day) => {
+    if (`${data.month}-${day}` > todayStr()) return;
+    const current = statusFor(employeeId, day);
+    const idx = current ? STATUS_ORDER.indexOf(current) : -1;
+    const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
+    setPending(p => ({ ...p, [`${employeeId}:${day}`]: next }));
+  };
+
+  const dirtyCount = Object.keys(pending).length;
+
+  const handleSave = async () => {
+    // /attendance/mark takes one date at a time, so pending edits (which can
+    // span the whole month) are grouped by date and sent as one call per date
+    // touched — not one call per cell.
+    const byDate = {};
+    Object.entries(pending).forEach(([key, status]) => {
+      const [employeeId, day] = key.split(':');
+      const date = `${data.month}-${day}`;
+      (byDate[date] = byDate[date] || []).push({ employee_id: parseInt(employeeId, 10), status });
+    });
+    if (!Object.keys(byDate).length) return;
+
+    setSaving(true);
+    try {
+      await Promise.all(Object.entries(byDate).map(([date, entries]) =>
+        api.post('/attendance/mark', { ...shopParams(), date, entries })));
+      success(t('attendanceSaved') || 'Attendance saved');
+      fetchMonth();
+    } catch (e) {
+      error(e.response?.data?.message || t('toastErrorGeneric'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="glass-card p-4 flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>{t('month') || 'Month'}</span>
+          <input className="input" type="month" max={monthStr()} value={month} onChange={e => setMonth(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+          {STATUS_ORDER.map(s => (
+            <span key={s} className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ background: STATUS_META[s].cell }} />
+              {t(STATUS_META[s].labelKey) || STATUS_META[s].fallback}
+            </span>
+          ))}
+        </div>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!dirtyCount || saving}
+          className="btn-primary flex items-center gap-2 text-sm"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {t('save') || 'Save'}{dirtyCount > 0 ? ` (${dirtyCount})` : ''}
+        </button>
+      </div>
+
+      {loading || !data ? (
+        <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-emerald-400" /></div>
+      ) : (
+        <div className="glass-card overflow-x-auto">
+          <table className="text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+            <thead>
+              <tr>
+                <th
+                  className="text-start p-2 sticky start-0"
+                  style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', minWidth: '140px' }}
+                >
+                  {t('name') || 'Name'}
+                </th>
+                {days.map(d => (
+                  <th key={d} className="p-1 text-center" style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', minWidth: '28px' }}>{d}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.employees.map(emp => (
+                <tr key={emp.id}>
+                  <td
+                    className="p-2 font-medium sticky start-0"
+                    style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}
+                  >
+                    {emp.name}
+                  </td>
+                  {days.map(d => {
+                    const status = statusFor(emp.id, d);
+                    const key = `${emp.id}:${d}`;
+                    const isDirty = pending[key] !== undefined;
+                    const future = `${data.month}-${d}` > todayStr();
+                    return (
+                      <td
+                        key={d}
+                        className="p-1 text-center"
+                        style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                      >
+                        <button
+                          type="button"
+                          disabled={future}
+                          onClick={() => cycle(emp.id, d)}
+                          title={status ? (t(STATUS_META[status]?.labelKey) || status) : (t('unmarked') || 'Unmarked')}
+                          className="w-5 h-5 rounded flex items-center justify-center mx-auto transition-opacity hover:opacity-80 disabled:opacity-30"
+                          style={{
+                            background: status ? STATUS_META[status]?.cell : 'var(--bg-elevated)',
+                            border: status ? 'none' : '1px dashed var(--border-subtle)',
+                            boxShadow: isDirty ? '0 0 0 2px var(--text-primary)' : 'none',
+                          }}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {data.employees.length === 0 && (
+                <tr><td colSpan={days.length + 1} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEmployees') || 'No employees'}</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

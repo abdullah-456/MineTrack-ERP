@@ -447,7 +447,10 @@ exports.getCompany = async (req, res) => {
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
   try {
     const shop = await db.Shop.findByPk(shopId, {
-      attributes: ['id', 'name', 'owner_name', 'email', 'phone', 'address', 'logo_url'],
+      attributes: [
+        'id', 'name', 'owner_name', 'email', 'phone', 'address', 'logo_url',
+        'attendance_deduction_label',
+      ],
     });
     if (!shop) return res.status(404).json({ message: 'Shop not found' });
     return res.json({ company: shop });
@@ -465,7 +468,7 @@ exports.updateCompany = async (req, res) => {
   const shopId = req.user.shop_id;
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
 
-  const { name, owner_name, email, phone, address, logo_url } = req.body;
+  const { name, owner_name, email, phone, address, logo_url, attendance_deduction_label } = req.body;
 
   // Guard the logo payload: only accept an image data URL (or null/'' to clear).
   if (logo_url !== undefined && logo_url !== null && logo_url !== '') {
@@ -476,6 +479,9 @@ exports.updateCompany = async (req, res) => {
     if (logo_url.length > 2_000_000) {
       return res.status(400).json({ message: 'Logo image is too large. Please use a smaller image.' });
     }
+  }
+  if (attendance_deduction_label !== undefined && String(attendance_deduction_label).length > 60) {
+    return res.status(400).json({ message: 'Absence deduction label must be 60 characters or fewer.' });
   }
 
   try {
@@ -489,6 +495,12 @@ exports.updateCompany = async (req, res) => {
     if (phone !== undefined)      updates.phone = phone ? String(phone).trim() : null;
     if (address !== undefined)    updates.address = address ? String(address).trim() : null;
     if (logo_url !== undefined)   updates.logo_url = logo_url || null;
+    // Blank clears back to the translated default rather than storing ''.
+    if (attendance_deduction_label !== undefined) {
+      updates.attendance_deduction_label = attendance_deduction_label
+        ? String(attendance_deduction_label).trim() || null
+        : null;
+    }
 
     if (updates.name === '') return res.status(400).json({ message: 'Company name is required.' });
 
@@ -498,6 +510,7 @@ exports.updateCompany = async (req, res) => {
       company: {
         id: shop.id, name: shop.name, owner_name: shop.owner_name,
         email: shop.email, phone: shop.phone, address: shop.address, logo_url: shop.logo_url,
+        attendance_deduction_label: shop.attendance_deduction_label,
       },
     });
   } catch (error) {

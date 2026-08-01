@@ -4,6 +4,7 @@ const { requireShopId } = require('../utils/shopScope');
 const { assertCashAvailable, debitBankAccount, creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
 const { resolveListDateRange, sliceHistoryToRange, openingBalanceRow } = require('../utils/fiscalYear');
+const { getAttendanceSummaryForMonth } = require('./attendanceController');
 
 function currentMonthStr() {
   return new Date().toISOString().slice(0, 7);
@@ -278,149 +279,200 @@ exports.recordOpeningBalance = async (req, res) => {
 // month's salary, auto-deducts any uncleared advances linked to this month
 // (see recordAdvance), and pays the net amount out immediately — no separate
 // draft/pay_now step.
+//
+// Core logic takes an explicit transaction and throws typed errors (statusCode
+// set) rather than touching `res` directly, mirroring closeFiscalYear in
+// services/fiscalYearClose.js — this is what lets a test drive a real payroll
+// run and then roll it back, instead of the handler committing with no way to
+// undo it (the trap that a plain req/res-shaped function falls into).
+async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
+  const employee = await db.Employee.findOne({
+    where: { id: employeeId, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE,
+  });
+  if (!employee) {
+    const e = new Error('Employee not found');
+    e.statusCode = 404;
+    throw e;
+  }
+
+  const {
+    month, bonus, tax_deduction_percent, method, bank_account_id, date,
+    deduct_for_absence, count_leave_as_absence,
+  } = body;
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+    const e = new Error('month is required in YYYY-MM format');
+    e.statusCode = 400;
+    throw e;
+  }
+  if (!['cash', 'bank'].includes(method)) {
+    const e = new Error('method must be cash or bank');
+    e.statusCode = 400;
+    throw e;
+  }
+
+  const existing = await db.Payroll.findOne({ where: { employee_id: employee.id, month }, transaction });
+  if (existing) {
+    const e = new Error(`Salary already given for ${month}`);
+    e.statusCode = 409;
+    throw e;
+  }
+
+  // Floored at 0, like tax_deduction_percent on the next line. The UI sets
+  // min="0" on the input, but that is client-side only — a direct API call
+  // could send a negative bonus, quietly reducing gross pay with no
+  // corresponding deduction line to explain it on the payslip.
+  const bonusAmt = Math.max(0, parseFloat(bonus) || 0);
+  const taxPercent = Math.min(100, Math.max(0, parseFloat(tax_deduction_percent) || 0));
+  const basicSalary = parseFloat(employee.basic_salary || 0);
+  const grossSalary = Math.round((basicSalary + bonusAmt) * 100) / 100;
+  const taxDeduction = Math.round((grossSalary * taxPercent / 100) * 100) / 100;
+
+  const uncleared = await db.EmployeeTransaction.findAll({
+    where: { employee_id: employee.id, type: 'advance_given', for_month: month, cleared: false },
+    transaction, lock: transaction.LOCK.UPDATE,
+  });
+  const advanceDeduction = Math.round(uncleared.reduce((s, a) => s + parseFloat(a.amount || 0), 0) * 100) / 100;
+
+  // Optional, per-run: counted straight off marked Attendance rows for this
+  // employee/month, so a month with nothing marked yet costs nothing — the
+  // feature is a no-op until a shop actually starts using attendance.
+  // Daily rate uses the REAL day count of this specific month (28-31), not a
+  // fixed divisor, so the same absence costs the same fraction of salary
+  // regardless of which month it falls in.
+  let attendanceDeduction = 0;
+  let absentDays = 0;
+  let leaveDays = 0;
+  if (deduct_for_absence) {
+    const summary = await getAttendanceSummaryForMonth(shopId, employee.id, month, transaction);
+    absentDays = summary.absent_days;
+    leaveDays = summary.leave_days;
+    const deductDays = absentDays + (count_leave_as_absence ? leaveDays : 0);
+    const dailyRate = basicSalary / summary.days_in_month;
+    attendanceDeduction = Math.round(dailyRate * deductDays * 100) / 100;
+  }
+
+  const totalDeductions = Math.round((taxDeduction + advanceDeduction + attendanceDeduction) * 100) / 100;
+  const netPay = Math.round((grossSalary - totalDeductions) * 100) / 100;
+  if (netPay < 0) {
+    const e = new Error('Deductions and advances exceed this month’s salary');
+    e.statusCode = 400;
+    throw e;
+  }
+
+  let bankAcc = null;
+  if (method === 'cash') await assertCashAvailable(shopId, netPay, transaction);
+  else bankAcc = await debitBankAccount(shopId, netPay, transaction, bank_account_id);
+
+  const txnDate = date ? new Date(date) : new Date();
+
+  const payroll = await db.Payroll.create({
+    employee_id: employee.id,
+    month,
+    basic_salary: basicSalary,
+    deductions: totalDeductions,
+    advance_deduction: advanceDeduction,
+    attendance_deduction: attendanceDeduction,
+    absent_days: absentDays,
+    leave_days: leaveDays,
+    tax_deduction_percent: taxPercent,
+    tax_deduction: taxDeduction,
+    bonus: bonusAmt,
+    net_pay: netPay,
+    status: 'paid',
+  }, { transaction });
+
+  for (const a of uncleared) {
+    await a.update({ cleared: true }, { transaction });
+  }
+
+  await db.EmployeeTransaction.create({
+    shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'salary_due',
+    amount: Math.round((basicSalary + bonusAmt) * 100) / 100, method: null,
+    created_by: userId, notes: `Salary ${month}`,
+  }, { transaction });
+
+  if (totalDeductions > 0) {
+    await db.EmployeeTransaction.create({
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'deduction',
+      amount: totalDeductions, method: null, created_by: userId,
+      notes: `Salary ${month} deductions${taxDeduction > 0 ? ` (tax ${taxPercent}%)` : ''}${advanceDeduction > 0 ? ` (incl. advance ${advanceDeduction.toFixed(2)})` : ''}${attendanceDeduction > 0 ? ` (absent ${absentDays}d${count_leave_as_absence && leaveDays > 0 ? ` + leave ${leaveDays}d` : ''} = ${attendanceDeduction.toFixed(2)})` : ''}`,
+    }, { transaction });
+  }
+
+  const payoutTxn = await db.EmployeeTransaction.create({
+    shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'payment_made',
+    amount: netPay, method, related_payroll_id: payroll.id, created_by: userId, notes: `Salary ${month} payout`,
+  }, { transaction });
+
+  // The three legs above (salary_due, deduction, payment_made) do net to 0
+  // among themselves — but the advance they clear was ALREADY subtracted from
+  // current_payable by recordAdvance when it was paid out, and the `deduction`
+  // row carries it a second time with a negative sign. Recovering the advance
+  // therefore has to be booked back explicitly, or the employee keeps looking
+  // like they owe the company money forever (and that phantom balance could be
+  // collected again at termination).
+  //
+  // Non-cash on purpose: no money moves here, so this is `advance_cleared`
+  // rather than `receivable_collected`, which reports count as cash in.
+  if (advanceDeduction > 0) {
+    await db.EmployeeTransaction.create({
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'advance_cleared',
+      amount: advanceDeduction, method: null, related_payroll_id: payroll.id, created_by: userId,
+      notes: `Advance cleared against salary ${month}`,
+    }, { transaction });
+
+    await employee.update({
+      current_payable: Math.round((parseFloat(employee.current_payable || 0) + advanceDeduction) * 100) / 100,
+    }, { transaction });
+  }
+
+  // Dr Salaries Expense (net of tax AND attendance deductions — neither was
+  // ever really earned this month, so neither belongs in the expense; advance
+  // clearing is different, it's recovering an existing asset, not reducing the
+  // expense) = Cr advance recovery + Cr Cash/Bank paid out. Balances exactly
+  // since netPay = netExpense - advanceDeduction (validated by netPay>=0 above).
+  const netExpense = Math.max(0, Math.round((grossSalary - taxDeduction - attendanceDeduction) * 100) / 100);
+  if (netExpense > 0) {
+    await postVoucher(shopId, {
+      type: 'journal',
+      // Was hardcoded to new Date() — a payroll run entered with an explicit
+      // backdated `date` still posted its ledger voucher as of today, so the
+      // EmployeeTransaction rows above (which DO carry txnDate) and the
+      // general ledger disagreed on which day the same salary run happened.
+      date: txnDate,
+      narration: `Salary paid to employee ${employee.name} for month ${month} (Basic: ${basicSalary}, Bonus: ${bonusAmt}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
+      createdBy: userId,
+      branchId: employee.branch_id,
+      lines: [
+        { accountCode: '07-SALARIES', debit: netExpense },
+        ...(advanceDeduction > 0 ? [{ accountCode: '05-EMPADVLOAN', credit: advanceDeduction }] : []),
+        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: netPay },
+      ],
+    }, transaction);
+  }
+
+  const fresh = await db.Employee.findByPk(employee.id, { transaction });
+  return { payroll, transaction_id: payoutTxn.id, employee: fresh };
+}
+
+// ── POST /employees/:id/give-salary ─────────────────────────────────────────
 exports.giveSalary = async (req, res) => {
   const transaction = await db.sequelize.transaction();
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
-    const employee = await db.Employee.findOne({
-      where: { id: req.params.id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE,
-    });
-    if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
-
-    const { month, bonus, tax_deduction_percent, method, bank_account_id, date } = req.body;
-    if (!month || !/^\d{4}-\d{2}$/.test(month)) {
-      await transaction.rollback();
-      return res.status(400).json({ message: 'month is required in YYYY-MM format' });
-    }
-    if (!['cash', 'bank'].includes(method)) {
-      await transaction.rollback();
-      return res.status(400).json({ message: 'method must be cash or bank' });
-    }
-
-    const existing = await db.Payroll.findOne({ where: { employee_id: employee.id, month }, transaction });
-    if (existing) {
-      await transaction.rollback();
-      return res.status(409).json({ message: `Salary already given for ${month}` });
-    }
-
-    // Floored at 0, like tax_deduction_percent on the next line. The UI sets
-    // min="0" on the input, but that is client-side only — a direct API call
-    // could send a negative bonus, quietly reducing gross pay with no
-    // corresponding deduction line to explain it on the payslip.
-    const bonusAmt = Math.max(0, parseFloat(bonus) || 0);
-    const taxPercent = Math.min(100, Math.max(0, parseFloat(tax_deduction_percent) || 0));
-    const basicSalary = parseFloat(employee.basic_salary || 0);
-    const grossSalary = Math.round((basicSalary + bonusAmt) * 100) / 100;
-    const taxDeduction = Math.round((grossSalary * taxPercent / 100) * 100) / 100;
-
-    const uncleared = await db.EmployeeTransaction.findAll({
-      where: { employee_id: employee.id, type: 'advance_given', for_month: month, cleared: false },
-      transaction, lock: transaction.LOCK.UPDATE,
-    });
-    const advanceDeduction = Math.round(uncleared.reduce((s, a) => s + parseFloat(a.amount || 0), 0) * 100) / 100;
-
-    const totalDeductions = Math.round((taxDeduction + advanceDeduction) * 100) / 100;
-    const netPay = Math.round((grossSalary - totalDeductions) * 100) / 100;
-    if (netPay < 0) {
-      await transaction.rollback();
-      return res.status(400).json({ message: 'Deductions and advances exceed this month’s salary' });
-    }
-
-    let bankAcc = null;
-    if (method === 'cash') await assertCashAvailable(shopId, netPay, transaction);
-    else bankAcc = await debitBankAccount(shopId, netPay, transaction, bank_account_id);
-
-    const txnDate = date ? new Date(date) : new Date();
-
-    const payroll = await db.Payroll.create({
-      employee_id: employee.id,
-      month,
-      basic_salary: basicSalary,
-      deductions: totalDeductions,
-      advance_deduction: advanceDeduction,
-      tax_deduction_percent: taxPercent,
-      tax_deduction: taxDeduction,
-      bonus: bonusAmt,
-      net_pay: netPay,
-      status: 'paid',
-    }, { transaction });
-
-    for (const a of uncleared) {
-      await a.update({ cleared: true }, { transaction });
-    }
-
-    await db.EmployeeTransaction.create({
-      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'salary_due',
-      amount: Math.round((basicSalary + bonusAmt) * 100) / 100, method: null,
-      created_by: req.user.id, notes: `Salary ${month}`,
-    }, { transaction });
-
-    if (totalDeductions > 0) {
-      await db.EmployeeTransaction.create({
-        shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'deduction',
-        amount: totalDeductions, method: null, created_by: req.user.id,
-        notes: `Salary ${month} deductions${taxDeduction > 0 ? ` (tax ${taxPercent}%)` : ''}${advanceDeduction > 0 ? ` (incl. advance ${advanceDeduction.toFixed(2)})` : ''}`,
-      }, { transaction });
-    }
-
-    const payoutTxn = await db.EmployeeTransaction.create({
-      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'payment_made',
-      amount: netPay, method, related_payroll_id: payroll.id, created_by: req.user.id, notes: `Salary ${month} payout`,
-    }, { transaction });
-
-    // The three legs above (salary_due, deduction, payment_made) do net to 0
-    // among themselves — but the advance they clear was ALREADY subtracted from
-    // current_payable by recordAdvance when it was paid out, and the `deduction`
-    // row carries it a second time with a negative sign. Recovering the advance
-    // therefore has to be booked back explicitly, or the employee keeps looking
-    // like they owe the company money forever (and that phantom balance could be
-    // collected again at termination).
-    //
-    // Non-cash on purpose: no money moves here, so this is `advance_cleared`
-    // rather than `receivable_collected`, which reports count as cash in.
-    if (advanceDeduction > 0) {
-      await db.EmployeeTransaction.create({
-        shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'advance_cleared',
-        amount: advanceDeduction, method: null, related_payroll_id: payroll.id, created_by: req.user.id,
-        notes: `Advance cleared against salary ${month}`,
-      }, { transaction });
-
-      await employee.update({
-        current_payable: Math.round((parseFloat(employee.current_payable || 0) + advanceDeduction) * 100) / 100,
-      }, { transaction });
-    }
-
-    // Dr Salaries Expense (net of tax deductions only — advance clearing is
-    // recovering an existing asset, not reducing the expense) = Cr advance
-    // recovery + Cr Cash/Bank paid out. Balances exactly since
-    // netPay = netExpense - advanceDeduction (validated by the netPay>=0 check above).
-    const netExpense = Math.max(0, Math.round((grossSalary - taxDeduction) * 100) / 100);
-    if (netExpense > 0) {
-      await postVoucher(shopId, {
-        type: 'journal',
-        date: new Date(),
-        narration: `Salary paid to employee ${employee.name} for month ${month} (Basic: ${basicSalary}, Bonus: ${bonusAmt}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
-        createdBy: req.user.id,
-        branchId: employee.branch_id,
-        lines: [
-          { accountCode: '07-SALARIES', debit: netExpense },
-          ...(advanceDeduction > 0 ? [{ accountCode: '05-EMPADVLOAN', credit: advanceDeduction }] : []),
-          { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', credit: netPay },
-        ],
-      }, transaction);
-    }
-
+    const result = await runGiveSalary(shopId, req.user.id, req.params.id, req.body, transaction);
     await transaction.commit();
-    const fresh = await db.Employee.findByPk(employee.id);
-    return res.status(201).json({ payroll, transaction_id: payoutTxn.id, employee: fresh });
+    return res.status(201).json(result);
   } catch (error) {
     if (!transaction.finished) await transaction.rollback();
     console.error('giveSalary error:', error);
     return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
   }
 };
+
+exports.runGiveSalary = runGiveSalary;
 
 // ── GET /employees/:id/ledger ────────────────────────────────────────────────
 exports.getLedger = async (req, res) => {
@@ -555,6 +607,9 @@ exports.getTransactionSlip = async (req, res) => {
         bonus: parseFloat(txn.Payroll.bonus || 0),
         deductions: parseFloat(txn.Payroll.deductions || 0),
         advance_deduction: parseFloat(txn.Payroll.advance_deduction || 0),
+        attendance_deduction: parseFloat(txn.Payroll.attendance_deduction || 0),
+        absent_days: txn.Payroll.absent_days || 0,
+        leave_days: txn.Payroll.leave_days || 0,
         tax_deduction_percent: parseFloat(txn.Payroll.tax_deduction_percent || 0),
         tax_deduction: parseFloat(txn.Payroll.tax_deduction || 0),
         net_pay: parseFloat(txn.Payroll.net_pay || 0),
@@ -680,6 +735,9 @@ exports.getClearanceCertificate = async (req, res) => {
         bonus: parseFloat(p.bonus || 0),
         deductions: parseFloat(p.deductions || 0),
         advance_deduction: parseFloat(p.advance_deduction || 0),
+        attendance_deduction: parseFloat(p.attendance_deduction || 0),
+        absent_days: p.absent_days || 0,
+        leave_days: p.leave_days || 0,
         tax_deduction_percent: parseFloat(p.tax_deduction_percent || 0),
         tax_deduction: parseFloat(p.tax_deduction || 0),
         net_pay: parseFloat(p.net_pay || 0),

@@ -93,6 +93,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATEONLY,
       allowNull: true,
     },
+    // Shop's own wording for the absence-based payroll deduction (Payroll.jsx
+    // checkbox + payslip line). Null means "use the translated default".
+    attendance_deduction_label: {
+      type: DataTypes.STRING(60),
+      allowNull: true,
+    },
   }, {
     sequelize,
     modelName: 'Shop',

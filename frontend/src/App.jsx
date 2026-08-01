@@ -40,6 +40,7 @@ import EmployeeStatementPrint from './pages/employees/EmployeeStatementPrint';
 import EmployeeSlipPrint from './pages/employees/EmployeeSlipPrint';
 import EmployeeClearancePrint from './pages/employees/EmployeeClearancePrint';
 import Payroll from './pages/employees/Payroll';
+import Attendance from './pages/employees/Attendance';
 import ChartOfAccounts from './pages/accounting/ChartOfAccounts';
 import JournalEntry from './pages/accounting/JournalEntry';
 import GeneralLedger from './pages/accounting/GeneralLedger';
@@ -232,6 +233,8 @@ function App() {
                 element={<ProtectedRoute module="employees" action="read"><EmployeeLedger /></ProtectedRoute>} />
               <Route path="/payroll"
                 element={<ProtectedRoute module="employees" action="read"><Payroll /></ProtectedRoute>} />
+              <Route path="/attendance"
+                element={<ProtectedRoute module="attendance" action="read"><Attendance /></ProtectedRoute>} />
 
               {/* Accounting */}
               <Route path="/accounting/chart-of-accounts"
