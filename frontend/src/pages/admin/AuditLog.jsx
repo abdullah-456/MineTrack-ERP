@@ -173,7 +173,6 @@ export default function AuditLog() {
                   </td>
                   <td className="p-4" style={{ color: 'var(--text-primary)' }}>
                     {log.user?.name || '—'}
-                    {log.user?.email && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{log.user.email}</div>}
                   </td>
                   <td className="p-4"><span className={`badge ${ACTION_BADGE[log.action] || 'badge-blue'}`}>{t(log.action) || log.action}</span></td>
                   <td className="p-4 capitalize" style={{ color: 'var(--text-secondary)' }}>{log.module}</td>

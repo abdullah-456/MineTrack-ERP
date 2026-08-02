@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import api from '../api/axios';
 import { getCompany } from './reportExport';
 import { amountInWords } from './amountInWords';
+import { SOFTWARE_CREDIT } from '../config/branding';
 
 // Downloadable employee transaction/pay slip — same letterhead & print-safe
 // styling as the on-screen slip and every other document (dark ink, company
@@ -131,6 +132,8 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
   // ── Footer ──
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(150, 150, 150);
   doc.text(`${company.name || ''} — Generated: ${new Date().toLocaleString('en-PK')}`, W / 2, 200, { align: 'center' });
+  doc.setFontSize(6.5);
+  doc.text(SOFTWARE_CREDIT, W / 2, 204, { align: 'center' });
 
   return doc;
 }

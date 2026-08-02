@@ -31,6 +31,8 @@ const purchaseOrderController = require('../controllers/purchaseOrderController'
 const goodsReceiptController = require('../controllers/goodsReceiptController');
 const fiscalYearController = require('../controllers/fiscalYearController');
 const auditLog = require('../middleware/auditLog');
+const loadEmployee = require('../middleware/loadEmployee');
+const { employeeUpload } = require('../utils/employeeUploads');
 
 router.use(authenticate);
 router.use(tenantScope);
@@ -124,6 +126,17 @@ router.post(  '/employees/:id/loans',    authorize('employees', 'update'), emplo
 router.post(  '/employees/:id/receive-loan-payment', authorize('employees', 'update'), employeeLedgerController.receiveLoanPayment);
 router.post(  '/employees/:id/opening-balance', authorize('employees', 'update'), employeeLedgerController.recordOpeningBalance);
 router.post(  '/employees/:id/give-salary', authorize('employees', 'update'), employeeLedgerController.giveSalary);
+
+// Employee attachments — photo, CNIC image, other documents (all optional)
+router.post(  '/employees/:id/photo',       authorize('employees', 'update'), loadEmployee, employeeUpload.photo.single('photo'), employeeController.uploadPhoto);
+router.get(   '/employees/:id/photo',       authorize('employees', 'read'),   loadEmployee, employeeController.getPhoto);
+router.delete('/employees/:id/photo',       authorize('employees', 'update'), loadEmployee, employeeController.deletePhoto);
+router.post(  '/employees/:id/cnic-image',  authorize('employees', 'update'), loadEmployee, employeeUpload.cnic.single('cnic_image'), employeeController.uploadCnicImage);
+router.get(   '/employees/:id/cnic-image',  authorize('employees', 'read'),   loadEmployee, employeeController.getCnicImage);
+router.delete('/employees/:id/cnic-image',  authorize('employees', 'update'), loadEmployee, employeeController.deleteCnicImage);
+router.post(  '/employees/:id/documents',   authorize('employees', 'update'), loadEmployee, employeeUpload.documents.single('file'), employeeController.uploadDocument);
+router.get(   '/employees/:id/documents/:docId/file', authorize('employees', 'read'), loadEmployee, employeeController.getDocumentFile);
+router.delete('/employees/:id/documents/:docId', authorize('employees', 'update'), loadEmployee, employeeController.deleteDocument);
 
 // Attendance
 router.get(   '/attendance',        authorize('attendance', 'read'),   attendanceController.getDay);

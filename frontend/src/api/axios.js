@@ -5,9 +5,12 @@ import axios from 'axios';
 // env var on the hosting platform — Vite inlines it at build time.
 const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000/api';
 
+// No default Content-Type here: axios already sets 'application/json' for plain
+// object bodies automatically. Pinning it at instance level used to stop axios
+// from detecting FormData bodies (file uploads), which got silently
+// JSON.stringify'd instead of sent as multipart — so uploads always 400'd.
 const api = axios.create({
   baseURL: API_BASE,
-  headers: { 'Content-Type': 'application/json' },
 });
 
 // Attach access token to every request

@@ -1,4 +1,4 @@
-export default function PageHeader({ icon: Icon, title, subtitle, accent = 'brand', action }) {
+export default function PageHeader({ icon: Icon, avatarSrc, title, subtitle, accent = 'brand', action }) {
   const accents = {
     brand:   'from-brand-500/20 to-indigo-500/10 border-brand-500/30 text-brand-400',
     amber:   'from-amber-500/20 to-orange-500/10 border-amber-500/30 text-amber-400',
@@ -13,7 +13,11 @@ export default function PageHeader({ icon: Icon, title, subtitle, accent = 'bran
     <div className={`glass-card p-6 bg-gradient-to-r ${accents[accent] || accents.brand} border`}>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-start gap-4">
-          {Icon && (
+          {avatarSrc ? (
+            <div className="w-[52px] h-[52px] rounded-xl overflow-hidden bg-black/20 flex-shrink-0">
+              <img src={avatarSrc} alt="" className="w-full h-full object-cover" />
+            </div>
+          ) : Icon && (
             <div className="p-3 rounded-xl bg-black/20">
               <Icon className="w-7 h-7" />
             </div>

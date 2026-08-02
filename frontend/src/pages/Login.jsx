@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useState, useCallback } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useToast } from '../context/ToastContext';
 import { Zap, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon, Globe, Check, ChevronDown } from 'lucide-react';
 import FormLabel from '../components/ui/FormLabel';
+import WelcomeModal from '../components/WelcomeModal';
 import { useRef, useEffect } from 'react';
 
 function useClickOutside(ref, handler) {
@@ -22,7 +23,6 @@ export default function LoginPage() {
   const { login, user } = useAuth();
   const { theme, toggleTheme, lang, setLang, t } = useTheme();
   const { error: toastError } = useToast();
-  const navigate = useNavigate();
 
   const [form, setForm]       = useState({ email: '', password: '' });
   const [showPw, setShowPw]   = useState(false);
@@ -31,17 +31,30 @@ export default function LoginPage() {
   const [langOpen, setLangOpen] = useState(false);
   const langRef = useRef(null);
   useClickOutside(langRef, () => setLangOpen(false));
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomeName, setWelcomeName] = useState('');
+  // Stable identity so WelcomeModal's countdown effect doesn't tear down and
+  // restart every time this page re-renders during the login flow.
+  const closeWelcome = useCallback(() => setShowWelcome(false), []);
 
-  if (user) return <Navigate to="/dashboard" replace />;
+  // Hold the redirect open while the welcome modal is showing — otherwise the
+  // guard below fires the moment `user` is set (right after login) and we
+  // never get to render the modal at all.
+  if (user && !showWelcome) return <Navigate to="/dashboard" replace />;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+    // Set this before `login()` resolves — it sets the user internally partway
+    // through (before its own awaited call finishes), which would otherwise
+    // trigger the guard above and redirect before the modal ever renders.
+    setShowWelcome(true);
     try {
-      await login(form.email, form.password);
-      navigate('/dashboard');
+      const loggedInUser = await login(form.email, form.password);
+      setWelcomeName(loggedInUser?.name || '');
     } catch (err) {
+      setShowWelcome(false);
       const msg = err.response?.data?.message || t('invalidCredentials');
       setError(msg);
       toastError(msg);
@@ -186,7 +199,14 @@ export default function LoginPage() {
         <p className="text-center text-xs mt-6" style={{ color: 'var(--text-faint)' }}>
           {t('appVersion')} &mdash; {t('appFull')}
         </p>
+        <p className="text-center text-[11px] mt-1" style={{ color: 'var(--text-faint)' }}>
+          {t('softwareCredit')}
+        </p>
       </div>
+
+      {showWelcome && user && (
+        <WelcomeModal userName={welcomeName} onClose={closeWelcome} />
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ module.exports = (sequelize, DataTypes) => {
       Employee.hasOne(models.User,          { foreignKey: 'employee_id' });
       Employee.hasMany(models.EmployeeTransaction, { foreignKey: 'employee_id' });
       Employee.hasMany(models.EmployeeLoan,        { foreignKey: 'employee_id' });
+      Employee.hasMany(models.EmployeeDocument,    { foreignKey: 'employee_id' });
     }
   }
   Employee.init({
@@ -141,6 +142,14 @@ module.exports = (sequelize, DataTypes) => {
     },
     termination_notes: {
       type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    photo_path: {
+      type: DataTypes.STRING(500),
+      allowNull: true,
+    },
+    cnic_image_path: {
+      type: DataTypes.STRING(500),
       allowNull: true,
     },
   }, {

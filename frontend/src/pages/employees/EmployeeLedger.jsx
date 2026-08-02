@@ -10,6 +10,8 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
+import EmployeeAttachments from '../../components/employees/EmployeeAttachments';
+import { useAuthedImage } from '../../hooks/useAuthedImage';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import TerminateEmployeeModal from '../../components/employees/TerminateEmployeeModal';
@@ -143,6 +145,9 @@ export default function EmployeeLedger() {
     }
   };
 
+  const photoQs = (() => { const p = new URLSearchParams(shopParams()); return p.toString() ? `?${p.toString()}` : ''; })();
+  const { src: photoSrc } = useAuthedImage(ledger?.employee?.photo_path ? `/employees/${id}/photo${photoQs}` : null);
+
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-cyan-400" /></div>;
   if (!ledger) return null;
 
@@ -168,6 +173,7 @@ export default function EmployeeLedger() {
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
         icon={UserCheck}
+        avatarSrc={photoSrc}
         accent="cyan"
         title={employee.name}
         subtitle={employee.designation}
@@ -253,6 +259,7 @@ export default function EmployeeLedger() {
           ['history', t('auditLog') || 'Audit Log'],
           ['payroll', t('payrollHistory') || 'Payroll History'],
           ['slips', t('slips') || 'Slips'],
+          ['attachments', t('attachments') || 'Attachments'],
         ].map(([key, label]) => (
           <button
             key={key}
@@ -439,6 +446,10 @@ export default function EmployeeLedger() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {tab === 'attachments' && (
+        <EmployeeAttachments employeeId={id} canEdit={can('employees', 'update')} />
       )}
 
       {modal === 'advance' && (

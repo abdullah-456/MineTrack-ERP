@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Plus, Trash2, UserCheck } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import PageHeader from '../../components/ui/PageHeader';
 import FormLabel from '../../components/ui/FormLabel';
 import LocationPicker from '../../components/ui/LocationPicker';
+import EmployeeAttachments from '../../components/employees/EmployeeAttachments';
 import api from '../../api/axios';
 
 const EMPTY_EXP = () => ({
@@ -71,19 +72,25 @@ export default function EmployeeFormPage() {
   const navigate = useNavigate();
   const { t, lang } = useTheme();
   const { success, error } = useToast();
-  const { shopParams, branches } = useShopApi();
+  const { shopParams, branches, shopId, isSuperAdmin } = useShopApi();
   const { can, user } = useAuth();
   const isRTL = lang === 'ur';
   const isHr = can('employees', 'create') || can('employees', 'update')
     || ['admin', 'super_admin'].includes(user?.Role?.name);
+  // A super_admin's shopId resolves asynchronously after mount — wait for it
+  // before the edit-mode fetch, otherwise it goes out with no shop_id, 400s,
+  // and bounces the user back to the list before the retry ever gets a chance.
+  const shopReady = !isSuperAdmin || Boolean(shopId);
 
   const [form, setForm] = useState(() => emptyForm(branches));
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
+  const attachmentsRef = useRef(null);
 
   const setF = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const load = useCallback(async () => {
+    if (isEdit && !shopReady) return;
     if (!isEdit) {
       try {
         const { data } = await api.get('/employees/next-employment-id', { params: shopParams() });
@@ -143,7 +150,7 @@ export default function EmployeeFormPage() {
     } finally {
       setLoading(false);
     }
-  }, [isEdit, id, shopParams, branches, error, t, navigate]);
+  }, [isEdit, id, shopParams, branches, error, t, navigate, shopReady]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -191,11 +198,17 @@ export default function EmployeeFormPage() {
         delete payload.status;
         await api.put(`/employees/${id}`, payload);
         success(t('employeeUpdated') || 'Employee updated');
+        navigate('/employees');
       } else {
-        await api.post('/employees', payload);
+        const { data } = await api.post('/employees', payload);
+        const result = await attachmentsRef.current?.commitToEmployee(data.employee.id);
         success(t('employeeCreated') || 'Employee created');
+        if (result?.failed) {
+          error(t('someAttachmentsFailed') || 'Some attachments failed to upload. You can retry from the edit page.');
+        }
+        // Land on the edit page so photo/CNIC/documents can be reviewed or added to.
+        navigate(`/employees/${data.employee.id}/edit`, { replace: true });
       }
-      navigate('/employees');
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -443,6 +456,8 @@ export default function EmployeeFormPage() {
         <FormSection title={t('remarks') || 'Remarks'}>
           <textarea className="input min-h-[80px]" value={form.remarks} onChange={setF('remarks')} placeholder={t('optionalRemarks') || 'Optional remarks…'} />
         </FormSection>
+
+        <EmployeeAttachments ref={attachmentsRef} employeeId={isEdit ? id : null} canEdit={isHr} />
 
         <div className="flex gap-3 justify-end pt-2">
           <button type="button" onClick={() => navigate('/employees')} className="btn-secondary">{t('cancel')}</button>

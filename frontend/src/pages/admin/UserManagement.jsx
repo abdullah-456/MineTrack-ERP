@@ -318,7 +318,6 @@ export default function UserManagement() {
             title={t('userManagement') || 'Users'}
             columns={[
               { header: t('userName') || 'Name', key: 'name', width: 1.6 },
-              { header: t('userEmail') || 'Email', key: 'email', width: 2 },
               { header: t('userRole') || 'Role', render: u => roleLabel(u.Role?.name), width: 1.2 },
               { header: t('userBranch') || 'Branch', render: u => u.Branch?.name || '', width: 1.1 },
               { header: t('userStatus') || 'Status', key: 'status', width: 0.9 },
@@ -385,7 +384,6 @@ export default function UserManagement() {
                 <tr>
                   <th>#</th>
                   <th>{t('userName')}</th>
-                  <th>{t('userEmail')}</th>
                   {superAdmin && <th>{t('userShop')}</th>}
                   <th>{t('userRole')}</th>
                   <th>{t('userBranch')}</th>
@@ -410,7 +408,6 @@ export default function UserManagement() {
                         </div>
                       </div>
                     </td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{u.email}</td>
                     {superAdmin && (
                       <td style={{ color: 'var(--text-muted)' }}>
                         {u.Shop?.name || (u.Role?.name === 'super_admin' ? '—' : t('noShop'))}

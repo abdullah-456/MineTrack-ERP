@@ -4,7 +4,9 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
 const db = require('./models');
+const { UploadValidationError } = require('./utils/employeeUploads');
 
 const authRoutes = require('./routes/authRoutes');
 const shopRoutes = require('./routes/shopRoutes');
@@ -41,7 +43,7 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 // Health check — declared BEFORE the '/api' business router so it isn't
 // swallowed by that router's authenticate middleware.
 app.get('/api/test', (req, res) => {
-  res.json({ message: 'ESMS Backend Server is running!', version: '2.1-multitenant' });
+  res.json({ message: 'Mine Track ERP Backend Server is running!', version: '2.1-multitenant' });
 });
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -90,6 +92,13 @@ app.use((err, req, res, next) => {
   if (err && err.message === 'Not allowed by CORS') {
     return res.status(403).json({ message: 'Origin not allowed' });
   }
+  if (err instanceof multer.MulterError) {
+    const message = err.code === 'LIMIT_FILE_SIZE' ? 'File is too large.' : err.message;
+    return res.status(400).json({ message });
+  }
+  if (err instanceof UploadValidationError) {
+    return res.status(400).json({ message: err.message });
+  }
   console.error('Unhandled error:', err);
   return res.status(500).json({ message: 'Internal server error' });
 });
@@ -101,7 +110,7 @@ async function startServer() {
     console.log('Database connection established successfully.');
 
     app.listen(PORT, () => {
-      console.log(`ESMS Server running on port ${PORT}`);
+      console.log(`Mine Track ERP Server running on port ${PORT}`);
     });
   } catch (error) {
     console.error('Unable to connect to the database:', error);

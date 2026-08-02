@@ -1,5 +1,6 @@
 import { Printer, Download, ArrowLeft } from 'lucide-react';
 import { amountInWords } from '../../utils/amountInWords';
+import { SOFTWARE_CREDIT } from '../../config/branding';
 
 // Shared building blocks for printable business documents.
 // Print-safe dark ink; signature/stamp block pins near the bottom of A4.
@@ -150,12 +151,14 @@ export function SignatureRow({ left = 'Prepared By', right = 'Received Sign & Th
 
 export function DocFooter({ company = {} }) {
   return (
-    <div style={{
-      marginTop: 14, paddingTop: 8, borderTop: `1px solid ${LINE_SOFT}`,
-      display: 'flex', justifyContent: 'space-between', fontSize: 10, color: INK_SOFT,
-    }}>
-      <span>{company.name || ''} — computer generated document</span>
-      <span>Generated: {new Date().toLocaleString('en-PK')}</span>
+    <div style={{ marginTop: 14, paddingTop: 8, borderTop: `1px solid ${LINE_SOFT}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: INK_SOFT }}>
+        <span>{company.name || ''} — computer generated document</span>
+        <span>Generated: {new Date().toLocaleString('en-PK')}</span>
+      </div>
+      <div style={{ textAlign: 'center', fontSize: 8.5, color: LINE_SOFT, marginTop: 4 }}>
+        {SOFTWARE_CREDIT}
+      </div>
     </div>
   );
 }

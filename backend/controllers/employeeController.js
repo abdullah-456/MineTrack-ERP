@@ -4,9 +4,11 @@ const { requireShopId } = require('../utils/shopScope');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { applyTerminationSettlements, loadTerminationPreview } = require('../utils/employeeTermination');
 const { assertCnicAvailable, normalizeCnic } = require('../utils/cnic');
+const { deleteFileQuiet, relativeFilePath, absoluteFilePath } = require('../utils/employeeUploads');
 
 const employeeIncludes = [
   { model: db.Branch, attributes: ['id', 'name', 'godown_id'], include: [{ model: db.Godown, attributes: ['id', 'name'] }] },
+  { model: db.EmployeeDocument, attributes: ['id', 'title', 'file_name', 'mime_type', 'file_size', 'created_at'] },
 ];
 
 const PROFILE_FIELDS = [
@@ -449,5 +451,157 @@ exports.terminate = async (req, res) => {
   } catch (error) {
     console.error('terminateEmployee error:', error);
     return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+  }
+};
+
+// ── Attachments: photo, CNIC image, other documents ────────────────────────
+// All routes below run after `loadEmployee` (attaches req.employee) and the
+// relevant multer upload middleware (attaches req.file / req.files).
+
+exports.uploadPhoto = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No photo uploaded' });
+    const employee = req.employee;
+    const oldRelPath = employee.photo_path;
+
+    employee.photo_path = relativeFilePath(employee, req.file.filename);
+    await employee.save();
+    if (oldRelPath) deleteFileQuiet(absoluteFilePath(oldRelPath));
+
+    return res.json({ message: 'Photo uploaded', employee });
+  } catch (error) {
+    console.error('uploadEmployeePhoto error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.deletePhoto = async (req, res) => {
+  try {
+    const employee = req.employee;
+    if (!employee.photo_path) return res.status(404).json({ message: 'No photo on file' });
+
+    const oldRelPath = employee.photo_path;
+    employee.photo_path = null;
+    await employee.save();
+    deleteFileQuiet(absoluteFilePath(oldRelPath));
+
+    return res.json({ message: 'Photo removed', employee });
+  } catch (error) {
+    console.error('deleteEmployeePhoto error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.getPhoto = async (req, res) => {
+  const employee = req.employee;
+  if (!employee.photo_path) return res.status(404).json({ message: 'No photo on file' });
+  return res.sendFile(absoluteFilePath(employee.photo_path), (err) => {
+    if (err && !res.headersSent) res.status(404).json({ message: 'Photo file not found' });
+  });
+};
+
+exports.uploadCnicImage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No CNIC image uploaded' });
+    const employee = req.employee;
+    const oldRelPath = employee.cnic_image_path;
+
+    employee.cnic_image_path = relativeFilePath(employee, req.file.filename);
+    await employee.save();
+    if (oldRelPath) deleteFileQuiet(absoluteFilePath(oldRelPath));
+
+    return res.json({ message: 'CNIC image uploaded', employee });
+  } catch (error) {
+    console.error('uploadEmployeeCnicImage error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.deleteCnicImage = async (req, res) => {
+  try {
+    const employee = req.employee;
+    if (!employee.cnic_image_path) return res.status(404).json({ message: 'No CNIC image on file' });
+
+    const oldRelPath = employee.cnic_image_path;
+    employee.cnic_image_path = null;
+    await employee.save();
+    deleteFileQuiet(absoluteFilePath(oldRelPath));
+
+    return res.json({ message: 'CNIC image removed', employee });
+  } catch (error) {
+    console.error('deleteEmployeeCnicImage error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.getCnicImage = async (req, res) => {
+  const employee = req.employee;
+  if (!employee.cnic_image_path) return res.status(404).json({ message: 'No CNIC image on file' });
+  return res.sendFile(absoluteFilePath(employee.cnic_image_path), (err) => {
+    if (err && !res.headersSent) res.status(404).json({ message: 'CNIC image file not found' });
+  });
+};
+
+exports.uploadDocument = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+    const employee = req.employee;
+
+    const doc = await db.EmployeeDocument.create({
+      employee_id: employee.id,
+      shop_id: employee.shop_id,
+      title: (req.body.title || '').trim() || req.file.originalname,
+      file_name: req.file.originalname,
+      file_path: relativeFilePath(employee, req.file.filename),
+      mime_type: req.file.mimetype,
+      file_size: req.file.size,
+    });
+
+    return res.status(201).json({
+      message: 'Document uploaded',
+      document: {
+        id: doc.id, title: doc.title, file_name: doc.file_name,
+        mime_type: doc.mime_type, file_size: doc.file_size, created_at: doc.created_at,
+      },
+    });
+  } catch (error) {
+    console.error('uploadEmployeeDocument error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.getDocumentFile = async (req, res) => {
+  try {
+    const employee = req.employee;
+    const doc = await db.EmployeeDocument.findOne({
+      where: { id: req.params.docId, employee_id: employee.id, shop_id: employee.shop_id },
+    });
+    if (!doc) return res.status(404).json({ message: 'Document not found' });
+
+    return res.sendFile(absoluteFilePath(doc.file_path), { headers: { 'Content-Type': doc.mime_type || 'application/octet-stream' } }, (err) => {
+      if (err && !res.headersSent) res.status(404).json({ message: 'Document file not found' });
+    });
+  } catch (error) {
+    console.error('getEmployeeDocumentFile error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.deleteDocument = async (req, res) => {
+  try {
+    const employee = req.employee;
+    const doc = await db.EmployeeDocument.findOne({
+      where: { id: req.params.docId, employee_id: employee.id, shop_id: employee.shop_id },
+    });
+    if (!doc) return res.status(404).json({ message: 'Document not found' });
+
+    const relPath = doc.file_path;
+    await doc.destroy();
+    deleteFileQuiet(absoluteFilePath(relPath));
+
+    return res.json({ message: 'Document removed' });
+  } catch (error) {
+    console.error('deleteEmployeeDocument error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 };

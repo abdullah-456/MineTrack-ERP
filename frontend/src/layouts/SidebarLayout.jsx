@@ -276,7 +276,7 @@ export default function SidebarLayout() {
           {!collapsed && (
             <div className="min-w-0">
               <h1 className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>
-                {isSuperAdmin() ? 'ESMS Platform' : (shopName || t('appName'))}
+                {isSuperAdmin() ? `${t('appName')} Platform` : (shopName || t('appName'))}
               </h1>
               <p className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
                 {isSuperAdmin() ? t('platformAdmin') : t('appTagline')}

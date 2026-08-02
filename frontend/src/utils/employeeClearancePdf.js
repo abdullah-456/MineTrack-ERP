@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import api from '../api/axios';
 import { getCompany } from './reportExport';
+import { SOFTWARE_CREDIT } from '../config/branding';
 
 const fmt = (n) => {
   const val = parseFloat(n);
@@ -215,6 +216,8 @@ function buildDoc(data, company = {}) {
     290,
     { align: 'center' },
   );
+  doc.setFontSize(6.5);
+  doc.text(SOFTWARE_CREDIT, W / 2, 294, { align: 'center' });
 
   return doc;
 }

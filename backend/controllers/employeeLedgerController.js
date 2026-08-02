@@ -545,6 +545,7 @@ exports.getLedger = async (req, res) => {
         designation: employee.designation,
         status: employee.status,
         basic_salary: parseFloat(employee.basic_salary || 0),
+        photo_path: employee.photo_path,
       },
       summary: {
         total_salary_accrued: Math.round(totalSalaryAccrued * 100) / 100,

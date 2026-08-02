@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import api from '../api/axios';
 import translations from '../translations';
+import { SOFTWARE_CREDIT } from '../config/branding';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Shared reporting engine. Turns a column/row (or section/table) model into
@@ -187,6 +188,8 @@ function createWriter(company, { title, meta = [], filters = [] }) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(150, 150, 150);
     doc.text(engCompany.name || '', margin, pageH - 8);
     doc.text(`Page ${pageNo}`, pageW - margin, pageH - 8, { align: 'right' });
+    doc.setFontSize(6.5);
+    doc.text(SOFTWARE_CREDIT, pageW / 2, pageH - 4, { align: 'center' });
   };
 
   y = drawLetterhead(true);
@@ -404,6 +407,7 @@ const PRINT_CSS = `
     margin-top: 12px; padding-top: 8px; border-top: 1px solid #d1d5db;
     display: flex; justify-content: space-between; font-size: 9px; color: #6b7280;
   }
+  .soft-credit { text-align: center; font-size: 8px; color: #9ca3af; margin-top: 4px; }
   @media print { @page { size: A4; margin: 8mm; } .page { min-height: calc(297mm - 16mm); } }
 `;
 
@@ -458,6 +462,7 @@ const signHTML = (signature) => {
       <div><div class="stamp">Sign / Stamp</div>${esc(right)}</div>
     </div>
     <div class="foot"><span>Computer generated document</span><span>${esc(nowStamp())}</span></div>
+    <div class="soft-credit">${esc(SOFTWARE_CREDIT)}</div>
   </div>`;
 };
 
