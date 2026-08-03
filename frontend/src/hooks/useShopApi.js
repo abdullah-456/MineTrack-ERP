@@ -24,6 +24,12 @@ export function useShopApi() {
     return {};
   }, [isSuperAdmin, shopId]);
 
+  // A super_admin's shopId resolves asynchronously (fetched from /branches/shops
+  // above) — any shop-scoped fetch fired before this is true goes out with no
+  // shop_id and 400s. Every page that lists godowns/branches/etc. on mount
+  // should gate its first fetch on this instead of re-deriving the same check.
+  const shopReady = !isSuperAdmin() || Boolean(shopId);
+
   const fetchBranches = useCallback(async () => {
     if (!user) {
       setBranches([]);
@@ -40,7 +46,7 @@ export function useShopApi() {
 
   useEffect(() => { fetchBranches(); }, [fetchBranches]);
 
-  return { shopId, setShopId, shopParams, branches, fetchBranches, isSuperAdmin: isSuperAdmin() };
+  return { shopId, setShopId, shopParams, shopReady, branches, fetchBranches, isSuperAdmin: isSuperAdmin() };
 }
 
 export function formatPKR(amount, lang = 'en') {

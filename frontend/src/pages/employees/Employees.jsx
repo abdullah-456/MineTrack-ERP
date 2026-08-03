@@ -21,7 +21,7 @@ export default function Employees() {
   const { t, lang } = useTheme();
   const { success, error } = useToast();
   const { can } = useAuth();
-  const { shopParams, branches } = useShopApi();
+  const { shopParams, shopReady, branches } = useShopApi();
   const isRTL = lang === 'ur';
   const { isHighlighted } = useHighlightRow();
 
@@ -34,6 +34,7 @@ export default function Employees() {
   const [locationFilter, setLocationFilter] = useState({ location_type: 'branch', branch_id: '', godown_id: null });
 
   const fetchData = useCallback(async () => {
+    if (!shopReady) return;
     setLoading(true);
     try {
       const [empRes, godRes] = await Promise.all([
@@ -47,7 +48,7 @@ export default function Employees() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, search, error, t]);
+  }, [shopParams, shopReady, search, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

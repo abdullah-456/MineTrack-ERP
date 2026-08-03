@@ -31,10 +31,11 @@ export default function FinancialReportFilters({
   onEntityChange,
 }) {
   const { t } = useTheme();
-  const { shopParams } = useShopApi();
+  const { shopParams, shopReady } = useShopApi();
   const [godowns, setGodowns] = useState([]);
 
   useEffect(() => {
+    if (!shopReady) return undefined;
     let unmounted = false;
     api.get('/godowns', { params: shopParams() })
       .then(({ data }) => {
@@ -42,7 +43,7 @@ export default function FinancialReportFilters({
       })
       .catch(() => {});
     return () => { unmounted = true; };
-  }, [shopParams]);
+  }, [shopParams, shopReady]);
 
   return (
     <div className="glass-card p-4 flex flex-wrap gap-4 items-end">

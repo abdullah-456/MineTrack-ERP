@@ -25,7 +25,7 @@ const dispatchTypeBadgeColor = {
 export default function GatePasses() {
   const { t, lang } = useTheme();
   const { success, error } = useToast();
-  const { shopParams, branches } = useShopApi();
+  const { shopParams, shopReady, branches } = useShopApi();
   const { listParams } = useFiscalYear();
   const { canWrite } = useFiscalYearGuard();
   const isRTL = lang === 'ur';
@@ -43,10 +43,11 @@ export default function GatePasses() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (!shopReady) return;
     api.get('/godowns', { params: shopParams() })
       .then(({ data }) => setGodowns(data.godowns || []))
       .catch(() => setGodowns([]));
-  }, [shopParams]);
+  }, [shopParams, shopReady]);
 
   const [form, setForm] = useState({
     location_type: 'branch', branch_id: '', godown_id: null,

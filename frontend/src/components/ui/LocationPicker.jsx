@@ -14,13 +14,14 @@ export default function LocationPicker({
   showBranchWithinGodown = true,
 }) {
   const { t } = useTheme();
-  const { branches, shopParams } = useShopApi();
+  const { branches, shopParams, shopReady } = useShopApi();
   const [godowns, setGodowns] = useState([]);
   const [loadingGodowns, setLoadingGodowns] = useState(false);
 
   const location = normalizeLocation(value);
 
   const fetchGodowns = useCallback(async () => {
+    if (!shopReady) return;
     setLoadingGodowns(true);
     try {
       const { data } = await api.get('/godowns', { params: shopParams() });
@@ -30,7 +31,7 @@ export default function LocationPicker({
     } finally {
       setLoadingGodowns(false);
     }
-  }, [shopParams]);
+  }, [shopParams, shopReady]);
 
   useEffect(() => {
     fetchGodowns();

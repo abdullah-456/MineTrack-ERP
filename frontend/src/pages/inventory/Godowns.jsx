@@ -12,7 +12,7 @@ import api from '../../api/axios';
 export default function Godowns() {
   const { t, lang } = useTheme();
   const { success, error } = useToast();
-  const { shopParams, branches } = useShopApi();
+  const { shopParams, shopReady, branches } = useShopApi();
   const isRTL = lang === 'ur';
 
   const [godowns, setGodowns] = useState([]);
@@ -34,6 +34,7 @@ export default function Godowns() {
   const [linkBranchIds, setLinkBranchIds] = useState([]);
 
   const fetchGodowns = useCallback(async () => {
+    if (!shopReady) return;
     setLoading(true);
     try {
       const { data } = await api.get('/godowns', { params: shopParams() });
@@ -43,7 +44,7 @@ export default function Godowns() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, error, t]);
+  }, [shopParams, shopReady, error, t]);
 
   useEffect(() => {
     fetchGodowns();

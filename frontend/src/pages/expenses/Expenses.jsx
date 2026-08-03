@@ -33,7 +33,7 @@ const emptyForm = (branches) => ({
 export default function Expenses() {
   const { t, lang } = useTheme();
   const { success, error, confirm } = useToast();
-  const { shopParams, branches } = useShopApi();
+  const { shopParams, shopReady, branches } = useShopApi();
   const { listParams } = useFiscalYear();
   const { canWrite, readOnlyLabel } = useFiscalYearGuard();
   const isRTL = lang === 'ur';
@@ -51,6 +51,7 @@ export default function Expenses() {
   const [locationFilter, setLocationFilter] = useState({ location_type: 'branch', branch_id: '', godown_id: null });
 
   const fetchData = useCallback(async () => {
+    if (!shopReady) return;
     setLoading(true);
     try {
       const [expRes, godRes] = await Promise.all([
@@ -64,7 +65,7 @@ export default function Expenses() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, listParams, search, error, t]);
+  }, [shopParams, shopReady, listParams, search, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

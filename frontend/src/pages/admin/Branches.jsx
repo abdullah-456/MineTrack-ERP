@@ -14,7 +14,7 @@ const EMPTY = { name: '', address: '', is_default: false, godown_id: '' };
 export default function Branches() {
   const { t, lang } = useTheme();
   const { success, error, confirm } = useToast();
-  const { shopParams } = useShopApi();
+  const { shopParams, shopReady } = useShopApi();
   const isRTL = lang === 'ur';
 
   const [branches, setBranches] = useState([]);
@@ -27,6 +27,7 @@ export default function Branches() {
   const [saving, setSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
+    if (!shopReady) return;
     setLoading(true);
     try {
       const [bRes, gRes] = await Promise.all([
@@ -40,7 +41,7 @@ export default function Branches() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, error, t]);
+  }, [shopParams, shopReady, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
