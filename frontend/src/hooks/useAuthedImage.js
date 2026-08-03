@@ -6,12 +6,14 @@ import api from '../api/axios';
 // bytes as a blob through the authed axios instance and hand back an object URL.
 export function useAuthedImage(url) {
   const [src, setSrc] = useState(null);
+  const [contentType, setContentType] = useState(null);
   const [loading, setLoading] = useState(Boolean(url));
 
   useEffect(() => {
     let objectUrl;
     let cancelled = false;
     setSrc(null);
+    setContentType(null);
     if (!url) { setLoading(false); return undefined; }
     setLoading(true);
     api.get(url, { responseType: 'blob' })
@@ -19,6 +21,7 @@ export function useAuthedImage(url) {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(data);
         setSrc(objectUrl);
+        setContentType(data.type || null);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -28,5 +31,5 @@ export function useAuthedImage(url) {
     };
   }, [url]);
 
-  return { src, loading };
+  return { src, loading, contentType };
 }

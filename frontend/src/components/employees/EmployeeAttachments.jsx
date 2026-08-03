@@ -8,6 +8,9 @@ import { useObjectUrl } from '../../hooks/useObjectUrl';
 import { uploadEmployeePhoto, uploadEmployeeCnicImage, uploadEmployeeDocument } from '../../api/employeeAttachments';
 import api from '../../api/axios';
 
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+// CNIC attachment doubles as a scan of the physical card, so PDF is allowed too.
+const CNIC_TYPES = [...IMAGE_TYPES, 'application/pdf'];
 const MAX_IMAGE_MB = 5;
 const MAX_DOC_MB = 10;
 
@@ -110,12 +113,14 @@ const EmployeeAttachments = forwardRef(function EmployeeAttachments({ employeeId
   }, [shopParams]);
 
   const { src: liveePhotoSrc, loading: photoLoading } = useAuthedImage(!isStaging && employee?.photo_path ? `/employees/${employeeId}/photo${qs}` : null);
-  const { src: liveCnicSrc, loading: cnicLoading } = useAuthedImage(!isStaging && employee?.cnic_image_path ? `/employees/${employeeId}/cnic-image${qs}` : null);
+  const { src: liveCnicSrc, loading: cnicLoading, contentType: liveCnicType } = useAuthedImage(!isStaging && employee?.cnic_image_path ? `/employees/${employeeId}/cnic-image${qs}` : null);
   const stagedPhotoSrc = useObjectUrl(stagedPhoto);
   const stagedCnicSrc = useObjectUrl(stagedCnic);
 
   const photoSrc = isStaging ? stagedPhotoSrc : liveePhotoSrc;
   const cnicSrc = isStaging ? stagedCnicSrc : liveCnicSrc;
+  const cnicType = isStaging ? (stagedCnic?.type || null) : liveCnicType;
+  const cnicIsPdf = cnicType === 'application/pdf';
   const hasPhoto = isStaging ? Boolean(stagedPhoto) : Boolean(employee?.photo_path);
   const hasCnic = isStaging ? Boolean(stagedCnic) : Boolean(employee?.cnic_image_path);
 
@@ -141,9 +146,9 @@ const EmployeeAttachments = forwardRef(function EmployeeAttachments({ employeeId
     },
   }), [stagedPhoto, stagedCnic, stagedDocs, shopParams]);
 
-  const validateImage = (file) => {
-    if (!['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type)) {
-      error(t('unsupportedFileType') || 'Please choose a PNG, JPG, GIF or WEBP image.');
+  const validateImage = (file, allowedTypes = IMAGE_TYPES, unsupportedLabel) => {
+    if (!allowedTypes.includes(file.type)) {
+      error(unsupportedLabel || t('unsupportedFileType') || 'Please choose a PNG, JPG, GIF or WEBP image.');
       return false;
     }
     if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
@@ -156,7 +161,7 @@ const EmployeeAttachments = forwardRef(function EmployeeAttachments({ employeeId
   const onPickPhoto = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !validateImage(file)) return;
+    if (!file || !validateImage(file, IMAGE_TYPES, t('unsupportedFileTypeImage'))) return;
     if (isStaging) { setStagedPhoto(file); return; }
     setBusyPhoto(true);
     try {
@@ -188,13 +193,13 @@ const EmployeeAttachments = forwardRef(function EmployeeAttachments({ employeeId
   const onPickCnic = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !validateImage(file)) return;
+    if (!file || !validateImage(file, CNIC_TYPES, t('unsupportedFileTypeCnic'))) return;
     if (isStaging) { setStagedCnic(file); return; }
     setBusyCnic(true);
     try {
       const emp = await uploadEmployeeCnicImage(employeeId, file, shopParams());
       setEmployee(emp);
-      success(t('cnicImageUploaded') || 'CNIC image uploaded successfully');
+      success(t('cnicImageUploaded') || 'CNIC attachment uploaded successfully');
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -204,12 +209,12 @@ const EmployeeAttachments = forwardRef(function EmployeeAttachments({ employeeId
 
   const removeCnic = async () => {
     if (isStaging) { setStagedCnic(null); return; }
-    if (!window.confirm(t('confirmRemoveCnicImage') || 'Remove this CNIC image?')) return;
+    if (!window.confirm(t('confirmRemoveCnicImage') || 'Remove this CNIC attachment?')) return;
     setBusyCnic(true);
     try {
       const { data } = await api.delete(`/employees/${employeeId}/cnic-image`, { params: shopParams() });
       setEmployee(data.employee);
-      success(t('cnicImageRemoved') || 'CNIC image removed');
+      success(t('cnicImageRemoved') || 'CNIC attachment removed');
     } catch (err) {
       error(err.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -330,6 +335,13 @@ const EmployeeAttachments = forwardRef(function EmployeeAttachments({ employeeId
                 >
                   {cnicLoading || busyCnic ? (
                     <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--text-muted)' }} />
+                  ) : cnicSrc && cnicIsPdf ? (
+                    <>
+                      <FileText className="w-7 h-7" style={{ color: 'var(--text-muted)' }} />
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors opacity-0 group-hover:opacity-100">
+                        <Eye className="w-5 h-5 text-white" />
+                      </span>
+                    </>
                   ) : cnicSrc ? (
                     <>
                       <img src={cnicSrc} alt="" className="w-full h-full object-cover" />
@@ -351,7 +363,7 @@ const EmployeeAttachments = forwardRef(function EmployeeAttachments({ employeeId
                         <Trash2 className="w-3.5 h-3.5" />{t('removeCnicImage') || 'Remove CNIC Image'}
                       </button>
                     )}
-                    <input ref={cnicInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={onPickCnic} />
+                    <input ref={cnicInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" className="hidden" onChange={onPickCnic} />
                   </div>
                 )}
               </div>

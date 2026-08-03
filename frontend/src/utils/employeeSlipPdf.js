@@ -21,8 +21,8 @@ const fmt = (n) => {
   return `Rs. ${val.toLocaleString('en-PK', { maximumFractionDigits: 0 })}`;
 };
 
-async function fetchSlip(employeeId, txnId) {
-  const { data } = await api.get(`/employees/${employeeId}/slips/${txnId}`);
+async function fetchSlip(employeeId, txnId, params) {
+  const { data } = await api.get(`/employees/${employeeId}/slips/${txnId}`, { params });
   return data;
 }
 
@@ -71,6 +71,7 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
     y += 6;
   };
   row('Employee', employee.name);
+  if (employee.employment_id) row('Employment ID', employee.employment_id);
   if (employee.designation) row('Designation', employee.designation);
   row('Date', new Date(txn.date).toLocaleDateString('en-GB'));
   if (txn.method) row('Method', String(txn.method).toUpperCase());
@@ -88,6 +89,8 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
     const taxPercent = payroll.tax_deduction_percent || 0;
     row('Month', payroll.month);
     row('Basic Salary', fmt(payroll.basic_salary));
+    if (payroll.allowances_total > 0) row('Allowances', `+${fmt(payroll.allowances_total)}`);
+    if (payroll.temp_allowance > 0) row('Temporary Allowance', `+${fmt(payroll.temp_allowance)}`);
     row('Advance', advanceDeduction > 0 ? `-${fmt(advanceDeduction)}` : '-');
     row('Bonus', payroll.bonus > 0 ? `+${fmt(payroll.bonus)}` : '-');
     row(taxPercent > 0 ? `Tax Deductions (${taxPercent}%)` : 'Tax Deductions', taxDeduction > 0 ? `-${fmt(taxDeduction)}` : '-');
@@ -141,10 +144,10 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
 // Fetches the slip + company profile, builds a professional PDF, downloads it.
 // `companyOrName` is optional — an object is used directly; otherwise the
 // company profile is fetched. A bare string is treated as the company name.
-export async function downloadEmployeeSlip(employeeId, txnId, companyOrName) {
+export async function downloadEmployeeSlip(employeeId, txnId, companyOrName, params) {
   const [data, fetchedCompany] = await Promise.all([
-    fetchSlip(employeeId, txnId),
-    getCompany().catch(() => ({})),
+    fetchSlip(employeeId, txnId, params),
+    getCompany(params).catch(() => ({})),
   ]);
   let company = fetchedCompany || {};
   if (companyOrName && typeof companyOrName === 'object') company = companyOrName;

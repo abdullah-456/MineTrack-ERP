@@ -17,7 +17,7 @@ const PROFILE_FIELDS = [
   'emergency_name', 'emergency_relation', 'emergency_cell', 'emergency_residence',
   'education_institute', 'education_degree', 'education_specialization',
   'education_grade', 'education_year', 'experience', 'dependants',
-  'remarks', 'hr_remarks',
+  'remarks', 'hr_remarks', 'allowances',
 ];
 
 function err(statusCode, message) {
@@ -121,6 +121,13 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     if (!Array.isArray(dependants)) throw err(400, 'Dependants must be a list');
     dependants = dependants.filter(r => r && r.name);
   }
+  let allowances = body.allowances;
+  if (allowances !== undefined) {
+    if (!Array.isArray(allowances)) throw err(400, 'Allowances must be a list');
+    allowances = allowances
+      .filter(r => r && String(r.name || '').trim())
+      .map(r => ({ name: String(r.name).trim(), amount: Math.max(0, parseFloat(r.amount) || 0) }));
+  }
 
   let age = body.age !== undefined && body.age !== '' ? parseInt(body.age, 10) : null;
   if ((age == null || Number.isNaN(age)) && body.date_of_birth) {
@@ -168,6 +175,7 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     education_year: (body.education_year || '').trim() || null,
     experience: experience !== undefined ? experience : undefined,
     dependants: dependants !== undefined ? dependants : undefined,
+    allowances: allowances !== undefined ? allowances : undefined,
     remarks: (body.remarks || '').trim() || null,
     hr_remarks: (body.hr_remarks || '').trim() || null,
   };
@@ -266,6 +274,7 @@ exports.create = async (req, res) => {
       ...data,
       experience: data.experience || [],
       dependants: data.dependants || [],
+      allowances: data.allowances || [],
     }, { transaction });
 
     await transaction.commit();

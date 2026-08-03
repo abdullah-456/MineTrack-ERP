@@ -126,7 +126,7 @@ function resolveWidths(columns, tableWidth) {
 /* ══════════════════════════════════════════════════════════════════════════
    PDF engine (jsPDF vector) — shared by list reports & multi-section documents
    ══════════════════════════════════════════════════════════════════════════ */
-function createWriter(company, { title, meta = [], filters = [] }) {
+function createWriter(company, { title, meta = [], filters = [], orientation = 'portrait' }) {
   const engCompany = {
     ...company,
     name: toEnglishText(company.name),
@@ -140,7 +140,7 @@ function createWriter(company, { title, meta = [], filters = [] }) {
     value: toEnglishText(f.value)
   }));
 
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: orientation === 'landscape' ? 'landscape' : 'portrait' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 12;
@@ -317,8 +317,8 @@ function createWriter(company, { title, meta = [], filters = [] }) {
 const slugFile = (title, kind) => `${(title || kind).toLowerCase().replace(/[^a-z0-9]+/gi, '-')}.pdf`;
 
 // List report: one table + optional totals + optional signature.
-export function downloadReportPDF({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, filename, groupKey }) {
-  const w = createWriter(company, { title, meta, filters });
+export function downloadReportPDF({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, filename, groupKey, orientation }) {
+  const w = createWriter(company, { title, meta, filters, orientation });
   w.table({ columns, rows, totals, groupKey });
   if (signature) w.signature();
   w.save(filename, slugFile(title, 'report'));
@@ -354,7 +354,7 @@ function esc(s) {
   return asText(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-const PRINT_CSS = `
+const PRINT_CSS = (orientation = 'portrait') => `
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-family: Inter, Arial, Helvetica, sans-serif; color: #111827; margin: 0; }
   .page {
@@ -408,7 +408,7 @@ const PRINT_CSS = `
     display: flex; justify-content: space-between; font-size: 9px; color: #6b7280;
   }
   .soft-credit { text-align: center; font-size: 8px; color: #9ca3af; margin-top: 4px; }
-  @media print { @page { size: A4; margin: 8mm; } .page { min-height: calc(297mm - 16mm); } }
+  @media print { @page { size: A4 ${orientation === 'landscape' ? 'landscape' : ''}; margin: 8mm; } .page { min-height: calc(297mm - 16mm); } }
 `;
 
 function letterheadHTML(company, title, meta = [], filters = []) {
@@ -466,9 +466,9 @@ const signHTML = (signature) => {
   </div>`;
 };
 
-export function buildReportHTML({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, groupKey }) {
+export function buildReportHTML({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, groupKey, orientation }) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Report')}</title>
-  <style>${PRINT_CSS}</style></head><body>
+  <style>${PRINT_CSS(orientation)}</style></head><body>
     <div class="page">
       <div class="page-body">
         ${letterheadHTML(company, title, meta, filters)}
@@ -479,7 +479,7 @@ export function buildReportHTML({ company = {}, title, meta = [], filters = [], 
   </body></html>`;
 }
 
-export function buildDetailHTML({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature, groupKey }) {
+export function buildDetailHTML({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature, groupKey, orientation }) {
   const secHtml = sections.map(s => `
     <div class="sec">
       ${s.heading ? `<div class="sec-h">${esc(s.heading)}</div>` : ''}
@@ -488,7 +488,7 @@ export function buildDetailHTML({ company = {}, title, meta = [], filters = [], 
   const allTables = [...(table ? [table] : []), ...(tables || [])];
   const tablesHtml = allTables.map(tb => `${tb.heading ? `<div class="sec-h">${esc(tb.heading)}</div>` : ''}${tableHTML({ ...tb, groupKey })}`).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Detail')}</title>
-  <style>${PRINT_CSS}</style></head><body>
+  <style>${PRINT_CSS(orientation)}</style></head><body>
     <div class="page">
       <div class="page-body">
         ${letterheadHTML(company, title, meta, filters)}

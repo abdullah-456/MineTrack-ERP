@@ -296,7 +296,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   }
 
   const {
-    month, bonus, tax_deduction_percent, method, bank_account_id, date,
+    month, bonus, temp_allowance, tax_deduction_percent, method, bank_account_id, date,
     deduct_for_absence, count_leave_as_absence,
   } = body;
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
@@ -322,9 +322,18 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   // could send a negative bonus, quietly reducing gross pay with no
   // corresponding deduction line to explain it on the payslip.
   const bonusAmt = Math.max(0, parseFloat(bonus) || 0);
+  // One-off, entered fresh each run — distinct from the employee's recurring
+  // Employee.allowances below, same reasoning as bonus never persisting
+  // anywhere but this month's Payroll row.
+  const tempAllowanceAmt = Math.max(0, parseFloat(temp_allowance) || 0);
   const taxPercent = Math.min(100, Math.max(0, parseFloat(tax_deduction_percent) || 0));
   const basicSalary = parseFloat(employee.basic_salary || 0);
-  const grossSalary = Math.round((basicSalary + bonusAmt) * 100) / 100;
+  // Snapshotted onto the Payroll row below rather than re-read live later, so
+  // a past payslip still reflects what the employee's allowances were AT THE
+  // TIME even if their profile changes afterward — same precedent as basicSalary.
+  const allowancesTotal = Math.round((Array.isArray(employee.allowances) ? employee.allowances : [])
+    .reduce((s, a) => s + (parseFloat(a?.amount) || 0), 0) * 100) / 100;
+  const grossSalary = Math.round((basicSalary + allowancesTotal + tempAllowanceAmt + bonusAmt) * 100) / 100;
   const taxDeduction = Math.round((grossSalary * taxPercent / 100) * 100) / 100;
 
   const uncleared = await db.EmployeeTransaction.findAll({
@@ -377,6 +386,8 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     tax_deduction_percent: taxPercent,
     tax_deduction: taxDeduction,
     bonus: bonusAmt,
+    allowances_total: allowancesTotal,
+    temp_allowance: tempAllowanceAmt,
     net_pay: netPay,
     status: 'paid',
   }, { transaction });
@@ -387,7 +398,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
 
   await db.EmployeeTransaction.create({
     shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'salary_due',
-    amount: Math.round((basicSalary + bonusAmt) * 100) / 100, method: null,
+    amount: grossSalary, method: null,
     created_by: userId, notes: `Salary ${month}`,
   }, { transaction });
 
@@ -440,7 +451,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
       // EmployeeTransaction rows above (which DO carry txnDate) and the
       // general ledger disagreed on which day the same salary run happened.
       date: txnDate,
-      narration: `Salary paid to employee ${employee.name} for month ${month} (Basic: ${basicSalary}, Bonus: ${bonusAmt}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
+      narration: `Salary paid to employee ${employee.name} for month ${month} (Basic: ${basicSalary}, Allowances: ${allowancesTotal}, Temp Allowance: ${tempAllowanceAmt}, Bonus: ${bonusAmt}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
       createdBy: userId,
       branchId: employee.branch_id,
       lines: [
@@ -591,6 +602,7 @@ exports.getTransactionSlip = async (req, res) => {
         id: employee.id,
         name: employee.name,
         designation: employee.designation,
+        employment_id: employee.employment_id,
       },
       transaction: {
         id: txn.id,
@@ -606,6 +618,8 @@ exports.getTransactionSlip = async (req, res) => {
         month: txn.Payroll.month,
         basic_salary: parseFloat(txn.Payroll.basic_salary || 0),
         bonus: parseFloat(txn.Payroll.bonus || 0),
+        allowances_total: parseFloat(txn.Payroll.allowances_total || 0),
+        temp_allowance: parseFloat(txn.Payroll.temp_allowance || 0),
         deductions: parseFloat(txn.Payroll.deductions || 0),
         advance_deduction: parseFloat(txn.Payroll.advance_deduction || 0),
         attendance_deduction: parseFloat(txn.Payroll.attendance_deduction || 0),

@@ -11,6 +11,9 @@ import {
 export default function ReportActions({
   title, columns, rows = [], totals, filters, signature, filename,
   getReport, label = true, className = '', groupKey,
+  // Optional override for the Excel button — e.g. a real .xlsx writer instead
+  // of the default CSV-with-BOM export. Receives the built report model.
+  onExcel,
 }) {
   const { shopParams } = useShopApi();
   const { t } = useTheme();
@@ -30,7 +33,9 @@ export default function ReportActions({
         return;
       }
       const payload = { company, ...model };
-      if (model.kind === 'detail' || model.kind === 'document') {
+      if (mode === 'excel' && onExcel) {
+        await onExcel(payload);
+      } else if (model.kind === 'detail' || model.kind === 'document') {
         if (mode === 'print') printDetail(payload);
         else if (mode === 'pdf') downloadDetailPDF(payload);
         else downloadDetailExcel(payload);

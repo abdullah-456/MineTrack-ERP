@@ -120,6 +120,13 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DECIMAL(15, 2),
       allowNull: false,
     },
+    // Recurring named top-ups on basic_salary — [{ name, amount }] — folded
+    // into gross pay every month by employeeLedgerController.runGiveSalary.
+    allowances: {
+      type: DataTypes.JSONB,
+      allowNull: true,
+      defaultValue: [],
+    },
     hire_date: {
       type: DataTypes.DATE,
       allowNull: true,

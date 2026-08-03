@@ -363,6 +363,7 @@ export default function EmployeeLedger() {
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th className="text-start p-4">{t('month') || 'Month'}</th>
                 <th className="text-end p-4">{t('basicSalary')}</th>
+                <th className="text-end p-4">{t('allowances') || 'Allowances'}</th>
                 <th className="text-end p-4">{t('bonus') || 'Bonus'}</th>
                 <th className="text-end p-4">{t('deductions') || 'Deductions'}</th>
                 <th className="text-end p-4">{t('netPay') || 'Net Pay'}</th>
@@ -384,6 +385,7 @@ export default function EmployeeLedger() {
                 >
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{p.month}</td>
                   <td className="p-4 text-end">{formatPKR(p.basic_salary, lang)}</td>
+                  <td className="p-4 text-end text-emerald-400">{formatPKR((parseFloat(p.allowances_total) || 0) + (parseFloat(p.temp_allowance) || 0), lang)}</td>
                   <td className="p-4 text-end text-emerald-400">{formatPKR(p.bonus, lang)}</td>
                   <td className="p-4 text-end text-red-400">{formatPKR(p.deductions, lang)}</td>
                   <td className="p-4 text-end font-bold" style={{ color: 'var(--text-primary)' }}>{formatPKR(p.net_pay, lang)}</td>
@@ -391,7 +393,7 @@ export default function EmployeeLedger() {
                 </tr>
               ))}
               {payroll_history.length === 0 && (
-                <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noPayrollRuns') || 'No payroll runs yet'}</td></tr>
+                <tr><td colSpan={7} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noPayrollRuns') || 'No payroll runs yet'}</td></tr>
               )}
             </tbody>
           </table>

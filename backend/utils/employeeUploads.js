@@ -23,6 +23,9 @@ function safeExt(originalName) {
 }
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+// CNIC attachment doubles as a scan of the physical card, so PDF is allowed
+// alongside images (unlike the profile photo, which stays image-only).
+const CNIC_TYPES = [...IMAGE_TYPES, 'application/pdf'];
 const DOCUMENT_TYPES = [
   ...IMAGE_TYPES,
   'application/pdf',
@@ -66,7 +69,7 @@ const employeeUpload = {
   }),
   cnic: multer({
     storage: makeStorage('cnic'),
-    fileFilter: makeFilter(IMAGE_TYPES, 'CNIC image'),
+    fileFilter: makeFilter(CNIC_TYPES, 'CNIC attachment'),
     limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   }),
   documents: multer({

@@ -1,20 +1,24 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Plus, Trash2, UserCheck } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
 import { useAuth } from '../../context/AuthContext';
+import { useEmployeeAttachments } from '../../hooks/useEmployeeAttachments';
 import PageHeader from '../../components/ui/PageHeader';
 import FormLabel from '../../components/ui/FormLabel';
 import LocationPicker from '../../components/ui/LocationPicker';
-import EmployeeAttachments from '../../components/employees/EmployeeAttachments';
+import EmployeePhotoFrame from '../../components/employees/EmployeePhotoFrame';
+import CnicAttachmentButton from '../../components/employees/CnicAttachmentButton';
+import EmployeeDocumentsSection from '../../components/employees/EmployeeDocumentsSection';
 import api from '../../api/axios';
 
 const EMPTY_EXP = () => ({
   organization: '', designation: '', from: '', to: '', salary: '', leaving_reason: '',
 });
 const EMPTY_DEP = () => ({ name: '', relation: '', age: '', dob: '' });
+const EMPTY_ALLOWANCE = () => ({ name: '', amount: '' });
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -47,6 +51,7 @@ function emptyForm(branches) {
     hire_date: todayStr(),
     designation: '',
     basic_salary: '',
+    allowances: [],
     location_type: 'branch',
     branch_id: branches?.[0]?.id || '',
     godown_id: null,
@@ -85,7 +90,7 @@ export default function EmployeeFormPage() {
   const [form, setForm] = useState(() => emptyForm(branches));
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
-  const attachmentsRef = useRef(null);
+  const attachments = useEmployeeAttachments(isEdit ? id : null);
 
   const setF = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -138,6 +143,7 @@ export default function EmployeeFormPage() {
         hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : todayStr(),
         designation: e.designation || '',
         basic_salary: e.basic_salary != null ? String(e.basic_salary) : '',
+        allowances: Array.isArray(e.allowances) ? e.allowances : [],
         location_type: branch?.godown_id ? 'godown' : 'branch',
         branch_id: e.branch_id || '',
         godown_id: branch?.godown_id || null,
@@ -191,6 +197,7 @@ export default function EmployeeFormPage() {
         age: form.age !== '' ? parseInt(form.age, 10) : null,
         experience: form.experience,
         dependants: form.dependants,
+        allowances: form.allowances,
         ...shopParams(),
       };
       // Status is changed from the employees list / ledger — not via full profile save
@@ -201,7 +208,7 @@ export default function EmployeeFormPage() {
         navigate('/employees');
       } else {
         const { data } = await api.post('/employees', payload);
-        const result = await attachmentsRef.current?.commitToEmployee(data.employee.id);
+        const result = await attachments.commitToEmployee(data.employee.id);
         success(t('employeeCreated') || 'Employee created');
         if (result?.failed) {
           error(t('someAttachmentsFailed') || 'Some attachments failed to upload. You can retry from the edit page.');
@@ -236,60 +243,66 @@ export default function EmployeeFormPage() {
 
       <form onSubmit={submit} className="space-y-4">
         <FormSection title={t('personalInfo') || 'Personal Info'}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <FormLabel required>{t('fullName') || 'Full Name'}</FormLabel>
-              <input className="input" required value={form.name} onChange={setF('name')} />
-            </div>
-            <div>
-              <FormLabel required>{t('fatherName') || 'Father Name'}</FormLabel>
-              <input className="input" required value={form.father_name} onChange={setF('father_name')} />
-            </div>
-            <div>
-              <FormLabel required>{t('cnic') || 'CNIC No'}</FormLabel>
-              <input className="input" required placeholder="35202-1234567-1" value={form.cnic} onChange={setF('cnic')} />
-            </div>
-            <div>
-              <FormLabel>{t('cnicExpiry') || 'CNIC Expiry Date'}</FormLabel>
-              <input className="input" type="date" value={form.cnic_expiry} onChange={setF('cnic_expiry')} />
-            </div>
-            <div>
-              <FormLabel required>{t('gender') || 'Gender'}</FormLabel>
-              <select className="input" required value={form.gender} onChange={setF('gender')}>
-                <option value="">Select</option>
-                <option value="male">{t('male') || 'Male'}</option>
-                <option value="female">{t('female') || 'Female'}</option>
-                <option value="other">{t('other') || 'Other'}</option>
-              </select>
-            </div>
-            <div>
-              <FormLabel>{t('dateOfBirth') || 'Date of Birth'}</FormLabel>
-              <input className="input" type="date" value={form.date_of_birth} onChange={e => onDobChange(e.target.value)} />
-            </div>
-            <div>
-              <FormLabel>{t('age') || 'Age'}</FormLabel>
-              <input className="input" type="number" min="0" value={form.age} onChange={setF('age')} />
-            </div>
-            <div>
-              <FormLabel>{t('placeOfBirth') || 'Place of Birth'}</FormLabel>
-              <input className="input" value={form.place_of_birth} onChange={setF('place_of_birth')} />
-            </div>
-            <div>
-              <FormLabel>{t('maritalStatus') || 'Marital Status'}</FormLabel>
-              <select className="input" value={form.marital_status} onChange={setF('marital_status')}>
-                <option value="">Select</option>
-                <option value="single">Single</option>
-                <option value="married">Married</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div>
-              <FormLabel>{t('religion') || 'Religion'}</FormLabel>
-              <input className="input" value={form.religion} onChange={setF('religion')} />
-            </div>
-            <div>
-              <FormLabel>{t('language') || 'Language'}</FormLabel>
-              <input className="input" value={form.language} onChange={setF('language')} />
+          <div className="flex flex-col sm:flex-row gap-5 sm:items-start">
+            <EmployeePhotoFrame photo={attachments.photo} canEdit={isHr} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1">
+              <div>
+                <FormLabel required>{t('fullName') || 'Full Name'}</FormLabel>
+                <input className="input" required value={form.name} onChange={setF('name')} />
+              </div>
+              <div>
+                <FormLabel required>{t('fatherName') || 'Father Name'}</FormLabel>
+                <input className="input" required value={form.father_name} onChange={setF('father_name')} />
+              </div>
+              <div>
+                <FormLabel required>{t('cnic') || 'CNIC No'}</FormLabel>
+                <div className="flex items-center gap-2">
+                  <input className="input flex-1" required placeholder="35202-1234567-1" value={form.cnic} onChange={setF('cnic')} />
+                  <CnicAttachmentButton cnic={attachments.cnic} canEdit={isHr} />
+                </div>
+              </div>
+              <div>
+                <FormLabel>{t('cnicExpiry') || 'CNIC Expiry Date'}</FormLabel>
+                <input className="input" type="date" value={form.cnic_expiry} onChange={setF('cnic_expiry')} />
+              </div>
+              <div>
+                <FormLabel required>{t('gender') || 'Gender'}</FormLabel>
+                <select className="input" required value={form.gender} onChange={setF('gender')}>
+                  <option value="">Select</option>
+                  <option value="male">{t('male') || 'Male'}</option>
+                  <option value="female">{t('female') || 'Female'}</option>
+                  <option value="other">{t('other') || 'Other'}</option>
+                </select>
+              </div>
+              <div>
+                <FormLabel>{t('dateOfBirth') || 'Date of Birth'}</FormLabel>
+                <input className="input" type="date" value={form.date_of_birth} onChange={e => onDobChange(e.target.value)} />
+              </div>
+              <div>
+                <FormLabel>{t('age') || 'Age'}</FormLabel>
+                <input className="input" type="number" min="0" value={form.age} onChange={setF('age')} />
+              </div>
+              <div>
+                <FormLabel>{t('placeOfBirth') || 'Place of Birth'}</FormLabel>
+                <input className="input" value={form.place_of_birth} onChange={setF('place_of_birth')} />
+              </div>
+              <div>
+                <FormLabel>{t('maritalStatus') || 'Marital Status'}</FormLabel>
+                <select className="input" value={form.marital_status} onChange={setF('marital_status')}>
+                  <option value="">Select</option>
+                  <option value="single">Single</option>
+                  <option value="married">Married</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <FormLabel>{t('religion') || 'Religion'}</FormLabel>
+                <input className="input" value={form.religion} onChange={setF('religion')} />
+              </div>
+              <div>
+                <FormLabel>{t('language') || 'Language'}</FormLabel>
+                <input className="input" value={form.language} onChange={setF('language')} />
+              </div>
             </div>
           </div>
         </FormSection>
@@ -428,6 +441,41 @@ export default function EmployeeFormPage() {
                 <FormLabel required>{t('salary') || 'Salary'}</FormLabel>
                 <input className="input" type="number" min="0" step="0.01" required value={form.basic_salary} onChange={setF('basic_salary')} />
               </div>
+              <div className="sm:col-span-2 space-y-2">
+                <FormLabel>{t('allowances') || 'Allowances'}</FormLabel>
+                <div className="space-y-2">
+                  {form.allowances.map((row, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        className="input flex-1"
+                        placeholder={t('allowanceName') || 'Allowance name (e.g. Transport)'}
+                        value={row.name || ''}
+                        onChange={e => setForm(f => { const allowances = [...f.allowances]; allowances[i] = { ...allowances[i], name: e.target.value }; return { ...f, allowances }; })}
+                      />
+                      <input
+                        className="input w-36"
+                        type="number" min="0" step="0.01"
+                        placeholder={t('amount') || 'Amount'}
+                        value={row.amount}
+                        onChange={e => setForm(f => { const allowances = [...f.allowances]; allowances[i] = { ...allowances[i], amount: e.target.value }; return { ...f, allowances }; })}
+                      />
+                      <button type="button" className="icon-btn text-red-400" onClick={() => setForm(f => ({ ...f, allowances: f.allowances.filter((_, j) => j !== i) }))}>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button type="button" className="btn-secondary flex items-center gap-2 text-sm" onClick={() => setForm(f => ({ ...f, allowances: [...f.allowances, EMPTY_ALLOWANCE()] }))}>
+                    <Plus className="w-4 h-4" />{t('addAllowance') || 'Add Allowance'}
+                  </button>
+                </div>
+                {form.allowances.length > 0 && (
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {t('totalSalary') || 'Total Salary (Basic + Allowances)'}: {(
+                      (parseFloat(form.basic_salary) || 0) + form.allowances.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0)
+                    ).toLocaleString('en-PK', { maximumFractionDigits: 0 })}
+                  </p>
+                )}
+              </div>
               <div className="sm:col-span-2">
                 <LocationPicker
                   required
@@ -457,7 +505,13 @@ export default function EmployeeFormPage() {
           <textarea className="input min-h-[80px]" value={form.remarks} onChange={setF('remarks')} placeholder={t('optionalRemarks') || 'Optional remarks…'} />
         </FormSection>
 
-        <EmployeeAttachments ref={attachmentsRef} employeeId={isEdit ? id : null} canEdit={isHr} />
+        <EmployeeDocumentsSection
+          employeeId={isEdit ? id : null}
+          documents={attachments.documents}
+          canEdit={isHr}
+          isStaging={attachments.isStaging}
+          shopParams={attachments.shopParams}
+        />
 
         <div className="flex gap-3 justify-end pt-2">
           <button type="button" onClick={() => navigate('/employees')} className="btn-secondary">{t('cancel')}</button>

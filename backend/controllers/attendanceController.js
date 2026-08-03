@@ -217,6 +217,184 @@ async function getAttendanceSummaryForMonth(shopId, employeeId, month, transacti
   };
 }
 
+// ── Shared employee-scope resolver for reports ───────────────────────────────
+// employee_ids (comma-separated) is client-supplied — always re-intersected
+// with this shop's (and branch's) active roster here rather than trusted
+// directly, mirroring the employeeById.has(id) guard in markAttendance below.
+// Omitting employee_ids falls back to the full active roster ("All Employees").
+async function resolveEmployeeScope(shopId, branchId, employeeIdsParam, transaction) {
+  const empWhere = { shop_id: shopId, status: 'active' };
+  if (branchId) empWhere.branch_id = branchId;
+  if (employeeIdsParam) {
+    const ids = String(employeeIdsParam).split(',').map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n));
+    if (ids.length) empWhere.id = { [Op.in]: ids };
+  }
+  return db.Employee.findAll({
+    where: empWhere,
+    attributes: ['id', 'name', 'designation', 'employment_id', 'branch_id'],
+    include: [{ model: db.Branch, attributes: ['id', 'name'] }],
+    order: [['name', 'ASC']],
+    transaction,
+  });
+}
+
+// ── GET /attendance/employees?branch_id= ─────────────────────────────────────
+// Plain active-employee roster for the report employee-picker — deliberately
+// its own endpoint (not GET /employees) since attendance is its own permission
+// module and shouldn't require `employees` read access too.
+exports.getRosterForReports = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const branchId = req.query.branch_id ? parseInt(req.query.branch_id, 10) : resolveBranchId(req);
+    const employees = await resolveEmployeeScope(shopId, branchId, null);
+    return res.json({
+      employees: employees.map(e => ({
+        id: e.id,
+        name: e.name,
+        designation: e.designation,
+        employment_id: e.employment_id,
+        branch_id: e.branch_id,
+        branch_name: e.Branch?.name || null,
+      })),
+    });
+  } catch (error) {
+    console.error('getAttendanceRoster error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+  }
+};
+
+// ── GET /attendance/report/daily?date=&branch_id=&employee_ids= ─────────────
+// Same roster/marks join as getDay, but scoped to an optional employee subset
+// and with totals computed server-side. `unmarked` (status: null) is kept as
+// its own bucket, distinct from `absent` — matches getDay's semantics, so a
+// report never silently counts "not yet marked" as "marked absent".
+exports.getDailyReport = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const date = parseDateParam(req.query.date || new Date(), 'date');
+    const branchId = req.query.branch_id ? parseInt(req.query.branch_id, 10) : resolveBranchId(req);
+    const employees = await resolveEmployeeScope(shopId, branchId, req.query.employee_ids);
+
+    const marks = await db.Attendance.findAll({
+      where: { shop_id: shopId, date, employee_id: { [Op.in]: employees.map(e => e.id) } },
+      raw: true,
+    });
+    const byEmployee = {};
+    marks.forEach(m => { byEmployee[m.employee_id] = m; });
+
+    const totals = { total_employees: employees.length, present: 0, absent: 0, leave: 0, unmarked: 0 };
+    const employeeRows = employees.map(e => {
+      const status = byEmployee[e.id]?.status || null;
+      if (status && totals[status] !== undefined) totals[status] += 1;
+      else totals.unmarked += 1;
+      return {
+        id: e.id,
+        name: e.name,
+        designation: e.designation,
+        employment_id: e.employment_id,
+        branch: e.Branch ? { id: e.Branch.id, name: e.Branch.name } : null,
+        status,
+        notes: byEmployee[e.id]?.notes || null,
+      };
+    });
+
+    return res.json({ date, branch_id: branchId || null, totals, employees: employeeRows });
+  } catch (error) {
+    console.error('getAttendanceDailyReport error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+  }
+};
+
+// ── buildRangeGrid / GET /attendance/report/range?from=&to=&branch_id=&employee_ids= ──
+// Generalizes buildMonthGrid to an arbitrary date range with an optional
+// employee subset. Keyed by full ISO date (not the 2-digit day buildMonthGrid
+// uses) since a range can cross a month boundary. Serves both the Monthly
+// report tab (from/to = first/last day of the chosen month) and the Date
+// Range tab (arbitrary from/to) — a calendar month is just a range whose span
+// happens to equal days_in_month.
+const MAX_REPORT_RANGE_DAYS = 366;
+
+async function buildRangeGrid(shopId, rawFrom, rawTo, branchId, employeeIdsParam, transaction) {
+  const from = parseDateParam(rawFrom, 'from');
+  const to = parseDateParam(rawTo, 'to');
+  if (from > to) {
+    const e = new Error('from must not be after to');
+    e.statusCode = 400;
+    throw e;
+  }
+  const spanDays = Math.round((new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000) + 1;
+  if (spanDays > MAX_REPORT_RANGE_DAYS) {
+    const e = new Error(`Date range cannot exceed ${MAX_REPORT_RANGE_DAYS} days`);
+    e.statusCode = 400;
+    throw e;
+  }
+
+  const employees = await resolveEmployeeScope(shopId, branchId, employeeIdsParam, transaction);
+
+  const marks = await db.Attendance.findAll({
+    where: {
+      shop_id: shopId,
+      employee_id: { [Op.in]: employees.map(e => e.id) },
+      date: { [Op.between]: [from, to] },
+    },
+    attributes: ['employee_id', 'date', 'status', 'notes'],
+    raw: true,
+    transaction,
+  });
+
+  const byEmployee = {};
+  marks.forEach(m => {
+    (byEmployee[m.employee_id] = byEmployee[m.employee_id] || {})[String(m.date)] = { status: m.status, notes: m.notes };
+  });
+
+  return {
+    from,
+    to,
+    days_in_range: spanDays,
+    employees: employees.map(e => {
+      const days = byEmployee[e.id] || {};
+      const counts = { present: 0, absent: 0, leave: 0 };
+      Object.values(days).forEach(d => { if (counts[d.status] !== undefined) counts[d.status] += 1; });
+      const marked_days = counts.present + counts.absent + counts.leave;
+      return {
+        id: e.id,
+        name: e.name,
+        designation: e.designation,
+        employment_id: e.employment_id,
+        days,
+        summary: {
+          present_days: counts.present,
+          absent_days: counts.absent,
+          leave_days: counts.leave,
+          unmarked_days: spanDays - marked_days,
+          marked_days,
+          days_in_range: spanDays,
+          // Percentage of MARKED days that were present — mirrors
+          // getAttendanceSummaryForMonth's marked_days concept, so gaps in
+          // marking don't drag the percentage down.
+          percentage: marked_days ? Math.round((counts.present / marked_days) * 1000) / 10 : 0,
+        },
+      };
+    }),
+  };
+}
+
+exports.getRangeReport = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const branchId = req.query.branch_id ? parseInt(req.query.branch_id, 10) : resolveBranchId(req);
+    const result = await buildRangeGrid(shopId, req.query.from, req.query.to, branchId, req.query.employee_ids);
+    return res.json({ ...result, branch_id: branchId || null });
+  } catch (error) {
+    console.error('getAttendanceRangeReport error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+  }
+};
+
 // ── markAttendance ───────────────────────────────────────────────────────────
 // Bulk upsert: entries = [{ employee_id, status, notes? }]. Re-marking an
 // employee for the same day updates rather than duplicates, via the

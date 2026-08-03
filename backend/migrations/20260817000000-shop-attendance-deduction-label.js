@@ -12,10 +12,13 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.addColumn('shops', 'attendance_deduction_label', {
-      type: Sequelize.STRING(60),
-      allowNull: true,
-    });
+    const desc = await queryInterface.describeTable('shops');
+    if (!desc.attendance_deduction_label) {
+      await queryInterface.addColumn('shops', 'attendance_deduction_label', {
+        type: Sequelize.STRING(60),
+        allowNull: true,
+      });
+    }
   },
 
   down: async (queryInterface) => {

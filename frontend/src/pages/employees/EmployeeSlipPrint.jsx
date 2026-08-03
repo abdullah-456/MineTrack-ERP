@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, Download } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
-import { formatPKR } from '../../hooks/useShopApi';
+import { formatPKR, useShopApi } from '../../hooks/useShopApi';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import { getCompany } from '../../utils/reportExport';
@@ -15,7 +15,12 @@ export default function EmployeeSlipPrint() {
   const [searchParams] = useSearchParams();
   const autoPrint = searchParams.get('auto_print') === '1';
   const { t, lang } = useTheme();
+  const { shopParams, shopId, isSuperAdmin } = useShopApi();
   const isRTL = lang === 'ur';
+  // A super_admin's shopId resolves asynchronously after mount — wait for it,
+  // otherwise this fetch goes out with no shop_id and 400s (same pattern as
+  // EmployeeFormPage's shopReady guard).
+  const shopReady = !isSuperAdmin || Boolean(shopId);
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
@@ -26,19 +31,23 @@ export default function EmployeeSlipPrint() {
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      await downloadEmployeeSlip(employeeId, txnId, company);
+      await downloadEmployeeSlip(employeeId, txnId, company, shopParams());
     } finally {
       setDownloading(false);
     }
   };
 
   useEffect(() => {
+    if (!shopReady) return;
+    let cancelled = false;
+    setErr(null);
     Promise.all([
-      api.get(`/employees/${employeeId}/slips/${txnId}`).then(({ data }) => setData(data)),
-      getCompany().then(setCompany),
-    ]).catch(e => setErr(e.response?.data?.message || 'Failed to load slip'))
-      .finally(() => setLoading(false));
-  }, [employeeId, txnId]);
+      api.get(`/employees/${employeeId}/slips/${txnId}`, { params: shopParams() }).then(({ data }) => { if (!cancelled) setData(data); }),
+      getCompany().then(c => { if (!cancelled) setCompany(c); }),
+    ]).catch(e => { if (!cancelled) setErr(e.response?.data?.message || 'Failed to load slip'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [employeeId, txnId, shopReady, shopParams]);
 
   useEffect(() => {
     if (!loading && data && autoPrint) {
@@ -103,6 +112,9 @@ export default function EmployeeSlipPrint() {
               <td style={{ color: INK_SOFT, width: '18%' }}>{t('employee') || 'Employee'}</td>
               <td style={{ fontWeight: 700 }}>{employee.name}</td>
             </tr>
+            {employee.employment_id && (
+              <tr><td style={{ color: INK_SOFT }}>{t('employmentId') || 'Employment ID'}</td><td style={{ fontWeight: 700 }}>{employee.employment_id}</td></tr>
+            )}
             {employee.designation && (
               <tr><td style={{ color: INK_SOFT }}>{t('designation') || 'Designation'}</td><td style={{ fontWeight: 700 }}>{employee.designation}</td></tr>
             )}
@@ -125,6 +137,18 @@ export default function EmployeeSlipPrint() {
             <tbody>
               <tr><td style={{ color: INK_SOFT }}>{t('month') || 'Month'}</td><td className="num" style={{ fontWeight: 700 }}>{payroll.month}</td></tr>
               <tr><td style={{ color: INK_SOFT }}>{t('basicSalary') || 'Basic Salary'}</td><td className="num">{fmt(payroll.basic_salary)}</td></tr>
+              {payroll.allowances_total > 0 && (
+                <tr>
+                  <td style={{ color: INK_SOFT }}>{t('allowances') || 'Allowances'}</td>
+                  <td className="num" style={{ color: '#047857' }}>+{fmt(payroll.allowances_total)}</td>
+                </tr>
+              )}
+              {payroll.temp_allowance > 0 && (
+                <tr>
+                  <td style={{ color: INK_SOFT }}>{t('tempAllowance') || 'Temporary Allowance'}</td>
+                  <td className="num" style={{ color: '#047857' }}>+{fmt(payroll.temp_allowance)}</td>
+                </tr>
+              )}
               <tr>
                 <td style={{ color: INK_SOFT }}>{t('giveAdvance') || 'Advance'}</td>
                 <td className="num" style={{ color: payroll.advance_deduction > 0 ? '#b91c1c' : INK }}>

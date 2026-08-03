@@ -21,10 +21,13 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.addColumn('shops', 'books_start_date', {
-      type: Sequelize.DATEONLY,
-      allowNull: true,
-    });
+    const desc = await queryInterface.describeTable('shops');
+    if (!desc.books_start_date) {
+      await queryInterface.addColumn('shops', 'books_start_date', {
+        type: Sequelize.DATEONLY,
+        allowNull: true,
+      });
+    }
   },
 
   down: async (queryInterface) => {

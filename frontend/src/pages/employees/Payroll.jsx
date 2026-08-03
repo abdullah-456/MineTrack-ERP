@@ -45,7 +45,7 @@ export default function Payroll() {
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [advanceForSelectedMonth, setAdvanceForSelectedMonth] = useState(0);
   const [salaryForm, setSalaryForm] = useState({
-    month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
+    month: currentMonth, bonus: '', temp_allowance: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
     deduct_for_absence: false, count_leave_as_absence: false,
   });
   const [attendanceSummary, setAttendanceSummary] = useState(null);
@@ -95,7 +95,7 @@ export default function Payroll() {
   const openGiveSalary = async (emp) => {
     setModalEmp(emp);
     setSalaryForm({
-      month: currentMonth, bonus: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
+      month: currentMonth, bonus: '', temp_allowance: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
       deduct_for_absence: false, count_leave_as_absence: false,
     });
     setPaidMonths(new Set());
@@ -155,7 +155,7 @@ export default function Payroll() {
   const handleDownloadSlip = async (employeeId, txnId) => {
     setDownloadingId(txnId);
     try {
-      await downloadEmployeeSlip(employeeId, txnId, shopName);
+      await downloadEmployeeSlip(employeeId, txnId, shopName, shopParams());
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -164,8 +164,10 @@ export default function Payroll() {
   };
 
   const basicSalary = parseFloat(modalEmp?.basic_salary || 0);
+  const allowancesTotal = (modalEmp?.allowances || []).reduce((s, a) => s + (parseFloat(a?.amount) || 0), 0);
   const bonusVal = parseFloat(salaryForm.bonus) || 0;
-  const grossSalary = basicSalary + bonusVal;
+  const tempAllowanceVal = parseFloat(salaryForm.temp_allowance) || 0;
+  const grossSalary = basicSalary + allowancesTotal + tempAllowanceVal + bonusVal;
   const taxPercentVal = Math.min(100, Math.max(0, parseFloat(salaryForm.tax_deduction_percent) || 0));
   const taxDeductionVal = Math.round((grossSalary * taxPercentVal / 100) * 100) / 100;
 
@@ -200,6 +202,7 @@ export default function Payroll() {
       const { data } = await api.post(`/employees/${modalEmp.id}/give-salary`, {
         month: salaryForm.month,
         bonus: bonusVal,
+        temp_allowance: tempAllowanceVal,
         tax_deduction_percent: taxPercentVal,
         method: salaryForm.method,
         bank_account_id: salaryForm.bank_account_id,
@@ -371,15 +374,19 @@ export default function Payroll() {
                 <input className="input" type="number" step="0.01" min="0" value={salaryForm.bonus} onChange={e => setSalaryForm(f => ({ ...f, bonus: e.target.value }))} />
               </div>
               <div>
-                <FormLabel>{t('taxDeductionPercent') || 'Tax Deduction %'}</FormLabel>
-                <div className="relative">
-                  <input
-                    className="input pr-8" type="number" step="0.01" min="0" max="100"
-                    value={salaryForm.tax_deduction_percent}
-                    onChange={e => setSalaryForm(f => ({ ...f, tax_deduction_percent: e.target.value }))}
-                  />
-                  <span className="absolute top-1/2 -translate-y-1/2 text-sm" style={{ [isRTL ? 'left' : 'right']: '12px', color: 'var(--text-muted)' }}>%</span>
-                </div>
+                <FormLabel>{t('tempAllowance') || 'Temporary Allowance'}</FormLabel>
+                <input className="input" type="number" step="0.01" min="0" value={salaryForm.temp_allowance} onChange={e => setSalaryForm(f => ({ ...f, temp_allowance: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <FormLabel>{t('taxDeductionPercent') || 'Tax Deduction %'}</FormLabel>
+              <div className="relative">
+                <input
+                  className="input pr-8" type="number" step="0.01" min="0" max="100"
+                  value={salaryForm.tax_deduction_percent}
+                  onChange={e => setSalaryForm(f => ({ ...f, tax_deduction_percent: e.target.value }))}
+                />
+                <span className="absolute top-1/2 -translate-y-1/2 text-sm" style={{ [isRTL ? 'left' : 'right']: '12px', color: 'var(--text-muted)' }}>%</span>
               </div>
             </div>
             <div>
@@ -428,6 +435,16 @@ export default function Payroll() {
                   <div className="flex justify-between" style={{ color: 'var(--text-secondary)' }}>
                     <span>{t('basicSalary') || 'Basic Salary'}</span><span>{formatPKR(basicSalary, lang)}</span>
                   </div>
+                  {allowancesTotal > 0 && (
+                    <div className="flex justify-between text-emerald-400">
+                      <span>+ {t('allowances') || 'Allowances'}</span><span>+{formatPKR(allowancesTotal, lang)}</span>
+                    </div>
+                  )}
+                  {tempAllowanceVal > 0 && (
+                    <div className="flex justify-between text-emerald-400">
+                      <span>+ {t('tempAllowance') || 'Temporary Allowance'}</span><span>+{formatPKR(tempAllowanceVal, lang)}</span>
+                    </div>
+                  )}
                   {bonusVal > 0 && (
                     <div className="flex justify-between text-emerald-400">
                       <span>+ {t('bonus') || 'Bonus'}</span><span>+{formatPKR(bonusVal, lang)}</span>

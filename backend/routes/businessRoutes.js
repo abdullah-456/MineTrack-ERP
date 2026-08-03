@@ -144,6 +144,11 @@ router.get(   '/attendance/month',  authorize('attendance', 'read'),   attendanc
 router.get(   '/attendance/summary', authorize('attendance', 'read'),  attendanceController.getSummary);
 router.post(  '/attendance/mark',   authorize('attendance', 'create'), attendanceController.mark);
 
+// Attendance — reports
+router.get(   '/attendance/employees',    authorize('attendance', 'read'), attendanceController.getRosterForReports);
+router.get(   '/attendance/report/daily', authorize('attendance', 'read'), attendanceController.getDailyReport);
+router.get(   '/attendance/report/range', authorize('attendance', 'read'), attendanceController.getRangeReport);
+
 // Sales
 router.get(   '/sales',                  authorize('sales', 'read'),   saleController.list);
 router.get(   '/sales/stats',            authorize('sales', 'read'),   saleController.stats);

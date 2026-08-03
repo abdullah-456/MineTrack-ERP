@@ -4,24 +4,12 @@ import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
+import AttendanceReportsView from '../../components/attendance/AttendanceReportsView';
+import { STATUS_META, STATUS_ORDER, nextStatus } from '../../utils/attendanceStatus';
 import api from '../../api/axios';
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const monthStr = () => new Date().toISOString().slice(0, 7);
-
-// Letter shown on the cell/button itself — P/A/L — so status reads without
-// relying on color alone. Order doubles as the click-cycle order: 1st click
-// on an unmarked cell lands on present, 2nd on absent, 3rd on leave.
-const STATUS_META = {
-  present: { labelKey: 'present', fallback: 'Present', badge: 'badge-green', letter: 'P', cell: 'rgb(16,185,129)' },
-  absent:  { labelKey: 'absent',  fallback: 'Absent',  badge: 'badge-red',   letter: 'A', cell: 'rgb(239,68,68)' },
-  leave:   { labelKey: 'leave',   fallback: 'Leave',    badge: 'badge-yellow', letter: 'L', cell: 'rgb(245,158,11)' },
-};
-const STATUS_ORDER = ['present', 'absent', 'leave'];
-const nextStatus = (current) => {
-  const idx = current ? STATUS_ORDER.indexOf(current) : -1;
-  return STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
-};
 
 export default function Attendance() {
   const { t, lang } = useTheme();
@@ -29,7 +17,7 @@ export default function Attendance() {
   const { shopParams, branches } = useShopApi();
   const isRTL = lang === 'ur';
 
-  const [tab, setTab] = useState('today'); // 'today' | 'month'
+  const [tab, setTab] = useState('today'); // 'today' | 'month' | 'reports'
   const [branchId, setBranchId] = useState('');
   const showBranchFilter = branches.length > 1;
 
@@ -58,6 +46,13 @@ export default function Attendance() {
           >
             {t('monthView') || 'Month View'}
           </button>
+          <button
+            type="button"
+            onClick={() => setTab('reports')}
+            className={tab === 'reports' ? 'btn-primary text-sm' : 'btn-secondary text-sm'}
+          >
+            {t('attendanceReports') || 'Reports'}
+          </button>
         </div>
         {showBranchFilter && (
           <select className="input max-w-xs" value={branchId} onChange={e => setBranchId(e.target.value)}>
@@ -67,9 +62,15 @@ export default function Attendance() {
         )}
       </div>
 
-      {tab === 'today'
-        ? <TodayView shopParams={shopParams} branchId={branchId} branches={branches} t={t} error={error} success={success} />
-        : <MonthView shopParams={shopParams} branchId={branchId} t={t} error={error} success={success} />}
+      {tab === 'today' && (
+        <TodayView shopParams={shopParams} branchId={branchId} branches={branches} t={t} error={error} success={success} />
+      )}
+      {tab === 'month' && (
+        <MonthView shopParams={shopParams} branchId={branchId} t={t} error={error} success={success} />
+      )}
+      {tab === 'reports' && (
+        <AttendanceReportsView shopParams={shopParams} branchId={branchId} branches={branches} t={t} error={error} />
+      )}
     </div>
   );
 }
