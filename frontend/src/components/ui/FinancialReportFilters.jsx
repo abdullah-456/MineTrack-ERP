@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useShopApi } from '../../hooks/useShopApi';

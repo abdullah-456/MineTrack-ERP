@@ -170,7 +170,7 @@ function SaleInvoice({ data }) {
         { label: 'Sale Type', value: (data.sale_type || 'cash').toUpperCase() },
         { label: 'Status', value: <StatusChip status={data.status} /> },
         data.Cashier && { label: 'Cashier', value: data.Cashier.name },
-        data.Branch && { label: 'Branch', value: data.Branch.name },
+        data.Branch && { label: 'Mine', value: data.Branch.name },
         data.Employee && { label: 'Salesman', value: data.Employee.name },
       ]} />
 
@@ -313,7 +313,7 @@ function ReturnInvoice({ data }) {
         { label: 'Original Invoice', value: data.Sale?.invoice_number || '—' },
         { label: 'Return Type', value: (data.return_type || '').toUpperCase() },
         data.ProcessedBy && { label: 'Processed By', value: data.ProcessedBy.name },
-        data.Branch && { label: 'Branch', value: data.Branch.name },
+        data.Branch && { label: 'Mine', value: data.Branch.name },
         { label: 'Status', value: <StatusChip status={data.status} /> },
         data.reason && { label: 'Reason', value: data.reason },
       ]} />

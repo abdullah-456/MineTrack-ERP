@@ -139,7 +139,7 @@ export default function PurchaseOrderPrintPage() {
           { label: 'Order Date', value: fmtDate(order.order_date) },
           { label: 'Expected Date', value: fmtDate(order.expected_date) },
           { label: 'Status', value: <StatusChip status={order.status} /> },
-          { label: 'Branch', value: branch.name || '—' },
+          { label: 'Mine', value: branch.name || '—' },
           order.Creator && { label: 'Prepared By', value: order.Creator.name },
         ]} />
 

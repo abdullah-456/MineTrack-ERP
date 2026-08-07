@@ -94,7 +94,7 @@ function buildDoc(data, company = {}) {
 
   row('Name', employee.name);
   if (employee.designation) row('Designation', employee.designation);
-  if (employee.branch) row('Branch', employee.branch);
+  if (employee.branch) row('Mine', employee.branch);
   if (employee.cnic) row('CNIC', employee.cnic);
   if (employee.phone) row('Phone', employee.phone);
   row('Hire Date', fmtDate(employee.hire_date));

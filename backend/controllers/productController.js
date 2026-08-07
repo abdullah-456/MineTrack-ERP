@@ -122,7 +122,7 @@ exports.create = async (req, res) => {
       name,
       category_id,
       brand,
-      unit: unit || 'Pcs',
+      unit: unit || 'kg',
       tax_rate: tax_rate || 0,
       reorder_level: reorder_level ?? 5,
       cost_price: parseFloat(cost_price) || 0,
@@ -163,7 +163,7 @@ exports.create = async (req, res) => {
       // payable/payment path as inventoryController.receiveStock, so it
       // always hits the supplier ledger + GL — not just a silent stock bump.
       if (initialQty > 0) {
-        const stockNotes = `Initial stock: ${initialQty} ${unit || 'Pcs'} of ${name} at Rs. ${cost_price}/unit`;
+        const stockNotes = `Initial stock: ${initialQty} ${unit || 'kg'} of ${name} at Rs. ${cost_price}/unit`;
         const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
         try {
           const { voucher } = await applySupplierStockPayment({
@@ -187,7 +187,7 @@ exports.create = async (req, res) => {
     } else if (initialQty > 0) {
       const stockValue = Math.round((parseFloat(cost_price) || 0) * initialQty * 100) / 100;
       if (stockValue > 0) {
-        const stockNotes = `Initial stock: ${initialQty} ${unit || 'Pcs'} of ${name} at Rs. ${cost_price}/unit`;
+        const stockNotes = `Initial stock: ${initialQty} ${unit || 'kg'} of ${name} at Rs. ${cost_price}/unit`;
         const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
         try {
           const { voucher } = await applyDirectStockPayment({

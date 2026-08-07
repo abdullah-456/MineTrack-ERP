@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   TrendingUp, Loader2, ArrowLeft, ArrowDownCircle, ArrowUpCircle,
   Wallet, Users, RefreshCw, RotateCcw, ExternalLink, Package,
-  ShoppingCart, Building2, Receipt, BookOpen, UserCheck, Crown,
+  ShoppingCart, Building2, Receipt, BookOpen, UserCheck, Crown, Factory,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
@@ -74,7 +74,7 @@ const TONE = {
 
 const ICONS = {
   ArrowDownCircle, ArrowUpCircle, Wallet, Users, RefreshCw, RotateCcw,
-  TrendingUp, Package, ShoppingCart, Building2, Receipt, BookOpen, UserCheck, Crown,
+  TrendingUp, Package, ShoppingCart, Building2, Receipt, BookOpen, UserCheck, Crown, Factory,
 };
 
 // entityParam/entityLabelKey/entityOptionsKey drive the "narrow to one X" filter
@@ -132,6 +132,15 @@ const MODULE_META = {
     subKey: 'boardReportSub', sub: 'Contributions, withdrawals & member balances',
     icon: Crown, accent: 'yellow', endpoint: '/reports/modules/board/summary', perm: 'board_directors',
     entityParam: 'board_member_id', entityLabelKey: 'boardMember', optionsEndpoint: '/reports/modules/board/filter-options', entityOptionsKey: 'board_members',
+  },
+  production: {
+    titleKey: 'productionSummaryReport', title: 'Production Report',
+    subKey: 'productionReportSub', sub: 'Daily mineral output by mine, pit & bench',
+    icon: Factory, accent: 'green', endpoint: '/reports/modules/production/summary', perm: 'branches',
+    // Mine is already covered by the standard branch_id filter every module
+    // gets for free (see fetchReport's `if (branchId) params.branch_id = ...`
+    // below) — the entity filter here narrows by Mineral instead.
+    entityParam: 'mineral_id', entityLabelKey: 'mineralType', optionsEndpoint: '/reports/modules/production/filter-options', entityOptionsKey: 'minerals',
   },
 };
 

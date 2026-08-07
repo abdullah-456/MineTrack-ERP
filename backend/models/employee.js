@@ -43,6 +43,14 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
+    shift: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
+    overtime_rate: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+    },
     cnic: {
       type: DataTypes.STRING,
       allowNull: true,

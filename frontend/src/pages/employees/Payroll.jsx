@@ -46,7 +46,7 @@ export default function Payroll() {
   const [advanceForSelectedMonth, setAdvanceForSelectedMonth] = useState(0);
   const [salaryForm, setSalaryForm] = useState({
     month: currentMonth, bonus: '', temp_allowance: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
-    deduct_for_absence: false, count_leave_as_absence: false,
+    deduct_for_absence: false, count_leave_as_absence: false, add_overtime: false,
   });
   const [attendanceSummary, setAttendanceSummary] = useState(null);
   const [paidMonths, setPaidMonths] = useState(new Set()); // months already given for modalEmp
@@ -167,7 +167,14 @@ export default function Payroll() {
   const allowancesTotal = (modalEmp?.allowances || []).reduce((s, a) => s + (parseFloat(a?.amount) || 0), 0);
   const bonusVal = parseFloat(salaryForm.bonus) || 0;
   const tempAllowanceVal = parseFloat(salaryForm.temp_allowance) || 0;
-  const grossSalary = basicSalary + allowancesTotal + tempAllowanceVal + bonusVal;
+  // Mirrors deduct_for_absence exactly, but adds instead of subtracts — see
+  // runGiveSalary's add_overtime flag.
+  const overtimeHoursVal = attendanceSummary?.overtime_hours || 0;
+  const overtimeRateVal = parseFloat(modalEmp?.overtime_rate || 0);
+  const overtimeAmountVal = salaryForm.add_overtime
+    ? Math.round(overtimeHoursVal * overtimeRateVal * 100) / 100
+    : 0;
+  const grossSalary = basicSalary + allowancesTotal + tempAllowanceVal + bonusVal + overtimeAmountVal;
   const taxPercentVal = Math.min(100, Math.max(0, parseFloat(salaryForm.tax_deduction_percent) || 0));
   const taxDeductionVal = Math.round((grossSalary * taxPercentVal / 100) * 100) / 100;
 
@@ -209,6 +216,7 @@ export default function Payroll() {
         date: salaryForm.date || undefined,
         deduct_for_absence: salaryForm.deduct_for_absence,
         count_leave_as_absence: salaryForm.count_leave_as_absence,
+        add_overtime: salaryForm.add_overtime,
         ...shopParams(),
       });
       success(t('salaryGiven') || 'Salary given successfully');
@@ -427,6 +435,26 @@ export default function Payroll() {
               </div>
             )}
 
+            {overtimeHoursVal > 0 && (
+              <div className="rounded-lg p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {overtimeHoursVal} {t('overtimeHours') || 'overtime hours'} ({formatMonthLabel(salaryForm.month)})
+                  {!overtimeRateVal && (
+                    <span className="text-amber-400"> — {t('noOvertimeRate') || 'no overtime rate set for this employee'}</span>
+                  )}
+                </p>
+                <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                  <input
+                    type="checkbox"
+                    disabled={!overtimeRateVal}
+                    checked={salaryForm.add_overtime}
+                    onChange={e => setSalaryForm(f => ({ ...f, add_overtime: e.target.checked }))}
+                  />
+                  {t('addOvertimePay') || 'Add overtime pay'}
+                </label>
+              </div>
+            )}
+
             <div className="rounded-lg p-3 space-y-1 text-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
               {ledgerLoading ? (
                 <div className="flex justify-center py-2"><Loader2 className="w-4 h-4 animate-spin text-cyan-400" /></div>
@@ -448,6 +476,11 @@ export default function Payroll() {
                   {bonusVal > 0 && (
                     <div className="flex justify-between text-emerald-400">
                       <span>+ {t('bonus') || 'Bonus'}</span><span>+{formatPKR(bonusVal, lang)}</span>
+                    </div>
+                  )}
+                  {overtimeAmountVal > 0 && (
+                    <div className="flex justify-between text-emerald-400">
+                      <span>+ {t('overtimeRate') || 'Overtime'} ({overtimeHoursVal}h)</span><span>+{formatPKR(overtimeAmountVal, lang)}</span>
                     </div>
                   )}
                   {taxDeductionVal > 0 && (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Building2, Warehouse } from 'lucide-react';
+import { Pickaxe, Warehouse } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useShopApi } from '../../hooks/useShopApi';
 import api from '../../api/axios';
@@ -132,7 +132,7 @@ export default function LocationPicker({
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
-            <Building2 className="w-3.5 h-3.5" /> {t('branch') || 'Branch'}
+            <Pickaxe className="w-3.5 h-3.5" /> {t('branch') || 'Mine'}
           </button>
           <button
             type="button"

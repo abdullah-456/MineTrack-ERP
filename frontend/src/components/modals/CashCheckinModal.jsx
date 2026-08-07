@@ -3,7 +3,7 @@ import { Wallet, Loader2, CheckCircle2, AlertCircle, Banknote, Clock } from 'luc
 import api from '../../api/axios';
 
 /** Legacy overlay — new dismissible overlays should use shared Modal (useHistoryModal). */
-export default function CashCheckinModal({ shopName, onComplete }) {
+export default function CashCheckinModal({ onComplete }) {
   const [cash, setCash] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);

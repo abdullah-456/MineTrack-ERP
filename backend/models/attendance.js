@@ -7,6 +7,7 @@ module.exports = (sequelize, DataTypes) => {
       Attendance.belongsTo(models.Shop, { foreignKey: 'shop_id' });
       Attendance.belongsTo(models.Branch, { foreignKey: 'branch_id' });
       Attendance.belongsTo(models.User, { as: 'MarkedBy', foreignKey: 'marked_by' });
+      Attendance.belongsTo(models.LeaveType, { foreignKey: 'leave_type_id', as: 'LeaveType' });
     }
   }
   Attendance.init({
@@ -44,6 +45,18 @@ module.exports = (sequelize, DataTypes) => {
     status: {
       type: DataTypes.ENUM('present', 'absent', 'leave'),
       defaultValue: 'present'
+    },
+    shift: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+    },
+    overtime_hours: {
+      type: DataTypes.DECIMAL(5, 2),
+      defaultValue: 0,
+    },
+    leave_type_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
     },
     notes: {
       type: DataTypes.TEXT,

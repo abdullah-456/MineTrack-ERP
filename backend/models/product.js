@@ -47,7 +47,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     unit: {
       type: DataTypes.STRING,
-      defaultValue: 'Pcs'
+      defaultValue: 'kg'
     },
     tax_rate: {
       type: DataTypes.DECIMAL(5, 2),

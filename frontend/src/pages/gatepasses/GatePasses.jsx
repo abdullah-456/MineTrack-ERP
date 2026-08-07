@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Ticket, Plus, Search, Eye, Printer, Trash2, Loader2, Truck, User, Calendar, FileText } from 'lucide-react';
+import { Ticket, Plus, Search, Eye, Printer, Trash2, Loader2, Truck, Calendar, FileText } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatQty } from '../../hooks/useShopApi';
@@ -666,7 +666,7 @@ export default function GatePasses() {
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{detail.driver_name || 'No driver name'}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--bg-elevated)' }}>
-                <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Branch & Issuer</p>
+                <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Mine & Issuer</p>
                 <p className="font-medium">{detail.Branch?.name}</p>
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Issued by: {detail.Issuer?.name || 'System'}</p>
               </div>

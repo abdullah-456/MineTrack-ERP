@@ -110,11 +110,11 @@ export default function Godowns() {
         branch_ids: linkBranchIds,
         ...shopParams()
       });
-      success('Branches linked to godown successfully');
+      success('Mines linked to godown successfully');
       setModal(null);
       fetchGodowns();
     } catch (err) {
-      error(err.response?.data?.message || 'Failed to update branch linkage');
+      error(err.response?.data?.message || 'Failed to update mine linkage');
     } finally {
       setSaving(false);
     }
@@ -148,7 +148,7 @@ export default function Godowns() {
         icon={Warehouse}
         accent="amber"
         title={t('godowns') || 'Godowns & Warehouses'}
-        subtitle={t('godownsSub') || 'Manage central godowns, storage locations, and link retail branches'}
+        subtitle={t('godownsSub') || 'Manage central godowns, storage locations, and link mines'}
         action={
           <button type="button" onClick={openCreateModal} className="btn-primary flex items-center gap-2">
             <Plus className="w-4 h-4" />{t('addGodown') || 'Add Godown'}
@@ -220,7 +220,7 @@ export default function Godowns() {
                           ))}
                         </div>
                       ) : (
-                        <span className="text-xs italic" style={{ color: 'var(--text-muted)' }}>No branches linked</span>
+                        <span className="text-xs italic" style={{ color: 'var(--text-muted)' }}>No mines linked</span>
                       )}
                     </td>
                     <td className="p-4"><StatusBadge status={g.status} /></td>
@@ -320,11 +320,11 @@ export default function Godowns() {
               </div>
             </div>
 
-            {/* Branch Linkage Selector */}
+            {/* Mine Linkage Selector */}
             <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-              <FormLabel>{t('linkBranches') || 'Link Branches to this Godown'}</FormLabel>
+              <FormLabel>{t('linkBranches') || 'Link Mines to this Godown'}</FormLabel>
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                Select retail or office branches that use this godown for storage and inventory dispatch:
+                Select mines that use this godown for storage and inventory dispatch:
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
                 {branches.map(b => {
@@ -360,12 +360,12 @@ export default function Godowns() {
         </Modal>
       )}
 
-      {/* ── Link Branches Modal ── */}
+      {/* ── Link Mines Modal ── */}
       {modal === 'link' && activeGodown && (
-        <Modal title={`${t('linkBranches') || 'Link Branches'} — ${activeGodown.name}`} onClose={() => setModal(null)}>
+        <Modal title={`${t('linkBranches') || 'Link Mines'} — ${activeGodown.name}`} onClose={() => setModal(null)}>
           <form onSubmit={handleSaveLinkage} className="space-y-4">
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Check all branches that should be linked to <strong className="text-amber-400">{activeGodown.name}</strong>:
+              Check all mines that should be linked to <strong className="text-amber-400">{activeGodown.name}</strong>:
             </p>
 
             <div className="space-y-2 max-h-60 overflow-y-auto p-2 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
@@ -417,7 +417,7 @@ export default function Godowns() {
                 Delete Godown "{activeGodown.name}"?
               </h3>
               <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                This will remove the godown and unlink any attached branches. This action cannot be undone.
+                This will remove the godown and unlink any attached mines. This action cannot be undone.
               </p>
             </div>
             <div className="flex gap-3 pt-2">

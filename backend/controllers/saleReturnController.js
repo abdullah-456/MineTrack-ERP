@@ -283,7 +283,7 @@ exports.create = async (req, res) => {
     const returnedItemsSummary = returnLines.map(rl => {
       const si = saleItemById[rl.sale_item_id];
       const pName = si?.product_name || si?.Product?.name || 'Product';
-      const pUnit = si?.Product?.unit || 'Pcs';
+      const pUnit = si?.Product?.unit || 'kg';
       return `${rl.quantity} ${pUnit} of ${pName}`;
     }).join(', ');
     let exchangeItemsSummary = '';
@@ -403,7 +403,7 @@ exports.create = async (req, res) => {
       }
       exSubtotal = Math.round(exSubtotal * 100) / 100;
       exchangeItemsSummary = exLines.map(el => {
-        return `${el.qty} ${el.product.unit || 'Pcs'} of ${el.product.name}`;
+        return `${el.qty} ${el.product.unit || 'kg'} of ${el.product.name}`;
       }).join(', ');
       exchangeCogsAmount = Math.round(
         exLines.reduce((s, l) => s + l.qty * parseFloat(l.product.cost_price || 0), 0) * 100,

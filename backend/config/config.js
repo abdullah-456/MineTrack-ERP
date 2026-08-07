@@ -6,7 +6,7 @@ const dialect = dotenvResult.parsed && Object.prototype.hasOwnProperty.call(dote
   : 'sqlite';
 
 // Defaults to a file next to the app (fine for local dev). Set DB_STORAGE_PATH
-// to point at a mounted persistent volume instead (e.g. Fly.io: /data/database.sqlite)
+// to point at a mounted persistent volume instead (e.g. /data/database.sqlite)
 // so the SQLite file survives container restarts.
 const sqliteStorage = dialect === 'sqlite'
   ? (process.env.DB_STORAGE_PATH || path.join(__dirname, '..', 'database.sqlite'))

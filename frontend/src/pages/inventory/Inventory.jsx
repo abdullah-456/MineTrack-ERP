@@ -656,7 +656,7 @@ export default function Inventory() {
               <input
                 className="input"
                 style={{ paddingInlineStart: '2.25rem' }}
-                placeholder="Search product, SKU, branch, supplier…"
+                placeholder="Search product, SKU, mine, supplier…"
                 value={stockSearch}
                 onChange={e => setStockSearch(e.target.value)}
               />
@@ -811,7 +811,7 @@ export default function Inventory() {
               <input
                 className="input"
                 style={{ paddingInlineStart: '2.25rem' }}
-                placeholder="Search product, type, branch…"
+                placeholder="Search product, type, mine…"
                 value={movementSearch}
                 onChange={e => setMovementSearch(e.target.value)}
               />
@@ -836,7 +836,7 @@ export default function Inventory() {
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                     <th className="text-start p-4">Timestamp</th>
                     <th className="text-start p-4">Product</th>
-                    <th className="text-start p-4">Branch</th>
+                    <th className="text-start p-4">{t('userBranch') || 'Mine'}</th>
                     <th className="text-start p-4">Movement Type</th>
                     <th className="text-end p-4">Quantity Changed</th>
                     <th className="text-end p-4">New Balance</th>

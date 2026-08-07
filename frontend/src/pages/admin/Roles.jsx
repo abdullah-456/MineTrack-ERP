@@ -247,7 +247,7 @@ export default function Roles() {
                       return (
                         <tr key={module} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                           <td className="p-2 font-medium cursor-pointer" style={{ color: 'var(--text-primary)' }} onClick={() => toggleModuleAll(module, actions)}>
-                            {module}
+                            {module === 'branches' ? (t('mines') || 'Mines') : module}
                           </td>
                           {standard.map(a => (
                             <td key={a} className="text-center p-2">

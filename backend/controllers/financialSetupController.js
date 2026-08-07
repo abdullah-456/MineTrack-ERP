@@ -2,9 +2,12 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const {
   computeLiveCash, computeTotalCashOnHand, computeTotalBank, fundAccountIds, resolveOpeningCash,
+  computeAccountBalance,
 } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
 const { createAccount, createFundAccount } = require('../utils/chartOfAccounts');
+
+const CASH_FUNDING_SOURCES = ['new_capital', 'transfer'];
 
 const round2 = (n) => Math.round((parseFloat(n) || 0) * 100) / 100;
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -173,6 +176,97 @@ async function postOpeningCashJournal(shopId, amount, userId, transaction) {
   }, transaction);
 }
 
+// ── addToCash ──────────────────────────────────────────────────────────────
+// Adds money on top of the current Cash in Hand balance, mirroring how a bank
+// account's opening balance is funded (chartOfAccounts.openingBalanceLines):
+//   new_capital — money entering the business for the first time. Tagged
+//                 'opening' like the original setup journal, so it establishes
+//                 a new baseline rather than reading as day-to-day inflow —
+//                 and the session's opening_cash is bumped by the same amount
+//                 so it is immediately available to spend today.
+//   transfer    — money moved from an existing fund account (bank or another
+//                 cash fund). Posts as an ordinary 'journal' so it is picked
+//                 up by today's cash flow on its own; the session baseline is
+//                 left untouched, exactly like a bank-to-bank transfer.
+async function addToCash(shopId, amount, fundingSource, sourceAccountId, userId, transaction) {
+  const source = fundingSource || 'new_capital';
+  if (!CASH_FUNDING_SOURCES.includes(source)) {
+    const err = new Error(`funding_source must be one of: ${CASH_FUNDING_SOURCES.join(', ')}`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const cashParent = await db.ChartOfAccount.findOne({ where: { account_code: '05-CASH' }, transaction });
+  if (!cashParent) {
+    const err = new Error('Cash account is missing from the chart of accounts');
+    err.statusCode = 500;
+    throw err;
+  }
+
+  if (source === 'new_capital') {
+    await postVoucher(shopId, {
+      type: 'opening',
+      date: new Date(),
+      narration: 'Cash added — new capital',
+      createdBy: userId,
+      lines: [
+        { accountCode: cashParent.account_code, debit: amount },
+        { accountCode: '01-OBE', credit: amount },
+      ],
+    }, transaction);
+    const { openingCash: currentOpening } = await resolveOpeningCash(shopId, { transaction });
+    await upsertTodayCashSession(shopId, round2(currentOpening + amount), userId, transaction);
+    return;
+  }
+
+  if (!sourceAccountId || Number(sourceAccountId) === cashParent.id) {
+    const err = new Error('Select the account this money is being moved from');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const validSourceIds = await fundAccountIds(shopId, { activeOnly: true, transaction });
+  const sourceLedger = validSourceIds.includes(Number(sourceAccountId))
+    ? await db.ChartOfAccount.findByPk(sourceAccountId, { transaction })
+    : null;
+  if (!sourceLedger) {
+    const err = new Error('Source must be one of this shop\'s cash or bank accounts');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const available = await computeAccountBalance(shopId, sourceLedger.id, { transaction });
+  if (available - amount < 0) {
+    const err = new Error(`Insufficient balance in ${sourceLedger.account_name}. Available: ${available.toFixed(2)}`);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  // Keep a linked BankAccount row's stored balance in step with the ledger,
+  // matching openingBalanceLines' treatment of a transfer source.
+  const sourceFund = await db.BankAccount.findOne({
+    where: { shop_id: shopId, chart_of_account_id: sourceLedger.id },
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+  if (sourceFund) {
+    await sourceFund.update({
+      current_balance: round2(parseFloat(sourceFund.current_balance || 0) - amount),
+    }, { transaction });
+  }
+
+  await postVoucher(shopId, {
+    type: 'journal',
+    date: new Date(),
+    narration: `Transfer — ${sourceLedger.account_name} → Cash in Hand`,
+    createdBy: userId,
+    lines: [
+      { accountCode: cashParent.account_code, debit: amount },
+      { accountCode: sourceLedger.account_code, credit: amount },
+    ],
+  }, transaction);
+}
+
 // ── POST /api/financial-setup/skip ────────────────────────────────────────────
 // Lets an admin dismiss the first-time wizard without entering balances yet.
 exports.skipSetup = async (req, res) => {
@@ -194,7 +288,7 @@ exports.setOpeningCash = async (req, res) => {
   const shopId = req.user.shop_id;
   if (!shopId) return res.status(403).json({ message: 'No shop context' });
 
-  const { opening_cash } = req.body;
+  const { opening_cash, mode = 'reset', funding_source, source_account_id } = req.body;
   if (opening_cash === undefined || opening_cash === null) {
     return res.status(400).json({ message: 'opening_cash is required' });
   }
@@ -203,19 +297,27 @@ exports.setOpeningCash = async (req, res) => {
   if (openingCashAmt < 0) {
     return res.status(400).json({ message: 'opening_cash cannot be negative' });
   }
+  if (mode === 'add' && openingCashAmt <= 0) {
+    return res.status(400).json({ message: 'Enter an amount greater than zero to add' });
+  }
 
   const t = await db.sequelize.transaction();
   try {
     const alreadyRecorded = await hadNonZeroCashOpening(shopId, t);
 
     if (!alreadyRecorded) {
-      // First time: the whole amount is capital being introduced.
+      // First time: the whole amount is capital being introduced. Nothing to
+      // reset or add on top of yet, so mode is irrelevant here.
       await upsertTodayCashSession(shopId, openingCashAmt, req.user.id, t);
       await postOpeningCashJournal(shopId, openingCashAmt, req.user.id, t);
+    } else if (mode === 'add') {
+      // New money on top of what's already recorded — either fresh capital or
+      // a transfer from another fund account. See addToCash for the split.
+      await addToCash(shopId, openingCashAmt, funding_source, source_account_id, req.user.id, t);
     } else {
-      // Any later correction only used to move the session row, leaving the
-      // ledger untouched and the two cash figures permanently divergent. Book
-      // the difference instead.
+      // Reset/recount: only moves the session row, leaving the ledger
+      // untouched and the two cash figures permanently divergent unless the
+      // difference is booked too.
       const { openingCash: expected } = await resolveOpeningCash(shopId, { transaction: t });
       await upsertTodayCashSession(shopId, openingCashAmt, req.user.id, t);
       await postCashCountAdjustment(
@@ -225,10 +327,11 @@ exports.setOpeningCash = async (req, res) => {
     }
 
     await t.commit();
-    return res.json({ message: 'Opening cash saved', opening_cash: openingCashAmt });
+    return res.json({ message: mode === 'add' ? 'Cash added' : 'Opening cash saved', opening_cash: openingCashAmt });
   } catch (error) {
     await t.rollback();
     console.error('setOpeningCash error:', error);
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     return res.status(500).json({ message: 'Internal server error' });
   }
 };

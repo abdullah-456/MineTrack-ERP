@@ -57,7 +57,7 @@ function StatCard({ title, value, sub, icon: Icon, change, color, prefix = '', o
   );
 }
 
-function CustomTooltip({ active, payload, label, t }) {
+function CustomTooltip({ active, payload, label }) {
   if (active && payload && payload.length) {
     return (
       <div className="glass-card px-3 py-2 text-xs">

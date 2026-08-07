@@ -12,6 +12,12 @@ const authRoutes = require('./routes/authRoutes');
 const shopRoutes = require('./routes/shopRoutes');
 const userRoutes = require('./routes/userRoutes');
 const branchRoutes = require('./routes/branchRoutes');
+const pitRoutes = require('./routes/pitRoutes');
+const benchRoutes = require('./routes/benchRoutes');
+const mineralRoutes = require('./routes/mineralRoutes');
+const productionRoutes = require('./routes/productionRoutes');
+const leaveRoutes = require('./routes/leaveRoutes');
+const holidayRoutes = require('./routes/holidayRoutes');
 const businessRoutes = require('./routes/businessRoutes');
 
 const app = express();
@@ -85,6 +91,12 @@ app.use('/api/auth', authRoutes);
 app.use('/api/shops', shopRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/branches', branchRoutes);
+app.use('/api/pits', pitRoutes);
+app.use('/api/benches', benchRoutes);
+app.use('/api/minerals', mineralRoutes);
+app.use('/api/production', productionRoutes);
+app.use('/api/leave', leaveRoutes);
+app.use('/api/holidays', holidayRoutes);
 app.use('/api', businessRoutes);
 
 // ── Global error handler (avoids leaking internals to clients) ────────────────

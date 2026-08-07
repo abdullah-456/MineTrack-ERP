@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileBarChart2, TrendingUp, Package, ShoppingCart, Users, Building2,
-  Receipt, Crown, UserCheck, BookOpen, ChevronRight,
+  Receipt, Crown, UserCheck, BookOpen, ChevronRight, Factory,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -129,6 +129,18 @@ const MODULES = [
     path: '/reports/board',
     module: 'board_directors',
     endpoint: '/reports/modules/board/summary',
+  },
+  {
+    key: 'production',
+    titleKey: 'production',
+    title: 'Production',
+    descKey: 'productionReportHubDesc',
+    desc: 'Daily mineral output by mine, pit, bench & mineral',
+    icon: Factory,
+    accent: 'text-green-400',
+    path: '/reports/production',
+    module: 'branches',
+    endpoint: '/reports/modules/production/summary',
   },
 ];
 

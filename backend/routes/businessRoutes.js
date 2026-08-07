@@ -204,6 +204,7 @@ router.get('/reports/modules/expenses/summary', authorize('expenses', 'read'), m
 router.get('/reports/modules/accounting/summary', authorize('accounting', 'read'), moduleReportsController.accountingSummary);
 router.get('/reports/modules/employees/summary', authorize('employees', 'read'), moduleReportsController.employeesSummary);
 router.get('/reports/modules/board/summary', authorize('board_directors', 'read'), moduleReportsController.boardSummary);
+router.get('/reports/modules/production/summary', authorize('branches', 'read'), moduleReportsController.productionSummary);
 
 // Entity-picker options for each report's "narrow to one X" filter — gated on
 // the same permission as that module's own summary route, not shared, so a
@@ -216,6 +217,7 @@ router.get('/reports/modules/suppliers/filter-options', authorize('suppliers', '
 router.get('/reports/modules/expenses/filter-options', authorize('expenses', 'read'), moduleReportsController.expensesFilterOptions);
 router.get('/reports/modules/employees/filter-options', authorize('employees', 'read'), moduleReportsController.employeesFilterOptions);
 router.get('/reports/modules/board/filter-options', authorize('board_directors', 'read'), moduleReportsController.boardFilterOptions);
+router.get('/reports/modules/production/filter-options', authorize('branches', 'read'), moduleReportsController.productionFilterOptions);
 
 // Financial Setup (first-time wizard) & Cash Sessions
 router.post(  '/financial-setup',                 financialSetupController.completeSetup);

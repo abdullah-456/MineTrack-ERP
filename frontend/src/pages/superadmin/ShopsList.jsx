@@ -33,7 +33,7 @@ export default function ShopsList() {
     try {
       const { data } = await api.get('/shops');
       setShops(data.shops || []);
-    } catch (e) {
+    } catch {
       error(t('toastErrorGeneric'));
     } finally {
       setLoading(false);

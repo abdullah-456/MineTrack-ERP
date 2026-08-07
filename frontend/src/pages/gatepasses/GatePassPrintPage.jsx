@@ -7,7 +7,6 @@ import {
   INK, INK_SOFT, LINE
 } from '../../components/print/PrintKit';
 
-const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 const fmtQty = (n) => (parseFloat(n) || 0).toLocaleString('en-PK', { minimumFractionDigits: 1, maximumFractionDigits: 3 });
 
@@ -196,7 +195,7 @@ export default function GatePassPrintPage() {
           { label: 'Date & Time', value: fmtDateTime(gatePass.gate_pass_date) },
           { label: 'Dispatch Type', value: typeLabels[gatePass.type] || (gatePass.type || '').toUpperCase() },
           { label: 'Status', value: <StatusChip status={gatePass.status} /> },
-          { label: 'Branch', value: branch.name || 'Main Branch' },
+          { label: 'Mine', value: branch.name || 'Main Mine' },
           sale.invoice_number && { label: 'Sale Invoice #', value: sale.invoice_number },
           gatePass.Issuer && { label: 'Issued By', value: gatePass.Issuer.name },
         ]} />

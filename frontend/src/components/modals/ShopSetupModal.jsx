@@ -176,29 +176,35 @@ export default function ShopSetupModal({
   ]);
   const [openingCash, setOpeningCash] = useState('');
   const [booksStartDate, setBooksStartDate] = useState('');
+  const [cashMode, setCashMode] = useState('reset');
+  const [cashFundingSource, setCashFundingSource] = useState('new_capital');
+  const [cashSourceAccountId, setCashSourceAccountId] = useState('');
 
-  // Existing cash/bank accounts a new account's balance could be transferred
-  // from. Only fetched when adding accounts after setup — during the first-time
+  // Existing cash/bank accounts a new balance could be transferred from. Only
+  // fetched for the bank/cash pill flows (post-setup) — during the first-time
   // wizard there is nothing to move money out of yet.
-  const [fundSources, setFundSources] = useState([]);
+  const [allAccounts, setAllAccounts] = useState([]);
   useEffect(() => {
-    if (!isBankOnly) return;
+    if (!isBankOnly && !isCashOnly) return;
     let cancelled = false;
     api.get('/accounting/chart-of-accounts')
-      .then(({ data }) => {
-        if (cancelled) return;
-        const accounts = data.accounts || [];
-        const bankParentId = accounts.find(a => a.account_code === '05-BANK')?.id;
-        const cashParentId = accounts.find(a => a.account_code === '05-CASH')?.id;
-        setFundSources(accounts.filter(a => a.is_active && a.balance > 0 && (
-          a.account_code === '05-CASH'
-          || a.parent_account_id === bankParentId
-          || a.parent_account_id === cashParentId
-        )));
-      })
-      .catch(() => setFundSources([]));
+      .then(({ data }) => { if (!cancelled) setAllAccounts(data.accounts || []); })
+      .catch(() => setAllAccounts([]));
     return () => { cancelled = true; };
-  }, [isBankOnly]);
+  }, [isBankOnly, isCashOnly]);
+
+  const bankParentId = allAccounts.find(a => a.account_code === '05-BANK')?.id;
+  const cashParentId = allAccounts.find(a => a.account_code === '05-CASH')?.id;
+  // A new bank account can pull money from Cash in Hand or another named fund.
+  const fundSources = allAccounts.filter(a => a.is_active && a.balance > 0 && (
+    a.account_code === '05-CASH'
+    || a.parent_account_id === bankParentId
+    || a.parent_account_id === cashParentId
+  ));
+  // Cash can only pull from a named fund — it can't be transferred into itself.
+  const cashFundSources = allAccounts.filter(a => a.is_active && a.balance > 0 && (
+    a.parent_account_id === bankParentId || a.parent_account_id === cashParentId
+  ));
 
   const { step: stepKey, goTo, goPrev, clearStepParam } = useWizardSteps(SETUP_STEPS, {
     paramName: 'setupStep',
@@ -236,6 +242,11 @@ export default function ShopSetupModal({
       } else if (isCashOnly) {
         await api.post('/financial-setup/opening-cash', {
           opening_cash: parseFloat(openingCash) || 0,
+          mode: cashMode,
+          ...(cashMode === 'add' ? {
+            funding_source: cashFundingSource,
+            ...(cashFundingSource === 'transfer' ? { source_account_id: cashSourceAccountId } : {}),
+          } : {}),
         });
       } else {
         await api.post('/financial-setup', {
@@ -475,6 +486,78 @@ export default function ShopSetupModal({
                 </p>
               </div>
 
+              {/* Only on the cash-pill flow (post-setup): a recount replaces the
+                  balance, new money adds on top of it — two very different
+                  accounting effects that shouldn't share one silent action. */}
+              {isCashOnly && (
+                <div className="mb-5">
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setCashMode('reset')}
+                      className="p-3 rounded-xl border text-left transition-all"
+                      style={cashMode === 'reset'
+                        ? { borderColor: 'rgb(99,102,241)', background: 'rgba(99,102,241,0.10)' }
+                        : { borderColor: 'var(--border-input)', backgroundColor: 'var(--bg-elevated)' }}
+                    >
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Reset to this amount</p>
+                      <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Recount — replaces the current balance</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCashMode('add')}
+                      className="p-3 rounded-xl border text-left transition-all"
+                      style={cashMode === 'add'
+                        ? { borderColor: 'rgb(99,102,241)', background: 'rgba(99,102,241,0.10)' }
+                        : { borderColor: 'var(--border-input)', backgroundColor: 'var(--bg-elevated)' }}
+                    >
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Add to current balance</p>
+                      <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>New money — adds on top of what's there</p>
+                    </button>
+                  </div>
+
+                  {cashMode === 'add' && (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                        Where Is This Money From?
+                      </label>
+                      <select
+                        className="input text-sm"
+                        value={cashFundingSource}
+                        onChange={e => setCashFundingSource(e.target.value)}
+                      >
+                        <option value="new_capital">New money coming into the business</option>
+                        {cashFundSources.length > 0 && <option value="transfer">Moved from an existing account</option>}
+                      </select>
+                      <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                        {cashFundingSource === 'transfer'
+                          ? 'Capital stays the same — the money just moves between accounts.'
+                          : 'Capital increases by this amount.'}
+                      </p>
+                      {cashFundingSource === 'transfer' && (
+                        <div className="mt-3">
+                          <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                            Moved From
+                          </label>
+                          <select
+                            className="input text-sm"
+                            value={cashSourceAccountId}
+                            onChange={e => setCashSourceAccountId(e.target.value)}
+                          >
+                            <option value="" disabled>Select account…</option>
+                            {cashFundSources.map(a => (
+                              <option key={a.id} value={a.id}>
+                                {a.account_name} — Rs. {(a.balance || 0).toLocaleString()}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div
                 className="p-6 rounded-2xl border mb-5 text-center"
                 style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border-input)' }}
@@ -483,7 +566,7 @@ export default function ShopSetupModal({
                   <Banknote className="w-7 h-7 text-emerald-400" />
                 </div>
                 <label className="block text-sm font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
-                  Opening Cash Amount (Rs.)
+                  {isCashOnly && cashMode === 'add' ? 'Amount to Add (Rs.)' : 'Opening Cash Amount (Rs.)'}
                 </label>
                 <div className="relative max-w-xs mx-auto">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold" style={{ color: 'var(--text-muted)' }}>Rs.</span>
@@ -499,7 +582,9 @@ export default function ShopSetupModal({
                   />
                 </div>
                 <p className="text-xs mt-3" style={{ color: 'var(--text-muted)' }}>
-                  This is the cash physically available in your shop's drawer right now
+                  {isCashOnly && cashMode === 'add'
+                    ? 'This amount will be added on top of the current cash balance'
+                    : "This is the cash physically available in your shop's drawer right now"}
                 </p>
               </div>
 
@@ -544,13 +629,16 @@ export default function ShopSetupModal({
                     <button
                       type="button"
                       onClick={handleSubmit}
-                      disabled={loading}
+                      disabled={loading || (cashMode === 'add' && (
+                        !(parseFloat(openingCash) > 0)
+                        || (cashFundingSource === 'transfer' && !cashSourceAccountId)
+                      ))}
                       className="btn-primary flex-1 flex items-center justify-center gap-2"
                     >
                       {loading ? (
                         <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
                       ) : (
-                        <><CheckCircle2 className="w-4 h-4" /> Save Cash Balance</>
+                        <><CheckCircle2 className="w-4 h-4" /> {cashMode === 'add' ? 'Add Cash' : 'Save Cash Balance'}</>
                       )}
                     </button>
                   </>

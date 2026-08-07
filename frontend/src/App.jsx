@@ -24,7 +24,18 @@ import UserManagement from './pages/admin/UserManagement';
 import AuditLog from './pages/admin/AuditLog';
 import BoardOfDirectors from './pages/admin/BoardOfDirectors';
 import BoardMemberLedger from './pages/admin/BoardMemberLedger';
-import Branches from './pages/admin/Branches';
+import Mines from './pages/admin/Mines';
+import MineFormPage from './pages/admin/MineFormPage';
+import MineDetailPage from './pages/admin/MineDetailPage';
+import Pits from './pages/admin/Pits';
+import PitFormPage from './pages/admin/PitFormPage';
+import PitDetailPage from './pages/admin/PitDetailPage';
+import Benches from './pages/admin/Benches';
+import BenchFormPage from './pages/admin/BenchFormPage';
+import BenchDetailPage from './pages/admin/BenchDetailPage';
+import Minerals from './pages/admin/Minerals';
+import Production from './pages/admin/Production';
+import ProductionFormPage from './pages/admin/ProductionFormPage';
 import Expenses from './pages/expenses/Expenses';
 import Roles from './pages/admin/Roles';
 import DeletionRequests from './pages/admin/DeletionRequests';
@@ -41,6 +52,8 @@ import EmployeeSlipPrint from './pages/employees/EmployeeSlipPrint';
 import EmployeeClearancePrint from './pages/employees/EmployeeClearancePrint';
 import Payroll from './pages/employees/Payroll';
 import Attendance from './pages/employees/Attendance';
+import Leave from './pages/employees/Leave';
+import HolidayCalendar from './pages/employees/HolidayCalendar';
 import ChartOfAccounts from './pages/accounting/ChartOfAccounts';
 import JournalEntry from './pages/accounting/JournalEntry';
 import GeneralLedger from './pages/accounting/GeneralLedger';
@@ -134,16 +147,16 @@ function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/" element={<RootRedirect />} />
 
-            {/* ── Standalone Invoice Print Page (new tab, no sidebar) ── */}
-            <Route path="/invoice/:invoiceId" element={<InvoicePrintPage />} />
-            <Route path="/gatepass/:id" element={<GatePassPrintPage />} />
-            <Route path="/purchase-order/:id" element={<PurchaseOrderPrintPage />} />
-            <Route path="/vouchers/:voucherId" element={<VoucherPrintPage />} />
-            <Route path="/ledger-voucher" element={<LedgerVoucherPrint />} />
-            <Route path="/suppliers/:id/statement" element={<SupplierStatementPrint />} />
-            <Route path="/employees/:id/statement" element={<EmployeeStatementPrint />} />
-            <Route path="/employees/:id/clearance" element={<EmployeeClearancePrint />} />
-            <Route path="/employees/:employeeId/slip/:txnId" element={<EmployeeSlipPrint />} />
+            {/* ── Standalone Print Pages (new tab, no sidebar, auth required) ── */}
+            <Route path="/invoice/:invoiceId" element={<ProtectedRoute><InvoicePrintPage /></ProtectedRoute>} />
+            <Route path="/gatepass/:id" element={<ProtectedRoute><GatePassPrintPage /></ProtectedRoute>} />
+            <Route path="/purchase-order/:id" element={<ProtectedRoute><PurchaseOrderPrintPage /></ProtectedRoute>} />
+            <Route path="/vouchers/:voucherId" element={<ProtectedRoute><VoucherPrintPage /></ProtectedRoute>} />
+            <Route path="/ledger-voucher" element={<ProtectedRoute><LedgerVoucherPrint /></ProtectedRoute>} />
+            <Route path="/suppliers/:id/statement" element={<ProtectedRoute><SupplierStatementPrint /></ProtectedRoute>} />
+            <Route path="/employees/:id/statement" element={<ProtectedRoute><EmployeeStatementPrint /></ProtectedRoute>} />
+            <Route path="/employees/:id/clearance" element={<ProtectedRoute><EmployeeClearancePrint /></ProtectedRoute>} />
+            <Route path="/employees/:employeeId/slip/:txnId" element={<ProtectedRoute><EmployeeSlipPrint /></ProtectedRoute>} />
 
             {/* ── SuperAdmin Portal (Platform Management) ── */}
             <Route element={<ProtectedRoute superAdminOnly><SidebarLayout /></ProtectedRoute>}>
@@ -169,8 +182,38 @@ function App() {
                 element={<ProtectedRoute module="board_directors" action="read"><BoardOfDirectors /></ProtectedRoute>} />
               <Route path="/admin/board-of-directors/:id/ledger"
                 element={<ProtectedRoute module="board_directors" action="read"><BoardMemberLedger /></ProtectedRoute>} />
-              <Route path="/admin/branches"
-                element={<ProtectedRoute module="branches" action="read"><Branches /></ProtectedRoute>} />
+              <Route path="/admin/mines"
+                element={<ProtectedRoute module="branches" action="read"><Mines /></ProtectedRoute>} />
+              <Route path="/admin/mines/create"
+                element={<ProtectedRoute module="branches" action="create"><MineFormPage /></ProtectedRoute>} />
+              <Route path="/admin/mines/:id/edit"
+                element={<ProtectedRoute module="branches" action="update"><MineFormPage /></ProtectedRoute>} />
+              <Route path="/admin/mines/:id"
+                element={<ProtectedRoute module="branches" action="read"><MineDetailPage /></ProtectedRoute>} />
+              <Route path="/admin/pits"
+                element={<ProtectedRoute module="branches" action="read"><Pits /></ProtectedRoute>} />
+              <Route path="/admin/pits/create"
+                element={<ProtectedRoute module="branches" action="create"><PitFormPage /></ProtectedRoute>} />
+              <Route path="/admin/pits/:id/edit"
+                element={<ProtectedRoute module="branches" action="update"><PitFormPage /></ProtectedRoute>} />
+              <Route path="/admin/pits/:id"
+                element={<ProtectedRoute module="branches" action="read"><PitDetailPage /></ProtectedRoute>} />
+              <Route path="/admin/benches"
+                element={<ProtectedRoute module="branches" action="read"><Benches /></ProtectedRoute>} />
+              <Route path="/admin/benches/create"
+                element={<ProtectedRoute module="branches" action="create"><BenchFormPage /></ProtectedRoute>} />
+              <Route path="/admin/benches/:id/edit"
+                element={<ProtectedRoute module="branches" action="update"><BenchFormPage /></ProtectedRoute>} />
+              <Route path="/admin/benches/:id"
+                element={<ProtectedRoute module="branches" action="read"><BenchDetailPage /></ProtectedRoute>} />
+              <Route path="/admin/production"
+                element={<ProtectedRoute module="branches" action="read"><Production /></ProtectedRoute>} />
+              <Route path="/admin/production/create"
+                element={<ProtectedRoute module="branches" action="create"><ProductionFormPage /></ProtectedRoute>} />
+              <Route path="/admin/production/:id/edit"
+                element={<ProtectedRoute module="branches" action="update"><ProductionFormPage /></ProtectedRoute>} />
+              <Route path="/admin/minerals"
+                element={<ProtectedRoute module="branches" action="read"><Minerals /></ProtectedRoute>} />
               <Route path="/admin/roles"
                 element={<ProtectedRoute module="roles" action="read"><Roles /></ProtectedRoute>} />
               <Route path="/admin/deletion-requests"
@@ -235,6 +278,10 @@ function App() {
                 element={<ProtectedRoute module="employees" action="read"><Payroll /></ProtectedRoute>} />
               <Route path="/attendance"
                 element={<ProtectedRoute module="attendance" action="read"><Attendance /></ProtectedRoute>} />
+              <Route path="/leave"
+                element={<ProtectedRoute module="leave" action="read"><Leave /></ProtectedRoute>} />
+              <Route path="/holidays"
+                element={<ProtectedRoute module="holidays" action="read"><HolidayCalendar /></ProtectedRoute>} />
 
               {/* Accounting */}
               <Route path="/accounting/chart-of-accounts"
@@ -267,6 +314,8 @@ function App() {
                 element={<ProtectedRoute module="employees" action="read"><ModuleReport moduleKey="employees" /></ProtectedRoute>} />
               <Route path="/reports/board"
                 element={<ProtectedRoute module="board_directors" action="read"><ModuleReport moduleKey="board" /></ProtectedRoute>} />
+              <Route path="/reports/production"
+                element={<ProtectedRoute module="branches" action="read"><ModuleReport moduleKey="production" /></ProtectedRoute>} />
               <Route path="/reports/trial-balance"
                 element={<ProtectedRoute module="reports" action="read"><TrialBalance /></ProtectedRoute>} />
               <Route path="/reports/profit-and-loss"

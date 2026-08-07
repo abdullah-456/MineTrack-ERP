@@ -2482,3 +2482,184 @@ exports.boardFilterOptions = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+// ── Production ────────────────────────────────────────────────────────────────
+// Quantity-first, not money-first (mirrors inventorySummary's on-hand/low-stock
+// cards, which already use a plain count/qty as the card headline number even
+// though the frontend's generic FlowCard formats every card amount as
+// currency — see the low_stock card above for the existing precedent).
+exports.productionSummary = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+
+    const { from, to } = defaultRange(req.query);
+    const branchId = parseBranchId(req.query);
+    const pitId = req.query.pit_id ? parseInt(req.query.pit_id, 10) : undefined;
+    const benchId = req.query.bench_id ? parseInt(req.query.bench_id, 10) : undefined;
+    const mineralId = req.query.mineral_id ? parseInt(req.query.mineral_id, 10) : undefined;
+
+    const where = { shop_id: shopId, date: { [Op.between]: [from, to] } };
+    if (branchId) where.mine_id = branchId;
+    if (pitId) where.pit_id = pitId;
+    if (benchId) where.bench_id = benchId;
+    if (mineralId) where.mineral_id = mineralId;
+
+    const entries = await db.ProductionEntry.findAll({
+      where,
+      include: [
+        { model: db.Branch, as: 'Mine', attributes: ['id', 'name'] },
+        { model: db.Pit, as: 'Pit', attributes: ['id', 'area_name'] },
+        { model: db.Bench, as: 'Bench', attributes: ['id', 'bench_number'] },
+        { model: db.Mineral, as: 'Mineral', attributes: ['id', 'name', 'unit'] },
+        { model: db.Employee, as: 'Supervisor', attributes: ['id', 'name'] },
+      ],
+      order: [['date', 'DESC'], ['id', 'DESC']],
+    });
+
+    let totalQty = 0;
+    const byUnit = new Map();
+    const byMine = new Map();
+    const byPit = new Map();
+    const byBench = new Map();
+    const byMineral = new Map();
+    const entryRows = [];
+
+    const bump = (map, key, label, qty) => {
+      if (key == null) return;
+      const row = map.get(key) || { key, label, quantity: 0 };
+      row.quantity = round2(row.quantity + qty);
+      map.set(key, row);
+    };
+
+    for (const e of entries) {
+      const qty = parseFloat(e.quantity || 0);
+      totalQty = round2(totalQty + qty);
+
+      const unitRow = byUnit.get(e.unit) || { unit: e.unit, quantity: 0 };
+      unitRow.quantity = round2(unitRow.quantity + qty);
+      byUnit.set(e.unit, unitRow);
+
+      bump(byMine, e.mine_id, e.Mine?.name || `Mine #${e.mine_id}`, qty);
+      bump(byPit, e.pit_id, e.Pit?.area_name || `Pit #${e.pit_id}`, qty);
+      bump(byBench, e.bench_id, e.Bench?.bench_number || `Bench #${e.bench_id}`, qty);
+      bump(byMineral, e.mineral_id, e.Mineral?.name || 'Unassigned', qty);
+
+      entryRows.push({
+        id: e.id,
+        date: e.date,
+        mine_name: e.Mine?.name || '—',
+        pit_name: e.Pit?.area_name || '—',
+        bench_number: e.Bench?.bench_number || '—',
+        shift: e.shift || '—',
+        mineral_name: e.Mineral?.name || '—',
+        quantity: round2(qty),
+        unit: e.unit,
+        supervisor_name: e.Supervisor?.name || '—',
+        open: openLink('bench', e.bench_id),
+      });
+    }
+
+    const unitBreakdownText = [...byUnit.values()].map(u => `${u.quantity.toLocaleString()} ${u.unit}`).join(', ') || null;
+
+    const entryCols = [
+      { header: 'Date', key: 'date' },
+      { header: 'Mine', key: 'mine_name' },
+      { header: 'Pit', key: 'pit_name' },
+      { header: 'Bench', key: 'bench_number' },
+      { header: 'Shift', key: 'shift' },
+      { header: 'Mineral', key: 'mineral_name' },
+      { header: 'Qty', key: 'quantity', align: 'right' },
+      { header: 'Unit', key: 'unit' },
+      { header: 'Supervisor', key: 'supervisor_name' },
+    ];
+
+    return res.json({
+      module: 'production',
+      from,
+      to,
+      branch_id: branchId || null,
+      pit_id: pitId || null,
+      bench_id: benchId || null,
+      mineral_id: mineralId || null,
+      cards: [
+        {
+          key: 'total_production',
+          title: 'Total production',
+          amount: totalQty,
+          hint: 'Sum of all production entries in the selected period',
+          tone: 'green',
+          extra: unitBreakdownText,
+          breakdown: { columns: entryCols, rows: entryRows, total: totalQty },
+        },
+        {
+          key: 'entry_count',
+          title: 'Production entries',
+          amount: entryRows.length,
+          hint: 'Number of production log entries in the selected period',
+          tone: 'blue',
+          extra: null,
+          breakdown: { columns: entryCols, rows: entryRows, total: entryRows.length },
+        },
+      ],
+      tabs: [
+        { id: 'entries', label: 'Entries', columns: entryCols, rows: entryRows },
+        {
+          id: 'by_mine',
+          label: 'By mine',
+          columns: [{ header: 'Mine', key: 'label' }, { header: 'Qty', key: 'quantity', align: 'right' }],
+          rows: [...byMine.values()].sort((a, b) => b.quantity - a.quantity),
+        },
+        {
+          id: 'by_pit',
+          label: 'By pit',
+          columns: [{ header: 'Pit', key: 'label' }, { header: 'Qty', key: 'quantity', align: 'right' }],
+          rows: [...byPit.values()].sort((a, b) => b.quantity - a.quantity),
+        },
+        {
+          id: 'by_bench',
+          label: 'By bench',
+          columns: [{ header: 'Bench', key: 'label' }, { header: 'Qty', key: 'quantity', align: 'right' }],
+          rows: [...byBench.values()].sort((a, b) => b.quantity - a.quantity),
+        },
+        {
+          id: 'by_mineral',
+          label: 'By mineral',
+          columns: [{ header: 'Mineral', key: 'label' }, { header: 'Qty', key: 'quantity', align: 'right' }],
+          rows: [...byMineral.values()].sort((a, b) => b.quantity - a.quantity),
+        },
+      ],
+      pdf: {
+        title: 'Production Summary Report',
+        sections: [
+          {
+            heading: 'Totals',
+            rows: [
+              { label: 'Total production', value: unitBreakdownText || String(totalQty) },
+              { label: 'Entries', value: String(entryRows.length) },
+            ],
+          },
+        ],
+        tables: [pdfTable('Production entries', entryCols, entryRows)],
+      },
+      meta: { generated_at: new Date().toISOString() },
+    });
+  } catch (error) {
+    console.error('productionSummary error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+exports.productionFilterOptions = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    // Mine is already covered by the standard branch filter every report
+    // module gets — this "narrow to one X" filter is Mineral instead.
+    const minerals = await nameList(db.Mineral, { shop_id: shopId }, ['id', 'name'], [['name', 'ASC']], m => m.name);
+    return res.json({ minerals });
+  } catch (error) {
+    console.error('productionFilterOptions error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};

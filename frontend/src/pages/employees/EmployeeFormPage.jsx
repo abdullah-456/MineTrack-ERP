@@ -13,6 +13,7 @@ import EmployeePhotoFrame from '../../components/employees/EmployeePhotoFrame';
 import CnicAttachmentButton from '../../components/employees/CnicAttachmentButton';
 import EmployeeDocumentsSection from '../../components/employees/EmployeeDocumentsSection';
 import api from '../../api/axios';
+import { SHIFTS } from '../../utils/shiftOptions';
 
 const EMPTY_EXP = () => ({
   organization: '', designation: '', from: '', to: '', salary: '', leaving_reason: '',
@@ -50,6 +51,8 @@ function emptyForm(branches) {
     employment_id: '',
     hire_date: todayStr(),
     designation: '',
+    shift: '',
+    overtime_rate: '',
     basic_salary: '',
     allowances: [],
     location_type: 'branch',
@@ -99,7 +102,7 @@ export default function EmployeeFormPage() {
     if (!isEdit) {
       try {
         const { data } = await api.get('/employees/next-employment-id', { params: shopParams() });
-        setForm(f => ({ ...emptyForm(branches), employment_id: data.employment_id || '' }));
+        setForm(() => ({ ...emptyForm(branches), employment_id: data.employment_id || '' }));
       } catch {
         setForm(emptyForm(branches));
       }
@@ -142,6 +145,8 @@ export default function EmployeeFormPage() {
         employment_id: e.employment_id || '',
         hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : todayStr(),
         designation: e.designation || '',
+        shift: e.shift || '',
+        overtime_rate: e.overtime_rate != null ? String(e.overtime_rate) : '',
         basic_salary: e.basic_salary != null ? String(e.basic_salary) : '',
         allowances: Array.isArray(e.allowances) ? e.allowances : [],
         location_type: branch?.godown_id ? 'godown' : 'branch',
@@ -438,8 +443,19 @@ export default function EmployeeFormPage() {
                 <input className="input" required value={form.designation} onChange={setF('designation')} />
               </div>
               <div>
+                <FormLabel>{t('shift')}</FormLabel>
+                <select className="input" value={form.shift} onChange={setF('shift')}>
+                  <option value="">{t('none') || '--'}</option>
+                  {SHIFTS.map(s => <option key={s.value} value={s.value}>{t(s.labelKey) || s.value}</option>)}
+                </select>
+              </div>
+              <div>
                 <FormLabel required>{t('salary') || 'Salary'}</FormLabel>
                 <input className="input" type="number" min="0" step="0.01" required value={form.basic_salary} onChange={setF('basic_salary')} />
+              </div>
+              <div>
+                <FormLabel>{t('overtimeRate')}</FormLabel>
+                <input className="input" type="number" min="0" step="0.01" placeholder={t('overtimeRateHint') || 'Rate per hour'} value={form.overtime_rate} onChange={setF('overtime_rate')} />
               </div>
               <div className="sm:col-span-2 space-y-2">
                 <FormLabel>{t('allowances') || 'Allowances'}</FormLabel>

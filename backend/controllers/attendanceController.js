@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { toBusinessDate, parseTransactionDate } = require('../utils/transactionDate');
+const { getHolidayDatesForMonth } = require('../utils/holidayHelpers');
 
 // Marking attendance for tomorrow makes no sense — you can't already know
 // someone was present on a day that hasn't happened. Reuses the same 24h
@@ -44,7 +45,7 @@ exports.getDay = async (req, res) => {
 
     const employees = await db.Employee.findAll({
       where: empWhere,
-      attributes: ['id', 'name', 'designation', 'employment_id', 'branch_id'],
+      attributes: ['id', 'name', 'designation', 'employment_id', 'branch_id', 'shift'],
       include: [{ model: db.Branch, attributes: ['id', 'name'] }],
       order: [['name', 'ASC']],
     });
@@ -67,6 +68,10 @@ exports.getDay = async (req, res) => {
         status: byEmployee[e.id]?.status || null,
         notes: byEmployee[e.id]?.notes || null,
         attendance_id: byEmployee[e.id]?.id || null,
+        // Falls back to the employee's default shift when the day hasn't been
+        // marked yet, so the Today view can pre-fill a sensible value.
+        shift: byEmployee[e.id]?.shift || e.shift || null,
+        overtime_hours: byEmployee[e.id]?.overtime_hours != null ? parseFloat(byEmployee[e.id].overtime_hours) : 0,
       })),
     });
   } catch (error) {
@@ -109,7 +114,7 @@ async function buildMonthGrid(shopId, month, branchId, transaction) {
       employee_id: { [Op.in]: employees.map(e => e.id) },
       date: { [Op.between]: [from, to] },
     },
-    attributes: ['employee_id', 'date', 'status', 'notes'],
+    attributes: ['employee_id', 'date', 'status', 'notes', 'shift'],
     raw: true,
     transaction,
   });
@@ -124,7 +129,7 @@ async function buildMonthGrid(shopId, month, branchId, transaction) {
   marks.forEach(m => {
     const key = m.employee_id;
     const day = String(m.date).slice(8, 10);
-    (byEmployee[key] = byEmployee[key] || {})[day] = { status: m.status, notes: m.notes };
+    (byEmployee[key] = byEmployee[key] || {})[day] = { status: m.status, notes: m.notes, shift: m.shift };
   });
 
   return {
@@ -173,8 +178,11 @@ exports.getSummary = async (req, res) => {
     const employee = await db.Employee.findOne({ where: { id: employeeId, shop_id: shopId }, attributes: ['id'] });
     if (!employee) return res.status(404).json({ message: 'Employee not found' });
 
-    const summary = await getAttendanceSummaryForMonth(shopId, employeeId, month);
-    return res.json(summary);
+    const [summary, overtime] = await Promise.all([
+      getAttendanceSummaryForMonth(shopId, employeeId, month),
+      getOvertimeSummaryForMonth(shopId, employeeId, month),
+    ]);
+    return res.json({ ...summary, overtime_hours: overtime.overtime_hours });
   } catch (error) {
     console.error('getAttendanceSummary error:', error);
     return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
@@ -197,24 +205,57 @@ async function getAttendanceSummaryForMonth(shopId, employeeId, month, transacti
   const from = `${month}-01`;
   const to = `${month}-${String(daysInMonth).padStart(2, '0')}`;
 
-  const rows = await db.Attendance.findAll({
-    where: { shop_id: shopId, employee_id: employeeId, date: { [Op.between]: [from, to] } },
-    attributes: ['status'],
-    raw: true,
-    transaction,
-  });
+  // Holidays are never counted as absent/unmarked, and the daily rate used
+  // for the absence deduction is based on working days — a fixed monthly
+  // salary is meant to cover those, not calendar days off (confirmed with
+  // the user). A day explicitly marked 'absent' that also happens to be a
+  // holiday is still excluded here, protecting against a stray/mistaken mark.
+  const [rows, holidayDates] = await Promise.all([
+    db.Attendance.findAll({
+      where: { shop_id: shopId, employee_id: employeeId, date: { [Op.between]: [from, to] } },
+      attributes: ['status', 'date'],
+      raw: true,
+      transaction,
+    }),
+    getHolidayDatesForMonth(shopId, month, transaction),
+  ]);
 
   const counts = { present: 0, absent: 0, leave: 0 };
-  rows.forEach(r => { if (counts[r.status] !== undefined) counts[r.status] += 1; });
+  rows.forEach(r => {
+    const dateKey = String(r.date).slice(0, 10);
+    if (holidayDates.has(dateKey)) return;
+    if (counts[r.status] !== undefined) counts[r.status] += 1;
+  });
 
   return {
     month,
-    days_in_month: daysInMonth,
+    days_in_month: Math.max(0, daysInMonth - holidayDates.size),
     present_days: counts.present,
     absent_days: counts.absent,
     leave_days: counts.leave,
     marked_days: rows.length,
+    holiday_days: holidayDates.size,
   };
+}
+
+// Sibling to getAttendanceSummaryForMonth, same transaction-threading reasoning
+// — giveSalary calls this from inside its own open transaction when the "Add
+// overtime pay" checkbox is on, so a same-request attendance edit is visible.
+async function getOvertimeSummaryForMonth(shopId, employeeId, month, transaction) {
+  const [year, mon] = month.split('-').map(Number);
+  const daysInMonth = new Date(year, mon, 0).getDate();
+  const from = `${month}-01`;
+  const to = `${month}-${String(daysInMonth).padStart(2, '0')}`;
+
+  const rows = await db.Attendance.findAll({
+    where: { shop_id: shopId, employee_id: employeeId, date: { [Op.between]: [from, to] } },
+    attributes: ['overtime_hours'],
+    raw: true,
+    transaction,
+  });
+
+  const totalHours = rows.reduce((s, r) => s + (parseFloat(r.overtime_hours) || 0), 0);
+  return { month, overtime_hours: Math.round(totalHours * 100) / 100 };
 }
 
 // ── Shared employee-scope resolver for reports ───────────────────────────────
@@ -416,9 +457,15 @@ async function markAttendance(shopId, userId, rawDate, entries, transaction) {
   assertNotFuture(date);
 
   const validStatuses = new Set(['present', 'absent', 'leave']);
+  const validShifts = new Set(['morning', 'evening', 'night']);
   for (const entry of entries) {
     if (!entry.employee_id || !validStatuses.has(entry.status)) {
       const e = new Error('Every entry needs employee_id and a valid status');
+      e.statusCode = 400;
+      throw e;
+    }
+    if (entry.shift && !validShifts.has(entry.shift)) {
+      const e = new Error(`shift must be one of: ${[...validShifts].join(', ')}`);
       e.statusCode = 400;
       throw e;
     }
@@ -427,7 +474,7 @@ async function markAttendance(shopId, userId, rawDate, entries, transaction) {
   const employeeIds = entries.map(e => parseInt(e.employee_id, 10));
   const employees = await db.Employee.findAll({
     where: { id: { [Op.in]: employeeIds }, shop_id: shopId },
-    attributes: ['id', 'branch_id'],
+    attributes: ['id', 'branch_id', 'shift'],
     transaction,
   });
   const employeeById = new Map(employees.map(e => [e.id, e]));
@@ -451,6 +498,15 @@ async function markAttendance(shopId, userId, rawDate, entries, transaction) {
       // employee's branch transfer stays consistent with where they are now.
       shop_id: shopId,
       branch_id: employee.branch_id,
+      // Falls back to the employee's default shift when the entry doesn't
+      // specify one, so bulk-marking a whole roster still records a shift
+      // without every row needing an explicit selection.
+      shift: entry.shift || employee.shift || null,
+      overtime_hours: entry.overtime_hours != null ? Math.max(0, parseFloat(entry.overtime_hours) || 0) : 0,
+      // Only meaningful on a 'leave' day; cleared whenever the status is
+      // anything else so a day that stops being leave doesn't keep pointing
+      // at a stale leave type.
+      leave_type_id: entry.status === 'leave' ? (entry.leave_type_id || null) : null,
     };
     const [row, created] = await db.Attendance.findOrCreate({
       where: { employee_id: employeeId, date },
@@ -482,5 +538,7 @@ exports.mark = async (req, res) => {
 };
 
 exports.getAttendanceSummaryForMonth = getAttendanceSummaryForMonth;
+exports.getOvertimeSummaryForMonth = getOvertimeSummaryForMonth;
+exports.markAttendance = markAttendance;
 exports.markAttendance = markAttendance;
 exports.buildMonthGrid = buildMonthGrid;

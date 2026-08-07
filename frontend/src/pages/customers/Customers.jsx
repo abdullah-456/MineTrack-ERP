@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Plus, Search, Edit, Loader2, CreditCard, UserCheck, ShoppingBag, Calendar, BookOpen, Trash2 } from 'lucide-react';
+import { Users, Plus, Search, Edit, Loader2, CreditCard, UserCheck, ShoppingBag, BookOpen, Trash2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
@@ -30,7 +30,6 @@ export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [selected, setSelected] = useState(null);
@@ -41,7 +40,6 @@ export default function Customers() {
     setLoading(true);
     try {
       const params = { ...shopParams(), search };
-      if (typeFilter !== 'all') params.customer_type = typeFilter;
       const { data } = await api.get('/customers', { params });
       setCustomers(data.customers || []);
     } catch (e) {
@@ -49,7 +47,7 @@ export default function Customers() {
     } finally {
       setLoading(false);
     }
-  }, [shopParams, search, typeFilter, error, t]);
+  }, [shopParams, search, error, t]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -87,12 +85,6 @@ export default function Customers() {
   };
 
   const setF = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
-
-  const filterTabs = [
-    { key: 'all', label: t('allCustomers') },
-    { key: 'registered', label: t('registeredOnly') },
-    { key: 'walkin', label: t('walkinOnly') },
-  ];
 
   const typeConfig = {
     registered: { icon: UserCheck, color: 'text-emerald-400', bg: 'bg-emerald-500/15 border-emerald-500/25', label: t('registered') },

@@ -8,7 +8,9 @@ router.use(authenticate);
 router.use(auditLog);
 
 router.get('/shops', authorize('users', 'read'), branchController.listShopsForPicker);
+router.get('/next-code', authorize('branches', 'create'), branchController.getNextMineCode);
 router.get('/',     authorize('branches', 'read'),   branchController.listBranches);
+router.get('/:id',  authorize('branches', 'read'),   branchController.getBranch);
 router.post('/',    authorize('branches', 'create'), branchController.createBranch);
 router.put('/:id',  authorize('branches', 'update'), branchController.updateBranch);
 router.delete('/:id', authorize('branches', 'delete'), branchController.removeBranch);

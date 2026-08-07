@@ -3,11 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import {
-  ChevronLeft, Store, Users, GitBranch, Edit,
+  ChevronLeft, Store, Users, Pickaxe, Edit,
   CheckCircle, AlertTriangle, Clock, Mail,
   Phone, MapPin, RefreshCw, Slash, UserCheck, Trash2
 } from 'lucide-react';
 import api from '../../api/axios';
+import { getMineStatusMeta } from '../../utils/mineStatus';
 
 const STATUS_CONFIG = (t) => ({
   active:    { badge: 'badge badge-green',  icon: CheckCircle,  label: t('statusActive') },
@@ -50,7 +51,7 @@ export default function ShopDetail() {
     try {
       const { data } = await api.get(`/shops/${id}`);
       setShop(data.shop);
-    } catch (e) {
+    } catch {
       error(t('toastErrorGeneric'));
     } finally { setLoading(false); }
   };
@@ -169,7 +170,7 @@ export default function ShopDetail() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="stat-card flex items-center gap-3">
           <div className="p-3 rounded-xl bg-brand-500/10 text-brand-400">
-            <GitBranch className="w-5 h-5" />
+            <Pickaxe className="w-5 h-5" />
           </div>
           <div>
             <p className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
@@ -222,7 +223,7 @@ export default function ShopDetail() {
 
         <div className="card space-y-3">
           <h2 className="font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-            <GitBranch className="w-4 h-4 text-purple-400" /> {t('branches')}
+            <Pickaxe className="w-4 h-4 text-purple-400" /> {t('branches')}
           </h2>
           {(shop.Branches || []).length === 0 ? (
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{t('noData')}</p>
@@ -237,8 +238,8 @@ export default function ShopDetail() {
                       <span className="badge badge-blue text-[10px]">{t('defaultBranch')}</span>
                     )}
                   </div>
-                  <span className={`badge ${br.status === 'active' ? 'badge-green' : 'badge-red'}`}>
-                    {br.status === 'active' ? t('active') : t('disabled')}
+                  <span className={`badge ${getMineStatusMeta(t, br.status).badge}`}>
+                    {getMineStatusMeta(t, br.status).label}
                   </span>
                 </div>
               ))}

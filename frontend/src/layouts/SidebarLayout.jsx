@@ -4,11 +4,11 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import FiscalYearSelector from '../components/ui/FiscalYearSelector';
 import {
-  LayoutDashboard, ShoppingCart, Package, Users, Building2,
+  LayoutDashboard, Package, Users, Building2,
   TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2, Landmark,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
   Zap, Bell, Search, ChevronLeft, Sun, Moon, Globe, Check,
-  Store, GitBranch, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar, CalendarCheck } from 'lucide-react';
+  Store, Pickaxe, CircleDot, Layers, Factory, Gem, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar, CalendarCheck, CalendarOff, PartyPopper } from 'lucide-react';
 
 // ── Nav structure for regular shop users (uses translation keys) ─
 const shopNavGroups = [
@@ -70,6 +70,18 @@ const shopNavGroups = [
       { to: '/employees',  icon: UserCheck,     labelKey: 'employees',  module: 'employees',  action: 'read' },
       { to: '/attendance', icon: CalendarCheck, labelKey: 'attendance', module: 'attendance', action: 'read' },
       { to: '/payroll',    icon: CreditCard,    labelKey: 'payroll',    module: 'employees',  action: 'read' },
+      { to: '/leave',      icon: CalendarOff,   labelKey: 'leave',      module: 'leave',      action: 'read' },
+      { to: '/holidays',   icon: PartyPopper,   labelKey: 'holidays',   module: 'holidays',   action: 'read' },
+    ]
+  },
+  {
+    labelKey: 'navMining',
+    items: [
+      { to: '/admin/mines', icon: Pickaxe, labelKey: 'mines', module: 'branches', action: 'read' },
+      { to: '/admin/pits', icon: CircleDot, labelKey: 'pits', module: 'branches', action: 'read' },
+      { to: '/admin/benches', icon: Layers, labelKey: 'benches', module: 'branches', action: 'read' },
+      { to: '/admin/production', icon: Factory, labelKey: 'production', module: 'branches', action: 'read' },
+      { to: '/admin/minerals', icon: Gem, labelKey: 'minerals', module: 'branches', action: 'read' },
     ]
   },
   {
@@ -79,7 +91,6 @@ const shopNavGroups = [
       { to: '/admin/users',      icon: ShieldCheck,   labelKey: 'users',            module: 'users', action: 'read' },
       { to: '/admin/audit-log',  icon: FileBarChart2, labelKey: 'auditLog',         module: 'users', action: 'read' },
       { to: '/admin/board-of-directors', icon: Crown, labelKey: 'boardOfDirectors', module: 'board_directors', action: 'read' },
-      { to: '/admin/branches', icon: GitBranch, labelKey: 'branches', module: 'branches', action: 'read' },
       { to: '/admin/roles', icon: KeyRound, labelKey: 'roles', module: 'roles', action: 'read' },
       { to: '/admin/deletion-requests', icon: ShieldAlert, labelKey: 'deletionRequests', module: 'users', action: 'read' },
       { to: '/admin/fiscal-years', icon: Calendar, labelKey: 'fiscalYears', module: 'accounting', action: 'read' },

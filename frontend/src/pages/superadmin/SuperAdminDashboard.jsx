@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext';
 import {
-  Store, Users, GitBranch, TrendingUp, Plus,
+  Store, Users, Pickaxe, Plus,
   Eye, AlertTriangle, CheckCircle, Clock, ArrowUpRight
 } from 'lucide-react';
 import api from '../../api/axios';
@@ -94,7 +94,7 @@ export default function SuperAdminDashboard() {
           color="bg-purple-500/10 text-purple-400"
         />
         <PlatformStatCard
-          icon={GitBranch} label={t('totalBranches')} value={stats?.totalBranches}
+          icon={Pickaxe} label={t('totalBranches')} value={stats?.totalBranches}
           color="bg-amber-500/10 text-amber-400"
         />
       </div>

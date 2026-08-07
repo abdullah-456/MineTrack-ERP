@@ -6,6 +6,7 @@ import { useShopApi } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import AttendanceReportsView from '../../components/attendance/AttendanceReportsView';
 import { STATUS_META, STATUS_ORDER, nextStatus } from '../../utils/attendanceStatus';
+import { SHIFTS } from '../../utils/shiftOptions';
 import api from '../../api/axios';
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -104,7 +105,11 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
   useEffect(() => { fetchDay(); }, [fetchDay]);
 
   const statusFor = (emp) => pending[emp.id]?.status ?? emp.status;
+  const shiftFor = (emp) => pending[emp.id]?.shift ?? emp.shift ?? '';
+  const overtimeFor = (emp) => pending[emp.id]?.overtime_hours ?? emp.overtime_hours ?? '';
   const setStatus = (empId, status) => setPending(p => ({ ...p, [empId]: { ...p[empId], status } }));
+  const setShift = (empId, shift) => setPending(p => ({ ...p, [empId]: { ...p[empId], shift } }));
+  const setOvertimeHours = (empId, overtime_hours) => setPending(p => ({ ...p, [empId]: { ...p[empId], overtime_hours } }));
   const cycleStatus = (emp) => setStatus(emp.id, nextStatus(statusFor(emp)));
   const markAllPresent = () => {
     const next = {};
@@ -115,9 +120,20 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
   const dirtyCount = Object.keys(pending).length;
 
   const handleSave = async () => {
-    const entries = Object.entries(pending)
-      .filter(([, v]) => v.status)
-      .map(([employee_id, v]) => ({ employee_id: parseInt(employee_id, 10), status: v.status }));
+    const entries = Object.keys(pending)
+      .map((empId) => {
+        const emp = employees.find(e => String(e.id) === empId);
+        if (!emp) return null;
+        const status = statusFor(emp);
+        if (!status) return null;
+        return {
+          employee_id: parseInt(empId, 10),
+          status,
+          shift: shiftFor(emp) || undefined,
+          overtime_hours: overtimeFor(emp) !== '' ? overtimeFor(emp) : 0,
+        };
+      })
+      .filter(Boolean);
     if (!entries.length) return;
     setSaving(true);
     try {
@@ -163,6 +179,8 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
                 <th className="text-start p-4">{t('name') || 'Name'}</th>
                 <th className="text-start p-4">{t('designation') || 'Designation'}</th>
                 {branches.length !== 1 && <th className="text-start p-4">{t('branch') || 'Branch'}</th>}
+                <th className="text-start p-4">{t('shift')}</th>
+                <th className="text-start p-4">{t('overtimeHours') || 'OT (hrs)'}</th>
                 <th className="text-end p-4">{t('status') || 'Status'}</th>
               </tr>
             </thead>
@@ -170,6 +188,7 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
               {employees.map(emp => {
                 const status = statusFor(emp);
                 const isDirty = !!pending[emp.id];
+                const canEditExtras = !!status;
                 return (
                   <tr
                     key={emp.id}
@@ -178,6 +197,28 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
                     <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{emp.name}</td>
                     <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.designation || '—'}</td>
                     {branches.length !== 1 && <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.branch?.name || '—'}</td>}
+                    <td className="p-4">
+                      <select
+                        className="input text-xs py-1"
+                        style={{ minWidth: '100px' }}
+                        disabled={!canEditExtras}
+                        value={shiftFor(emp)}
+                        onChange={e => setShift(emp.id, e.target.value)}
+                      >
+                        <option value="">{t('none') || '--'}</option>
+                        {SHIFTS.map(s => <option key={s.value} value={s.value}>{t(s.labelKey) || s.value}</option>)}
+                      </select>
+                    </td>
+                    <td className="p-4">
+                      <input
+                        className="input text-xs py-1"
+                        style={{ width: '70px' }}
+                        type="number" min="0" step="0.5"
+                        disabled={!canEditExtras}
+                        value={overtimeFor(emp)}
+                        onChange={e => setOvertimeHours(emp.id, e.target.value)}
+                      />
+                    </td>
                     <td className="p-4">
                       <div className="flex justify-end">
                         <button
@@ -200,7 +241,7 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
                 );
               })}
               {employees.length === 0 && (
-                <tr><td colSpan={4} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEmployees') || 'No employees'}</td></tr>
+                <tr><td colSpan={6} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noEmployees') || 'No employees'}</td></tr>
               )}
             </tbody>
           </table>

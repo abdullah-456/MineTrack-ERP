@@ -4,7 +4,7 @@ const { requireShopId } = require('../utils/shopScope');
 const { assertCashAvailable, debitBankAccount, creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { postVoucher } = require('../utils/postVoucher');
 const { resolveListDateRange, sliceHistoryToRange, openingBalanceRow } = require('../utils/fiscalYear');
-const { getAttendanceSummaryForMonth } = require('./attendanceController');
+const { getAttendanceSummaryForMonth, getOvertimeSummaryForMonth } = require('./attendanceController');
 
 function currentMonthStr() {
   return new Date().toISOString().slice(0, 7);
@@ -297,7 +297,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
 
   const {
     month, bonus, temp_allowance, tax_deduction_percent, method, bank_account_id, date,
-    deduct_for_absence, count_leave_as_absence,
+    deduct_for_absence, count_leave_as_absence, add_overtime,
   } = body;
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
     const e = new Error('month is required in YYYY-MM format');
@@ -333,7 +333,21 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   // TIME even if their profile changes afterward — same precedent as basicSalary.
   const allowancesTotal = Math.round((Array.isArray(employee.allowances) ? employee.allowances : [])
     .reduce((s, a) => s + (parseFloat(a?.amount) || 0), 0) * 100) / 100;
-  const grossSalary = Math.round((basicSalary + allowancesTotal + tempAllowanceAmt + bonusAmt) * 100) / 100;
+
+  // Optional, per-run: mirrors deduct_for_absence exactly, but adds instead
+  // of subtracts. No rate on the employee means overtime can't be paid — a
+  // no-op rather than a blocking error, since the checkbox may be ticked by
+  // habit on a run where it doesn't apply.
+  let overtimeHours = 0;
+  let overtimeAmount = 0;
+  if (add_overtime) {
+    const otSummary = await getOvertimeSummaryForMonth(shopId, employee.id, month, transaction);
+    overtimeHours = otSummary.overtime_hours;
+    const overtimeRate = parseFloat(employee.overtime_rate || 0);
+    overtimeAmount = Math.round(overtimeHours * overtimeRate * 100) / 100;
+  }
+
+  const grossSalary = Math.round((basicSalary + allowancesTotal + tempAllowanceAmt + bonusAmt + overtimeAmount) * 100) / 100;
   const taxDeduction = Math.round((grossSalary * taxPercent / 100) * 100) / 100;
 
   const uncleared = await db.EmployeeTransaction.findAll({
@@ -388,6 +402,8 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     bonus: bonusAmt,
     allowances_total: allowancesTotal,
     temp_allowance: tempAllowanceAmt,
+    overtime_hours: overtimeHours,
+    overtime_amount: overtimeAmount,
     net_pay: netPay,
     status: 'paid',
   }, { transaction });
@@ -399,7 +415,8 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   await db.EmployeeTransaction.create({
     shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'salary_due',
     amount: grossSalary, method: null,
-    created_by: userId, notes: `Salary ${month}`,
+    created_by: userId,
+    notes: `Salary ${month}${overtimeAmount > 0 ? ` (incl. overtime ${overtimeHours}h = ${overtimeAmount.toFixed(2)})` : ''}`,
   }, { transaction });
 
   if (totalDeductions > 0) {
@@ -625,6 +642,8 @@ exports.getTransactionSlip = async (req, res) => {
         attendance_deduction: parseFloat(txn.Payroll.attendance_deduction || 0),
         absent_days: txn.Payroll.absent_days || 0,
         leave_days: txn.Payroll.leave_days || 0,
+        overtime_hours: parseFloat(txn.Payroll.overtime_hours || 0),
+        overtime_amount: parseFloat(txn.Payroll.overtime_amount || 0),
         tax_deduction_percent: parseFloat(txn.Payroll.tax_deduction_percent || 0),
         tax_deduction: parseFloat(txn.Payroll.tax_deduction || 0),
         net_pay: parseFloat(txn.Payroll.net_pay || 0),
@@ -753,6 +772,8 @@ exports.getClearanceCertificate = async (req, res) => {
         attendance_deduction: parseFloat(p.attendance_deduction || 0),
         absent_days: p.absent_days || 0,
         leave_days: p.leave_days || 0,
+        overtime_hours: parseFloat(p.overtime_hours || 0),
+        overtime_amount: parseFloat(p.overtime_amount || 0),
         tax_deduction_percent: parseFloat(p.tax_deduction_percent || 0),
         tax_deduction: parseFloat(p.tax_deduction || 0),
         net_pay: parseFloat(p.net_pay || 0),

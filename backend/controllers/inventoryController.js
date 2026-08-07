@@ -423,7 +423,7 @@ exports.receiveStock = async (req, res) => {
       // Payment panel (Paid? Yes/No/Partial → amount, method) + PurchaseInvoice
       // + SupplierTransaction + GL voucher — shared with productController.create.
       const totalAmount = Math.round(unitCost * qty * 100) / 100;
-      const stockNotes = `Received ${qty} ${product.unit || 'Pcs'} of ${product.name} at Rs. ${unitCost}/unit`;
+      const stockNotes = `Received ${qty} ${product.unit || 'kg'} of ${product.name} at Rs. ${unitCost}/unit`;
       const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
 
       try {
@@ -449,7 +449,7 @@ exports.receiveStock = async (req, res) => {
       // cash funds post to their own ledger sub-account; shared Cash in Hand
       // posts to 05-CASH and is tracked via the daily cash session.
       const stockValue = Math.round(unitCost * qty * 100) / 100;
-      const stockNotes = `Received ${qty} ${product.unit || 'Pcs'} of ${product.name} at Rs. ${unitCost}/unit`;
+      const stockNotes = `Received ${qty} ${product.unit || 'kg'} of ${product.name} at Rs. ${unitCost}/unit`;
       const finalNotes = notes?.trim() ? `${notes.trim()} — ${stockNotes}` : stockNotes;
 
       if (stockValue > 0) {

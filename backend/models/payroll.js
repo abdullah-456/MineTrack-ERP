@@ -76,6 +76,16 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       defaultValue: 0
     },
+    // Mirrors attendance_deduction/absent_days above — the addition side
+    // instead of the deduction side (see runGiveSalary's add_overtime flag).
+    overtime_hours: {
+      type: DataTypes.DECIMAL(6, 2),
+      defaultValue: 0
+    },
+    overtime_amount: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0
+    },
     net_pay: {
       type: DataTypes.DECIMAL(15, 2),
       allowNull: false

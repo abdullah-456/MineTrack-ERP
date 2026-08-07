@@ -417,7 +417,7 @@ exports.create = async (req, res) => {
         // the GL debits (cash + advance) exceed the sales credit, so postVoucher
         // rejected the voucher and the sale could not be completed at all.
         advanceApplied = Math.round(Math.min(advanceAvailable, Math.max(0, total - payAmount)) * 100) / 100;
-        const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
+        const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'kg'} of ${l.product.name}`).join(', ');
 
         // Net effect is (total - payAmount), exactly as documented above.
         // advanceApplied is deliberately NOT subtracted here: the credit it
@@ -460,7 +460,7 @@ exports.create = async (req, res) => {
     }
 
     const arDebitAmount = Math.round((total - payAmount - advanceApplied) * 100) / 100;
-    const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'Pcs'} of ${l.product.name}`).join(', ');
+    const itemsSummary = lineItems.map(l => `${l.qty} ${l.product.unit || 'kg'} of ${l.product.name}`).join(', ');
 
     let paymentLine = null;
     if (payAmount > 0 && isBodPay) {

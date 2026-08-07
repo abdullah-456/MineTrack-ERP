@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -31,7 +31,6 @@ export default function UserManagement() {
   const [users, setUsers]       = useState([]);
   const [roles, setRoles]       = useState([]);
   const [shops, setShops]       = useState([]);
-  const [branches, setBranches] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
   const [shopFilter, setShopFilter]   = useState('all');
@@ -63,15 +62,6 @@ export default function UserManagement() {
   const needsShop = selectedRoleName && selectedRoleName !== 'super_admin';
   const needsBranch = BRANCH_REQUIRED_ROLES.includes(selectedRoleName);
 
-  const fetchBranches = useCallback(async (shopId) => {
-    if (!shopId) { setBranches([]); return; }
-    try {
-      const params = superAdmin ? { shop_id: shopId } : {};
-      const { data } = await api.get('/branches', { params });
-      setBranches(data.branches || []);
-    } catch { setBranches([]); }
-  }, [superAdmin]);
-
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -93,11 +83,6 @@ export default function UserManagement() {
   };
 
   useEffect(() => { fetchData(); }, [shopFilter]);
-
-  useEffect(() => {
-    if (superAdmin && form.shop_id) fetchBranches(form.shop_id);
-    else if (!superAdmin && me?.shop_id) fetchBranches(me.shop_id);
-  }, [form.shop_id, superAdmin, me?.shop_id, fetchBranches]);
 
   const openCreate = () => {
     setForm({

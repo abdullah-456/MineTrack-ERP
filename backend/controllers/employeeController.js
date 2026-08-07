@@ -17,7 +17,7 @@ const PROFILE_FIELDS = [
   'emergency_name', 'emergency_relation', 'emergency_cell', 'emergency_residence',
   'education_institute', 'education_degree', 'education_specialization',
   'education_grade', 'education_year', 'experience', 'dependants',
-  'remarks', 'hr_remarks', 'allowances',
+  'remarks', 'hr_remarks', 'allowances', 'shift', 'overtime_rate',
 ];
 
 function err(statusCode, message) {
@@ -140,11 +140,21 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     throw err(400, 'Invalid employee status');
   }
 
+  const ALLOWED_SHIFT = ['morning', 'evening', 'night'];
+  const shift = (body.shift || '').trim().toLowerCase();
+  if (shift && !ALLOWED_SHIFT.includes(shift)) {
+    throw err(400, 'Invalid shift');
+  }
+  const overtimeRate = body.overtime_rate !== undefined && body.overtime_rate !== ''
+    ? Math.max(0, parseFloat(body.overtime_rate) || 0) : null;
+
   return {
     name,
     father_name: father_name || null,
     gender: gender ? gender.toLowerCase() : null,
     designation: designation || null,
+    shift: shift || null,
+    overtime_rate: overtimeRate,
     phone,
     address: address || null,
     city: city || null,

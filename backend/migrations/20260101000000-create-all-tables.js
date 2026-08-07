@@ -139,7 +139,7 @@ module.exports = {
       sale_price:     { type: DataTypes.DECIMAL(12,2), defaultValue: 0 },
       stock_quantity: { type: DataTypes.INTEGER, defaultValue: 0 },
       min_stock_level:{ type: DataTypes.INTEGER, defaultValue: 5 },
-      unit:           { type: DataTypes.STRING,  defaultValue: 'pcs' },
+      unit:           { type: DataTypes.STRING,  defaultValue: 'kg' },
       status:         { type: DataTypes.ENUM('active','inactive'), defaultValue: 'active' },
       created_at:     { type: DataTypes.DATE,    allowNull: false },
       updated_at:     { type: DataTypes.DATE,    allowNull: false }

@@ -7,7 +7,7 @@ import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import { getCompany } from '../../utils/reportExport';
 import {
-  PrintStyles, PrintActionBar, CompanyHeader, AmountWords, DocClose, INK, INK_SOFT,
+  PrintStyles, CompanyHeader, AmountWords, DocClose, INK, INK_SOFT,
 } from '../../components/print/PrintKit';
 
 export default function EmployeeSlipPrint() {
