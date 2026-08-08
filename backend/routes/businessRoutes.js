@@ -32,7 +32,10 @@ const goodsReceiptController = require('../controllers/goodsReceiptController');
 const fiscalYearController = require('../controllers/fiscalYearController');
 const auditLog = require('../middleware/auditLog');
 const loadEmployee = require('../middleware/loadEmployee');
+const loadOwner = require('../middleware/loadOwner');
+const documentController = require('../controllers/documentController');
 const { employeeUpload } = require('../utils/employeeUploads');
+const { documentUpload } = require('../utils/documentUploads');
 
 router.use(authenticate);
 router.use(tenantScope);
@@ -48,6 +51,10 @@ router.post(  '/suppliers/:id/products', authorize('suppliers', 'update'), suppl
 router.get(   '/suppliers/:id/ledger',   authorize('suppliers', 'read'),   supplierLedgerController.getLedger);
 router.post(  '/suppliers/:id/payments', authorize('suppliers', 'update'), supplierLedgerController.recordPayment);
 router.post(  '/suppliers/:id/opening-balance', authorize('suppliers', 'update'), supplierLedgerController.recordOpeningBalance);
+router.get(   '/suppliers/:id/documents',           authorize('documents', 'read'),   loadOwner('supplier'), documentController.listDocuments);
+router.post(  '/suppliers/:id/documents',           authorize('documents', 'create'), loadOwner('supplier'), documentUpload.single('file'), documentController.uploadDocument);
+router.get(   '/suppliers/:id/documents/:docId/file', authorize('documents', 'read'), loadOwner('supplier'), documentController.getDocumentFile);
+router.delete('/suppliers/:id/documents/:docId',    authorize('documents', 'delete'), loadOwner('supplier'), documentController.deleteDocument);
 
 // Purchase Orders
 router.get(   '/purchase-orders',                      authorize('purchases', 'read'),   purchaseOrderController.list);
@@ -106,6 +113,10 @@ router.put(   '/customers/:id',          authorize('customers', 'update'), custo
 router.delete('/customers/:id',          authorize('customers', 'delete'), customerController.remove);
 router.get(   '/customers/:id/ledger',   authorize('customers', 'read'),   customerLedgerController.getLedger);
 router.post(  '/customers/:id/payments', authorize('customers', 'update'), customerLedgerController.recordPayment);
+router.get(   '/customers/:id/documents',           authorize('documents', 'read'),   loadOwner('customer'), documentController.listDocuments);
+router.post(  '/customers/:id/documents',           authorize('documents', 'create'), loadOwner('customer'), documentUpload.single('file'), documentController.uploadDocument);
+router.get(   '/customers/:id/documents/:docId/file', authorize('documents', 'read'), loadOwner('customer'), documentController.getDocumentFile);
+router.delete('/customers/:id/documents/:docId',    authorize('documents', 'delete'), loadOwner('customer'), documentController.deleteDocument);
 
 // Employees
 router.get(   '/employees',              authorize('employees', 'read'),   employeeController.list);
@@ -232,6 +243,10 @@ router.get(   '/balances',               financialSetupController.getLiveBalance
 router.get(   '/money-flow',             financialSetupController.getMoneyFlow);
 router.get(   '/company',                financialSetupController.getCompany);
 router.put(   '/company',                authorize('users', 'update'), financialSetupController.updateCompany);
+router.get(   '/company/documents',           authorize('documents', 'read'),   loadOwner('shop'), documentController.listDocuments);
+router.post(  '/company/documents',           authorize('documents', 'create'), loadOwner('shop'), documentUpload.single('file'), documentController.uploadDocument);
+router.get(   '/company/documents/:docId/file', authorize('documents', 'read'), loadOwner('shop'), documentController.getDocumentFile);
+router.delete('/company/documents/:docId',    authorize('documents', 'delete'), loadOwner('shop'), documentController.deleteDocument);
 
 // Admin — Audit Log
 router.get(   '/admin/audit-log',        authorize('users', 'read'), auditLogController.list);
@@ -262,6 +277,10 @@ router.delete('/board-members/:id', authorize('board_directors', 'delete'), boar
 router.get(   '/board-members/:id/ledger',  authorize('board_directors', 'read'),   boardMemberLedgerController.getLedger);
 router.post(  '/board-members/:id/personal-deposit', authorize('board_directors', 'update'), boardMemberLedgerController.recordPersonalDeposit);
 router.post(  '/board-members/:id/transfer', authorize('board_directors', 'update'), boardMemberLedgerController.recordTransfer);
+router.get(   '/board-members/:id/documents',           authorize('documents', 'read'),   loadOwner('board_member'), documentController.listDocuments);
+router.post(  '/board-members/:id/documents',           authorize('documents', 'create'), loadOwner('board_member'), documentUpload.single('file'), documentController.uploadDocument);
+router.get(   '/board-members/:id/documents/:docId/file', authorize('documents', 'read'), loadOwner('board_member'), documentController.getDocumentFile);
+router.delete('/board-members/:id/documents/:docId',    authorize('documents', 'delete'), loadOwner('board_member'), documentController.deleteDocument);
 
 // Expenses
 router.get(   '/expenses',     authorize('expenses', 'read'),   expenseController.list);

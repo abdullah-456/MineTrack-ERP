@@ -2,25 +2,34 @@
 
 const { Model } = require('sequelize');
 
+// Polymorphic — owner_type/owner_id point at whichever table the document
+// belongs to (branch/supplier/customer/board_member/vehicle/shop), so there's
+// no belongsTo association here. Employee documents stay on their own
+// employee_documents table/model instead of this one.
 module.exports = (sequelize, DataTypes) => {
-  class EmployeeDocument extends Model {
-    static associate(models) {
-      EmployeeDocument.belongsTo(models.Employee, { foreignKey: 'employee_id' });
-    }
-  }
-  EmployeeDocument.init({
+  class Document extends Model {}
+  Document.init({
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
     },
-    employee_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
     shop_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
+    },
+    owner_type: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+    },
+    owner_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    category: {
+      type: DataTypes.STRING(30),
+      allowNull: false,
+      defaultValue: 'other',
     },
     title: {
       type: DataTypes.STRING(160),
@@ -42,19 +51,19 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
-    category: {
-      type: DataTypes.STRING(30),
-      allowNull: true,
-    },
     expiry_date: {
       type: DataTypes.DATEONLY,
       allowNull: true,
     },
+    uploaded_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
   }, {
     sequelize,
-    modelName: 'EmployeeDocument',
-    tableName: 'employee_documents',
+    modelName: 'Document',
+    tableName: 'documents',
     underscored: true,
   });
-  return EmployeeDocument;
+  return Document;
 };

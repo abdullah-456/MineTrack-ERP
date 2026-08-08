@@ -8,6 +8,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
+import DocumentsPanel from '../../components/documents/DocumentsPanel';
 import api from '../../api/axios';
 
 const TXN_LABELS = {
@@ -171,6 +172,8 @@ export default function SupplierLedger() {
           {t('totalStockValue') || 'Total Stock Value'}: {formatPKR(summary.total_stock_value, lang)} · {summary.product_count} {t('productCount') || 'Products'}
         </span>
       </div>
+
+      <DocumentsPanel ownerType="supplier" ownerId={id} />
 
       {/* Aging buckets */}
       <div className="glass-card p-5">

@@ -11,6 +11,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import FundAccountSelect from '../../components/ui/FundAccountSelect';
+import DocumentsPanel from '../../components/documents/DocumentsPanel';
 import api from '../../api/axios';
 
 // Which running figure a row's "Running" column should show. Mirrors the
@@ -186,6 +187,8 @@ export default function BoardMemberLedger() {
           {t('dueFromBod') || 'Due from BOD'}: {formatPKR(dueFrom, lang)}
         </div>
       </div>
+
+      <DocumentsPanel ownerType="board_member" ownerId={id} />
 
       <div className="flex gap-2">
         {['all', 'investment', 'current'].map(k => (

@@ -3,12 +3,13 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import FiscalYearSelector from '../components/ui/FiscalYearSelector';
+import NotificationBell from '../components/notifications/NotificationBell';
 import {
   LayoutDashboard, Package, Users, Building2,
   TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2, Landmark,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
-  Zap, Bell, Search, ChevronLeft, Sun, Moon, Globe, Check,
-  Store, Pickaxe, CircleDot, Layers, Factory, Gem, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar, CalendarCheck, CalendarOff, PartyPopper } from 'lucide-react';
+  Zap, Search, ChevronLeft, Sun, Moon, Globe, Check,
+  Store, Pickaxe, CircleDot, Layers, Factory, Gem, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar, CalendarCheck, CalendarOff, PartyPopper, Truck } from 'lucide-react';
 
 // ── Nav structure for regular shop users (uses translation keys) ─
 const shopNavGroups = [
@@ -82,6 +83,7 @@ const shopNavGroups = [
       { to: '/admin/benches', icon: Layers, labelKey: 'benches', module: 'branches', action: 'read' },
       { to: '/admin/production', icon: Factory, labelKey: 'production', module: 'branches', action: 'read' },
       { to: '/admin/minerals', icon: Gem, labelKey: 'minerals', module: 'branches', action: 'read' },
+      { to: '/vehicles', icon: Truck, labelKey: 'vehicles', module: 'vehicles', action: 'read' },
     ]
   },
   {
@@ -399,12 +401,7 @@ export default function SidebarLayout() {
             <LangDropdown lang={lang} setLang={setLang} t={t} />
 
             {/* Notifications */}
-            <button className="topbar-btn relative" title={t('notifications')} id="notifications-btn">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand-500 ring-2"
-                style={{ '--tw-ring-color': 'var(--bg-surface)' }}
-              />
-            </button>
+            {!isSuperAdmin() && <NotificationBell />}
 
             {/* Avatar */}
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${

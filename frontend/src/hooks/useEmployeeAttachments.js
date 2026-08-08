@@ -90,7 +90,7 @@ export function useEmployeeAttachments(employeeId) {
     for (const doc of stagedDocs) {
       total += 1;
       // eslint-disable-next-line no-await-in-loop
-      try { await uploadEmployeeDocument(newEmployeeId, doc.file, doc.title, params); } catch { failed += 1; }
+      try { await uploadEmployeeDocument(newEmployeeId, doc.file, doc.title, params, doc.category, doc.expiryDate); } catch { failed += 1; }
     }
     return { total, failed };
   }, [stagedPhoto, stagedCnic, stagedDocs, shopParams]);
@@ -179,19 +179,19 @@ export function useEmployeeAttachments(employeeId) {
     }
   }, [isStaging, employeeId, shopParams, success, error, t]);
 
-  const addDoc = useCallback(async (file, title) => {
+  const addDoc = useCallback(async (file, title, category, expiryDate) => {
     if (!file) return;
     if (file.size > MAX_DOC_MB * 1024 * 1024) {
       error(t('fileTooLarge') || `File is too large. Max ${MAX_DOC_MB}MB.`);
       return;
     }
     if (isStaging) {
-      setStagedDocs(docs => [...docs, { id: newLocalId(), file, title: title || '' }]);
+      setStagedDocs(docs => [...docs, { id: newLocalId(), file, title: title || '', category: category || 'other', expiryDate: expiryDate || '' }]);
       return;
     }
     setBusyDoc(true);
     try {
-      const doc = await uploadEmployeeDocument(employeeId, file, (title || '').trim(), shopParams());
+      const doc = await uploadEmployeeDocument(employeeId, file, (title || '').trim(), shopParams(), category, expiryDate);
       setEmployee(emp => ({ ...emp, EmployeeDocuments: [...(emp.EmployeeDocuments || []), doc] }));
       setDocTitle('');
       success(t('documentUploaded') || 'Document uploaded successfully');
@@ -221,6 +221,14 @@ export function useEmployeeAttachments(employeeId) {
     setStagedDocs(docs => docs.map(d => (d.id === id ? { ...d, title } : d)));
   }, []);
 
+  const setStagedDocCategory = useCallback((id, category) => {
+    setStagedDocs(docs => docs.map(d => (d.id === id ? { ...d, category } : d)));
+  }, []);
+
+  const setStagedDocExpiry = useCallback((id, expiryDate) => {
+    setStagedDocs(docs => docs.map(d => (d.id === id ? { ...d, expiryDate } : d)));
+  }, []);
+
   const documentList = isStaging ? stagedDocs : (employee?.EmployeeDocuments || []);
 
   return {
@@ -237,6 +245,8 @@ export function useEmployeeAttachments(employeeId) {
       add: addDoc,
       remove: removeDoc,
       setTitle: setStagedDocTitle,
+      setCategory: setStagedDocCategory,
+      setExpiry: setStagedDocExpiry,
     },
     commitToEmployee,
   };

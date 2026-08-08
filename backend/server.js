@@ -18,6 +18,8 @@ const mineralRoutes = require('./routes/mineralRoutes');
 const productionRoutes = require('./routes/productionRoutes');
 const leaveRoutes = require('./routes/leaveRoutes');
 const holidayRoutes = require('./routes/holidayRoutes');
+const vehicleRoutes = require('./routes/vehicleRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const businessRoutes = require('./routes/businessRoutes');
 
 const app = express();
@@ -97,6 +99,8 @@ app.use('/api/minerals', mineralRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/holidays', holidayRoutes);
+app.use('/api/vehicles', vehicleRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api', businessRoutes);
 
 // ── Global error handler (avoids leaking internals to clients) ────────────────

@@ -9,6 +9,7 @@ import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import ReportActions from '../../components/ui/ReportActions';
 import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
+import DocumentsPanel from '../../components/documents/DocumentsPanel';
 import { money } from '../../utils/reportExport';
 import api from '../../api/axios';
 
@@ -168,6 +169,8 @@ export default function CustomerLedger() {
           );
         })}
       </div>
+
+      <DocumentsPanel ownerType="customer" ownerId={id} />
 
       {/* Tabs */}
       <div className="flex gap-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>

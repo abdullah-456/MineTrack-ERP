@@ -18,10 +18,12 @@ export async function uploadEmployeeCnicImage(employeeId, file, params) {
   return data.employee;
 }
 
-export async function uploadEmployeeDocument(employeeId, file, title, params) {
+export async function uploadEmployeeDocument(employeeId, file, title, params, category, expiryDate) {
   const form = new FormData();
   form.append('file', file);
   if (title) form.append('title', title);
+  if (category) form.append('category', category);
+  if (expiryDate) form.append('expiry_date', expiryDate);
   const { data } = await api.post(`/employees/${employeeId}/documents`, form, { params });
   return data.document;
 }

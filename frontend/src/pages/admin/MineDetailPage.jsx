@@ -9,6 +9,7 @@ import { useToast } from '../../context/ToastContext';
 import api from '../../api/axios';
 import { getMineStatusMeta } from '../../utils/mineStatus';
 import { formatProductionTotal } from '../../utils/productionFormat';
+import DocumentsPanel from '../../components/documents/DocumentsPanel';
 
 export default function MineDetailPage() {
   const { t, lang } = useTheme();
@@ -113,6 +114,8 @@ export default function MineDetailPage() {
           )}
         </div>
       </div>
+
+      <DocumentsPanel ownerType="branch" ownerId={mine.id} />
 
       <div className="card space-y-1">
         <h2 className="font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>

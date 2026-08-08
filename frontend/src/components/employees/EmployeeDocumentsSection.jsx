@@ -1,6 +1,7 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { FileText, Paperclip, Eye, Download, Trash2, Loader2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
+import { DOCUMENT_CATEGORIES } from '../../api/documents';
 import api from '../../api/axios';
 
 function humanSize(bytes) {
@@ -42,15 +43,24 @@ function viewLocalFile(file) {
 
 // Other-documents card for the employee form — photo and CNIC attachment live
 // inline in the Personal Info section, so this only handles free-form documents.
+function categoryLabel(t, cat) {
+  return t(`docCategory_${cat}`) || cat;
+}
+
 export default function EmployeeDocumentsSection({ employeeId, documents, canEdit, isStaging, shopParams }) {
   const { t } = useTheme();
   const docInputRef = useRef(null);
-  const { list, busy, docTitle, setDocTitle, add, remove, setTitle } = documents;
+  const { list, busy, docTitle, setDocTitle, add, remove, setTitle, setCategory, setExpiry } = documents;
+  const [docCategory, setDocCategory] = useState('other');
+  const [docExpiry, setDocExpiry] = useState('');
 
   const onPickDoc = (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (file) add(file, docTitle);
+    if (file) {
+      add(file, docTitle, docCategory, docExpiry);
+      setDocExpiry('');
+    }
   };
 
   return (
@@ -66,14 +76,24 @@ export default function EmployeeDocumentsSection({ employeeId, documents, canEdi
         ) : (
           <div className="space-y-2 mb-3">
             {isStaging ? list.map(doc => (
-              <div key={doc.id} className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+              <div key={doc.id} className="flex flex-wrap items-center gap-2 rounded-xl px-3 py-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                 <FileText className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
                 <input
-                  className="input flex-1 py-1.5 text-sm"
+                  className="input flex-1 py-1.5 text-sm min-w-[120px]"
                   placeholder={t('documentTitlePlaceholder') || 'e.g. degree, experience letter…'}
                   value={doc.title}
                   onChange={e => setTitle(doc.id, e.target.value)}
                   onKeyDown={blockEnterSubmit}
+                />
+                <select className="input py-1.5 text-sm w-auto" value={doc.category} onChange={e => setCategory(doc.id, e.target.value)}>
+                  {DOCUMENT_CATEGORIES.map(cat => <option key={cat} value={cat}>{categoryLabel(t, cat)}</option>)}
+                </select>
+                <input
+                  type="date"
+                  className="input py-1.5 text-sm w-auto"
+                  title={t('expiryDateOptional') || 'Expiry Date (optional)'}
+                  value={doc.expiryDate}
+                  onChange={e => setExpiry(doc.id, e.target.value)}
                 />
                 <span className="text-xs truncate max-w-[140px]" style={{ color: 'var(--text-muted)' }} title={doc.file.name}>{doc.file.name}</span>
                 <button type="button" className="icon-btn" title={t('viewFile') || 'View'} onClick={() => viewLocalFile(doc.file)}>
@@ -89,8 +109,14 @@ export default function EmployeeDocumentsSection({ employeeId, documents, canEdi
               <div key={doc.id} className="flex items-center gap-3 rounded-xl px-3 py-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                 <FileText className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{doc.title || doc.file_name}</p>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{doc.file_name} · {humanSize(doc.file_size)}</p>
+                  <p className="text-sm font-medium truncate flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                    {doc.title || doc.file_name}
+                    {doc.category && <span className="badge badge-blue text-xs">{categoryLabel(t, doc.category)}</span>}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {doc.file_name} · {humanSize(doc.file_size)}
+                    {doc.expiry_date && <> · {t('expires') || 'Expires'} {doc.expiry_date}</>}
+                  </p>
                 </div>
                 <button type="button" className="icon-btn" title={t('viewFile') || 'View'} onClick={() => viewBlob(`/employees/${employeeId}/documents/${doc.id}/file`, shopParams())}>
                   <Eye className="w-4 h-4" />
@@ -117,6 +143,20 @@ export default function EmployeeDocumentsSection({ employeeId, documents, canEdi
                 value={docTitle}
                 onChange={e => setDocTitle(e.target.value)}
                 onKeyDown={blockEnterSubmit}
+              />
+            )}
+            {!isStaging && (
+              <select className="input w-auto" value={docCategory} onChange={e => setDocCategory(e.target.value)}>
+                {DOCUMENT_CATEGORIES.map(cat => <option key={cat} value={cat}>{categoryLabel(t, cat)}</option>)}
+              </select>
+            )}
+            {!isStaging && (
+              <input
+                type="date"
+                className="input w-auto"
+                title={t('expiryDateOptional') || 'Expiry Date (optional)'}
+                value={docExpiry}
+                onChange={e => setDocExpiry(e.target.value)}
               />
             )}
             <button type="button" className="btn-secondary text-sm flex items-center gap-2 justify-center" disabled={busy} onClick={() => docInputRef.current?.click()}>

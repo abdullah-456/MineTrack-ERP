@@ -5,6 +5,7 @@ import { Building2, Mail, Phone, MapPin, User, ImageUp, Trash2, Loader2, Tag } f
 import api from '../../api/axios';
 import { clearCompanyCache } from '../../utils/reportExport';
 import FormLabel from '../../components/ui/FormLabel';
+import DocumentsPanel from '../../components/documents/DocumentsPanel';
 
 // Resize an uploaded image to fit within `max`px (longest side) and return a
 // compact PNG data URL. Keeps the logo small enough to live in the DB and to
@@ -241,6 +242,8 @@ export default function CompanyProfile() {
           </button>
         </div>
       </form>
+
+      <DocumentsPanel ownerType="shop" title={t('companyDocuments') || 'Company Documents'} />
     </div>
   );
 }

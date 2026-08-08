@@ -5,6 +5,7 @@ const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { applyTerminationSettlements, loadTerminationPreview } = require('../utils/employeeTermination');
 const { assertCnicAvailable, normalizeCnic } = require('../utils/cnic');
 const { deleteFileQuiet, relativeFilePath, absoluteFilePath } = require('../utils/employeeUploads');
+const { DOCUMENT_CATEGORIES } = require('../utils/documentUploads');
 
 const employeeIncludes = [
   { model: db.Branch, attributes: ['id', 'name', 'godown_id'], include: [{ model: db.Godown, attributes: ['id', 'name'] }] },
@@ -566,6 +567,16 @@ exports.uploadDocument = async (req, res) => {
     if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
     const employee = req.employee;
 
+    const category = DOCUMENT_CATEGORIES.includes(req.body.category) ? req.body.category : 'other';
+    let expiryDate = null;
+    if (req.body.expiry_date) {
+      if (Number.isNaN(new Date(req.body.expiry_date).getTime())) {
+        deleteFileQuiet(absoluteFilePath(relativeFilePath(employee, req.file.filename)));
+        return res.status(400).json({ message: 'Invalid expiry_date' });
+      }
+      expiryDate = req.body.expiry_date;
+    }
+
     const doc = await db.EmployeeDocument.create({
       employee_id: employee.id,
       shop_id: employee.shop_id,
@@ -574,13 +585,15 @@ exports.uploadDocument = async (req, res) => {
       file_path: relativeFilePath(employee, req.file.filename),
       mime_type: req.file.mimetype,
       file_size: req.file.size,
+      category,
+      expiry_date: expiryDate,
     });
 
     return res.status(201).json({
       message: 'Document uploaded',
       document: {
-        id: doc.id, title: doc.title, file_name: doc.file_name,
-        mime_type: doc.mime_type, file_size: doc.file_size, created_at: doc.created_at,
+        id: doc.id, title: doc.title, file_name: doc.file_name, category: doc.category,
+        mime_type: doc.mime_type, file_size: doc.file_size, expiry_date: doc.expiry_date, created_at: doc.created_at,
       },
     });
   } catch (error) {
