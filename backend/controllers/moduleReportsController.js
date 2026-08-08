@@ -2511,19 +2511,21 @@ exports.productionSummary = async (req, res) => {
         { model: db.Branch, as: 'Mine', attributes: ['id', 'name'] },
         { model: db.Pit, as: 'Pit', attributes: ['id', 'area_name'] },
         { model: db.Bench, as: 'Bench', attributes: ['id', 'bench_number'] },
-        { model: db.Mineral, as: 'Mineral', attributes: ['id', 'name', 'unit'] },
+        { model: db.Mineral, as: 'Mineral', attributes: ['id', 'name', 'unit', 'default_price'] },
         { model: db.Employee, as: 'Supervisor', attributes: ['id', 'name'] },
       ],
       order: [['date', 'DESC'], ['id', 'DESC']],
     });
 
     let totalQty = 0;
+    let totalAmount = 0;
     const byUnit = new Map();
     const byMine = new Map();
     const byPit = new Map();
     const byBench = new Map();
     const byMineral = new Map();
     const entryRows = [];
+    const supervisorNames = new Map();
 
     const bump = (map, key, label, qty) => {
       if (key == null) return;
@@ -2535,6 +2537,9 @@ exports.productionSummary = async (req, res) => {
     for (const e of entries) {
       const qty = parseFloat(e.quantity || 0);
       totalQty = round2(totalQty + qty);
+      const price = parseFloat(e.Mineral?.default_price) || 0;
+      const amount = round2(qty * price);
+      totalAmount = round2(totalAmount + amount);
 
       const unitRow = byUnit.get(e.unit) || { unit: e.unit, quantity: 0 };
       unitRow.quantity = round2(unitRow.quantity + qty);
@@ -2544,6 +2549,7 @@ exports.productionSummary = async (req, res) => {
       bump(byPit, e.pit_id, e.Pit?.area_name || `Pit #${e.pit_id}`, qty);
       bump(byBench, e.bench_id, e.Bench?.bench_number || `Bench #${e.bench_id}`, qty);
       bump(byMineral, e.mineral_id, e.Mineral?.name || 'Unassigned', qty);
+      if (e.supervisor_id) supervisorNames.set(e.supervisor_id, e.Supervisor?.name);
 
       entryRows.push({
         id: e.id,
@@ -2555,12 +2561,29 @@ exports.productionSummary = async (req, res) => {
         mineral_name: e.Mineral?.name || '—',
         quantity: round2(qty),
         unit: e.unit,
+        amount,
         supervisor_name: e.Supervisor?.name || '—',
         open: openLink('bench', e.bench_id),
       });
     }
 
     const unitBreakdownText = [...byUnit.values()].map(u => `${u.quantity.toLocaleString()} ${u.unit}`).join(', ') || null;
+
+    // Personalized footer: only name a person when the report is actually
+    // narrowed to exactly one of them — a mixed-scope report keeps the
+    // generic blank signature (see reportSignature below).
+    const singleSupervisorName = supervisorNames.size === 1 ? [...supervisorNames.values()][0] : null;
+    const singleMineId = byMine.size === 1 ? [...byMine.keys()][0] : null;
+    const singleMine = singleMineId
+      ? await db.Branch.findOne({
+        where: { id: singleMineId, shop_id: shopId },
+        include: [{ model: db.Employee, as: 'Manager', attributes: ['id', 'name'] }],
+      })
+      : null;
+    const reportSignature = {
+      left: singleSupervisorName ? `Supervisor: ${singleSupervisorName}` : 'Prepared By',
+      right: singleMine?.Manager?.name ? `Manager: ${singleMine.Manager.name}` : 'Received / Verified By',
+    };
 
     const entryCols = [
       { header: 'Date', key: 'date' },
@@ -2571,8 +2594,11 @@ exports.productionSummary = async (req, res) => {
       { header: 'Mineral', key: 'mineral_name' },
       { header: 'Qty', key: 'quantity', align: 'right' },
       { header: 'Unit', key: 'unit' },
+      { header: 'Amount', key: 'amount', align: 'right', money: true },
       { header: 'Supervisor', key: 'supervisor_name' },
     ];
+
+    const qtyTotals = (map) => ({ __label: 'Total', quantity: round2([...map.values()].reduce((s, r) => s + r.quantity, 0)) });
 
     return res.json({
       module: 'production',
@@ -2601,46 +2627,67 @@ exports.productionSummary = async (req, res) => {
           extra: null,
           breakdown: { columns: entryCols, rows: entryRows, total: entryRows.length },
         },
+        {
+          key: 'total_amount',
+          title: 'Total production value',
+          amount: totalAmount,
+          hint: 'Quantity × mineral default price, summed',
+          tone: 'amber',
+          extra: null,
+          breakdown: { columns: entryCols, rows: entryRows, total: totalAmount },
+        },
       ],
       tabs: [
-        { id: 'entries', label: 'Entries', columns: entryCols, rows: entryRows },
+        {
+          id: 'entries',
+          label: 'Production Entries',
+          columns: entryCols,
+          rows: entryRows,
+          totals: { __label: 'Total', quantity: totalQty, amount: totalAmount },
+        },
         {
           id: 'by_mine',
-          label: 'By mine',
+          label: 'Mine-wise Production',
           columns: [{ header: 'Mine', key: 'label' }, { header: 'Qty', key: 'quantity', align: 'right' }],
           rows: [...byMine.values()].sort((a, b) => b.quantity - a.quantity),
+          totals: qtyTotals(byMine),
         },
         {
           id: 'by_pit',
-          label: 'By pit',
+          label: 'Pit-wise Production',
           columns: [{ header: 'Pit', key: 'label' }, { header: 'Qty', key: 'quantity', align: 'right' }],
           rows: [...byPit.values()].sort((a, b) => b.quantity - a.quantity),
+          totals: qtyTotals(byPit),
         },
         {
           id: 'by_bench',
-          label: 'By bench',
+          label: 'Bench-wise Production',
           columns: [{ header: 'Bench', key: 'label' }, { header: 'Qty', key: 'quantity', align: 'right' }],
           rows: [...byBench.values()].sort((a, b) => b.quantity - a.quantity),
+          totals: qtyTotals(byBench),
         },
         {
           id: 'by_mineral',
-          label: 'By mineral',
+          label: 'Mineral Details',
           columns: [{ header: 'Mineral', key: 'label' }, { header: 'Qty', key: 'quantity', align: 'right' }],
           rows: [...byMineral.values()].sort((a, b) => b.quantity - a.quantity),
+          totals: qtyTotals(byMineral),
         },
       ],
       pdf: {
-        title: 'Production Summary Report',
+        title: 'Production Minerals Report',
+        signature: reportSignature,
         sections: [
           {
             heading: 'Totals',
             rows: [
               { label: 'Total production', value: unitBreakdownText || String(totalQty) },
               { label: 'Entries', value: String(entryRows.length) },
+              { label: 'Total production value', value: String(totalAmount) },
             ],
           },
         ],
-        tables: [pdfTable('Production entries', entryCols, entryRows)],
+        tables: [pdfTable('Production entries', entryCols, entryRows, { __label: 'Total', quantity: totalQty, amount: totalAmount })],
       },
       meta: { generated_at: new Date().toISOString() },
     });

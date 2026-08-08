@@ -5,6 +5,7 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       Employee.belongsTo(models.Shop,       { foreignKey: 'shop_id' });
       Employee.belongsTo(models.Branch,     { foreignKey: 'branch_id' });
+      Employee.belongsTo(models.Designation, { foreignKey: 'designation_id', as: 'Designation' });
       Employee.hasMany(models.Attendance,   { foreignKey: 'employee_id' });
       Employee.hasMany(models.Payroll,      { foreignKey: 'employee_id' });
       Employee.hasOne(models.User,          { foreignKey: 'employee_id' });
@@ -41,6 +42,10 @@ module.exports = (sequelize, DataTypes) => {
     },
     designation: {
       type: DataTypes.STRING,
+      allowNull: true,
+    },
+    designation_id: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
     shift: {

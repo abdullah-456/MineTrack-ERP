@@ -37,6 +37,8 @@ function parseFilters(query) {
   if (query.pit_id) f.pitId = parseInt(query.pit_id, 10);
   if (query.bench_id) f.benchId = parseInt(query.bench_id, 10);
   if (query.mineral_id) f.mineralId = parseInt(query.mineral_id, 10);
+  if (query.supervisor_id) f.supervisorId = parseInt(query.supervisor_id, 10);
+  if (query.shift) f.shift = query.shift;
   if (query.from) f.from = query.from;
   if (query.to) f.to = query.to;
   return f;
@@ -48,12 +50,14 @@ exports.list = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
-    const { mineId, pitId, benchId, mineralId, from, to } = parseFilters(req.query);
+    const { mineId, pitId, benchId, mineralId, supervisorId, shift, from, to } = parseFilters(req.query);
     const where = { shop_id: shopId };
     if (mineId) where.mine_id = mineId;
     if (pitId) where.pit_id = pitId;
     if (benchId) where.bench_id = benchId;
     if (mineralId) where.mineral_id = mineralId;
+    if (supervisorId) where.supervisor_id = supervisorId;
+    if (shift) where.shift = shift;
     if (from || to) {
       where.date = {};
       if (from) where.date[Op.gte] = from;
@@ -121,8 +125,8 @@ exports.create = async (req, res) => {
 
     const { date, mine_id, pit_id, bench_id, shift, mineral_id, quantity, unit, supervisor_id, remarks } = req.body;
     if (!date) return res.status(400).json({ message: 'Date is required' });
-    if (!mine_id || !pit_id || !bench_id) {
-      return res.status(400).json({ message: 'Mine, Pit and Bench are all required' });
+    if (!mine_id || !pit_id || !bench_id || !supervisor_id) {
+      return res.status(400).json({ message: 'Mine, Pit, Bench and Supervisor are all required' });
     }
 
     await assertHierarchy(shopId, mine_id, pit_id, bench_id);
@@ -137,7 +141,7 @@ exports.create = async (req, res) => {
       mineral_id: mineral_id ? parseInt(mineral_id, 10) : null,
       quantity: parseFloat(quantity) || 0,
       unit: unit?.trim() || 'kg',
-      supervisor_id: supervisor_id ? parseInt(supervisor_id, 10) : null,
+      supervisor_id: parseInt(supervisor_id, 10),
       remarks: remarks || null,
     });
 
@@ -175,7 +179,10 @@ exports.update = async (req, res) => {
     if (mineral_id !== undefined) entry.mineral_id = mineral_id ? parseInt(mineral_id, 10) : null;
     if (quantity !== undefined) entry.quantity = parseFloat(quantity) || 0;
     if (unit !== undefined) entry.unit = unit?.trim() || 'kg';
-    if (supervisor_id !== undefined) entry.supervisor_id = supervisor_id ? parseInt(supervisor_id, 10) : null;
+    if (supervisor_id !== undefined) {
+      if (!supervisor_id) return res.status(400).json({ message: 'Supervisor is required' });
+      entry.supervisor_id = parseInt(supervisor_id, 10);
+    }
     if (remarks !== undefined) entry.remarks = remarks || null;
     await entry.save();
 

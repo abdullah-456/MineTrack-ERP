@@ -133,7 +133,7 @@ const MODULES = [
   {
     key: 'production',
     titleKey: 'production',
-    title: 'Production',
+    title: 'Production Minerals',
     descKey: 'productionReportHubDesc',
     desc: 'Daily mineral output by mine, pit, bench & mineral',
     icon: Factory,

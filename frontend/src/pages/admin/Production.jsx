@@ -8,6 +8,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import api from '../../api/axios';
 import { formatProductionTotal } from '../../utils/productionFormat';
+import { SHIFTS } from '../../utils/shiftOptions';
 
 function StatCard({ icon: Icon, title, value, color }) {
   return (
@@ -34,6 +35,7 @@ export default function Production() {
   const [pits, setPits] = useState([]);
   const [benches, setBenches] = useState([]);
   const [minerals, setMinerals] = useState([]);
+  const [supervisors, setSupervisors] = useState([]);
   const [stats, setStats] = useState({ today: [], week: [], month: [] });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -41,6 +43,8 @@ export default function Production() {
   const [pitFilter, setPitFilter] = useState('');
   const [benchFilter, setBenchFilter] = useState('');
   const [mineralFilter, setMineralFilter] = useState('');
+  const [supervisorFilter, setSupervisorFilter] = useState('');
+  const [shiftFilter, setShiftFilter] = useState('');
 
   const scopeParams = useCallback(() => {
     const p = {};
@@ -48,25 +52,31 @@ export default function Production() {
     if (pitFilter) p.pit_id = pitFilter;
     if (benchFilter) p.bench_id = benchFilter;
     if (mineralFilter) p.mineral_id = mineralFilter;
+    if (supervisorFilter) p.supervisor_id = supervisorFilter;
+    if (shiftFilter) p.shift = shiftFilter;
     return p;
-  }, [mineFilter, pitFilter, benchFilter, mineralFilter]);
+  }, [mineFilter, pitFilter, benchFilter, mineralFilter, supervisorFilter, shiftFilter]);
 
   const fetchData = useCallback(async () => {
     if (!shopReady) return;
     setLoading(true);
     try {
-      const [eRes, pRes, bRes, mRes, sRes] = await Promise.all([
+      const [eRes, pRes, bRes, mRes, sRes, empRes] = await Promise.all([
         api.get('/production', { params: { ...shopParams(), ...scopeParams() } }),
         api.get('/pits', { params: { ...shopParams(), all: 1, ...(mineFilter ? { mine_id: mineFilter } : {}) } }),
         api.get('/benches', { params: { ...shopParams(), all: 1, ...(pitFilter ? { pit_id: pitFilter } : mineFilter ? { mine_id: mineFilter } : {}) } }),
         api.get('/minerals', { params: shopParams() }),
         api.get('/production/stats', { params: { ...shopParams(), ...scopeParams() } }),
+        api.get('/employees', { params: shopParams() }),
       ]);
       setEntries(eRes.data.entries || []);
       setPits(pRes.data.pits || []);
       setBenches(bRes.data.benches || []);
       setMinerals(mRes.data.minerals || []);
       setStats(sRes.data || { today: [], week: [], month: [] });
+      setSupervisors((empRes.data.employees || []).filter(emp =>
+        emp.status === 'active' && (emp.Designation?.name || '').trim().toLowerCase() === 'supervisor'
+      ));
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
     } finally {
@@ -98,6 +108,38 @@ export default function Production() {
     p.Mine?.name, p.Pit?.area_name, p.Bench?.bench_number, p.Mineral?.name, p.Supervisor?.name, p.shift,
   ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())));
 
+  const activeFilterLabel = [
+    mineFilter && branches.find(b => String(b.id) === String(mineFilter))?.name,
+    pitFilter && pits.find(p => String(p.id) === String(pitFilter))?.area_name,
+    benchFilter && benches.find(b => String(b.id) === String(benchFilter))?.bench_number,
+    mineralFilter && minerals.find(m => String(m.id) === String(mineralFilter))?.name,
+    shiftFilter && shiftLabel(shiftFilter),
+    supervisorFilter && supervisors.find(s => String(s.id) === String(supervisorFilter))?.name,
+  ].filter(Boolean).join(' / ');
+
+  const cardTitle = (base) => (activeFilterLabel ? `${activeFilterLabel} — ${base}` : base);
+
+  // Price isn't logged per entry — value it at the produced mineral's default
+  // price (same convention as the Reports Hub Production report).
+  const amountFor = (p) => {
+    const price = parseFloat(minerals.find(m => m.id === p.mineral_id)?.default_price) || 0;
+    return (parseFloat(p.quantity) || 0) * price;
+  };
+
+  // Quantity is grouped by unit before summing — a filtered view can still mix
+  // kg/tons/carats, and a flat sum across units would be meaningless.
+  const quantityTotalsByUnit = Object.values(filtered.reduce((acc, p) => {
+    const unit = p.unit || '';
+    const row = acc[unit] || (acc[unit] = { unit, total: 0 });
+    row.total += parseFloat(p.quantity) || 0;
+    return acc;
+  }, {}));
+  const exportTotals = filtered.length ? {
+    __label: t('total') || 'Total',
+    quantity: formatProductionTotal(quantityTotalsByUnit),
+    amount: filtered.reduce((sum, p) => sum + amountFor(p), 0),
+  } : null;
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -108,17 +150,20 @@ export default function Production() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             <ReportActions
-              title={t('production') || 'Production'}
+              title={`${t('production') || 'Production Minerals'} Report`}
+              signature
               columns={[
                 { header: t('date') || 'Date', key: 'date', width: 1 },
-                { header: t('selectBranch') || 'Mine', render: p => p.Mine?.name || '', width: 1.2 },
-                { header: t('selectPit') || 'Pit', render: p => p.Pit?.area_name || '', width: 1.2 },
-                { header: t('selectBench') || 'Bench', render: p => p.Bench?.bench_number || '', width: 1 },
+                { header: t('mineColumnLabel') || 'Mine', render: p => p.Mine?.name || '', width: 1.2 },
+                { header: t('pitColumnLabel') || 'Pit', render: p => p.Pit?.area_name || '', width: 1.2 },
+                { header: t('benchColumnLabel') || 'Bench', render: p => p.Bench?.bench_number || '', width: 1 },
                 { header: t('mineralType') || 'Mineral', render: p => p.Mineral?.name || '', width: 1.2 },
                 { header: t('quantity') || 'Qty', key: 'quantity', width: 1 },
                 { header: t('unit') || 'Unit', key: 'unit', width: 0.8 },
+                { header: t('amount') || 'Amount', key: 'amount', render: amountFor, money: true, width: 1.2 },
               ]}
               rows={filtered}
+              totals={exportTotals}
               filename="production.pdf"
             />
             <button type="button" onClick={() => navigate('/admin/production/create')} className="btn-primary flex items-center gap-2">
@@ -129,9 +174,9 @@ export default function Production() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={Sun} title={t('todaysProduction')} value={formatProductionTotal(stats.today)} color="bg-emerald-500/20 text-emerald-500" />
-        <StatCard icon={Sunset} title={t('weeklyProduction')} value={formatProductionTotal(stats.week)} color="bg-indigo-500/20 text-indigo-500" />
-        <StatCard icon={Moon} title={t('monthlyProduction')} value={formatProductionTotal(stats.month)} color="bg-purple-500/20 text-purple-500" />
+        <StatCard icon={Sun} title={cardTitle(t('todaysProduction'))} value={formatProductionTotal(stats.today)} color="bg-emerald-500/20 text-emerald-500" />
+        <StatCard icon={Sunset} title={cardTitle(t('weeklyProduction'))} value={formatProductionTotal(stats.week)} color="bg-indigo-500/20 text-indigo-500" />
+        <StatCard icon={Moon} title={cardTitle(t('monthlyProduction'))} value={formatProductionTotal(stats.month)} color="bg-purple-500/20 text-purple-500" />
       </div>
 
       <div className="glass-card p-4 flex flex-wrap items-center gap-3">
@@ -161,6 +206,14 @@ export default function Production() {
           <option value="">{t('selectMineral') || 'All Minerals'}</option>
           {minerals.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
+        <select className="input max-w-xs" value={supervisorFilter} onChange={e => setSupervisorFilter(e.target.value)}>
+          <option value="">{t('allSupervisors') || 'All Supervisors'}</option>
+          {supervisors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <select className="input max-w-xs" value={shiftFilter} onChange={e => setShiftFilter(e.target.value)}>
+          <option value="">{t('allShifts') || 'All Shifts'}</option>
+          {SHIFTS.map(s => <option key={s.value} value={s.value}>{t(s.labelKey) || s.value}</option>)}
+        </select>
       </div>
 
       {loading ? (
@@ -171,9 +224,9 @@ export default function Production() {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th className="text-start p-4 font-medium">{t('date')}</th>
-                <th className="text-start p-4 font-medium">{t('selectBranch') || 'Mine'}</th>
-                <th className="text-start p-4 font-medium">{t('selectPit') || 'Pit'}</th>
-                <th className="text-start p-4 font-medium">{t('selectBench') || 'Bench'}</th>
+                <th className="text-start p-4 font-medium">{t('mineColumnLabel') || 'Mine'}</th>
+                <th className="text-start p-4 font-medium">{t('pitColumnLabel') || 'Pit'}</th>
+                <th className="text-start p-4 font-medium">{t('benchColumnLabel') || 'Bench'}</th>
                 <th className="text-start p-4 font-medium">{t('shift')}</th>
                 <th className="text-start p-4 font-medium">{t('mineralType') || 'Mineral'}</th>
                 <th className="text-end p-4 font-medium">{t('quantity')}</th>

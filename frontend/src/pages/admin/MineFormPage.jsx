@@ -57,7 +57,9 @@ export default function MineFormPage() {
         api.get('/minerals', { params: shopParams() }),
       ]);
       setGodowns(gRes.data.godowns || []);
-      setEmployees((eRes.data.employees || []).filter(emp => emp.status === 'active'));
+      setEmployees((eRes.data.employees || []).filter(emp =>
+        emp.status === 'active' && (emp.Designation?.name || '').trim().toLowerCase() === 'manager'
+      ));
       setMinerals(mRes.data.minerals || []);
 
       if (isEdit) {

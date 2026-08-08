@@ -10,6 +10,7 @@ const { DOCUMENT_CATEGORIES } = require('../utils/documentUploads');
 const employeeIncludes = [
   { model: db.Branch, attributes: ['id', 'name', 'godown_id'], include: [{ model: db.Godown, attributes: ['id', 'name'] }] },
   { model: db.EmployeeDocument, attributes: ['id', 'title', 'file_name', 'mime_type', 'file_size', 'created_at'] },
+  { model: db.Designation, as: 'Designation', attributes: ['id', 'name'] },
 ];
 
 const PROFILE_FIELDS = [
@@ -58,7 +59,8 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
   const name = (body.name || '').trim();
   const father_name = (body.father_name || '').trim();
   const gender = (body.gender || '').trim();
-  const designation = (body.designation || '').trim();
+  const designation_id = body.designation_id !== undefined && body.designation_id !== '' && body.designation_id !== null
+    ? parseInt(body.designation_id, 10) : null;
   const address = (body.address || '').trim();
   const city = (body.city || '').trim();
   const basic_salary = parseFloat(body.basic_salary);
@@ -74,8 +76,14 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
       throw err(400, 'Gender is required (male / female / other)');
     }
   }
-  if (isCreate || body.designation !== undefined) {
-    if (!designation) throw err(400, 'Designation is required');
+  let designationName = null;
+  if (isCreate || body.designation_id !== undefined) {
+    if (!designation_id) throw err(400, 'Designation is required');
+  }
+  if (designation_id) {
+    const designationRow = await db.Designation.findOne({ where: { id: designation_id, shop_id: shopId } });
+    if (!designationRow) throw err(400, 'Invalid designation');
+    designationName = designationRow.name;
   }
   if (!(basic_salary >= 0) || Number.isNaN(basic_salary)) {
     throw err(400, 'Salary is required');
@@ -153,7 +161,8 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     name,
     father_name: father_name || null,
     gender: gender ? gender.toLowerCase() : null,
-    designation: designation || null,
+    designation_id: designation_id || null,
+    designation: designationName,
     shift: shift || null,
     overtime_rate: overtimeRate,
     phone,
@@ -325,7 +334,7 @@ exports.update = async (req, res) => {
       name: req.body.name !== undefined ? req.body.name : employee.name,
       father_name: req.body.father_name !== undefined ? req.body.father_name : employee.father_name,
       gender: req.body.gender !== undefined ? req.body.gender : employee.gender,
-      designation: req.body.designation !== undefined ? req.body.designation : employee.designation,
+      designation_id: req.body.designation_id !== undefined ? req.body.designation_id : employee.designation_id,
       phone: req.body.phone !== undefined ? req.body.phone : employee.phone,
       address: req.body.address !== undefined ? req.body.address : employee.address,
       city: req.body.city !== undefined ? req.body.city : employee.city,
@@ -336,7 +345,7 @@ exports.update = async (req, res) => {
     }, { isCreate: false });
 
     const assign = [
-      'name', 'father_name', 'gender', 'designation', 'phone', 'address', 'city',
+      'name', 'father_name', 'gender', 'designation_id', 'designation', 'phone', 'address', 'city',
       'basic_salary', 'hire_date', 'branch_id', 'status',
       ...PROFILE_FIELDS,
     ];

@@ -39,12 +39,14 @@ function todayWeekMonthRanges() {
 // principle log more than one mineral with a different unit (kg vs tons vs
 // carats), and blindly summing across units would produce a meaningless
 // number. Returns [{ unit, total }], sorted by total desc.
-async function productionTotals(shopId, { mineId, pitId, benchId, mineralId, from, to } = {}, transaction) {
+async function productionTotals(shopId, { mineId, pitId, benchId, mineralId, supervisorId, shift, from, to } = {}, transaction) {
   const where = { shop_id: shopId };
   if (mineId) where.mine_id = mineId;
   if (pitId) where.pit_id = pitId;
   if (benchId) where.bench_id = benchId;
   if (mineralId) where.mineral_id = mineralId;
+  if (supervisorId) where.supervisor_id = supervisorId;
+  if (shift) where.shift = shift;
   if (from || to) {
     const { fromDate } = localDayBounds(from || '1970-01-01');
     const { toDate } = localDayBounds(to || todayStr());

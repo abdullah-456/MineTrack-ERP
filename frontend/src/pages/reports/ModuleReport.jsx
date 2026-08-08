@@ -134,7 +134,7 @@ const MODULE_META = {
     entityParam: 'board_member_id', entityLabelKey: 'boardMember', optionsEndpoint: '/reports/modules/board/filter-options', entityOptionsKey: 'board_members',
   },
   production: {
-    titleKey: 'productionSummaryReport', title: 'Production Report',
+    titleKey: 'productionSummaryReport', title: 'Production Minerals Report',
     subKey: 'productionReportSub', sub: 'Daily mineral output by mine, pit & bench',
     icon: Factory, accent: 'green', endpoint: '/reports/modules/production/summary', perm: 'branches',
     // Mine is already covered by the standard branch_id filter every module
@@ -322,7 +322,7 @@ export default function ModuleReport({ moduleKey: moduleKeyProp }) {
       title: data.pdf.title || t(meta.titleKey) || meta.title,
       filename: `${moduleKey}-report-${from}-to-${to}.pdf`,
       filters,
-      signature: true,
+      signature: data.pdf.signature || true,
       sections: data.pdf.sections || [],
       tables: data.pdf.tables || [],
     };

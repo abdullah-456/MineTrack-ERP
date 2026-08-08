@@ -7,6 +7,7 @@ const auditLog = require('../middleware/auditLog');
 router.use(authenticate);
 router.use(auditLog);
 
+router.get('/next-code', authorize('branches', 'create'), benchController.getNextBenchNumber);
 router.get('/',      authorize('branches', 'read'),   benchController.listBenches);
 router.get('/:id',   authorize('branches', 'read'),   benchController.getBench);
 router.post('/',     authorize('branches', 'create'), benchController.createBench);

@@ -74,10 +74,11 @@ export default function Pits() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             <ReportActions
-              title={t('pits') || 'Pits'}
+              title={`${t('pits') || 'Pits'} Report`}
+              signature
               columns={[
                 { header: t('areaName') || 'Area Name', key: 'area_name', width: 1.6 },
-                { header: t('selectBranch') || 'Mine', render: p => p.Mine?.name || '', width: 1.4 },
+                { header: t('mineColumnLabel') || 'Mine', render: p => p.Mine?.name || '', width: 1.4 },
                 { header: t('gpsCoordinates') || 'GPS', render: p => p.gps_coordinates || '', width: 1.4 },
                 { header: t('status') || 'Status', key: 'status', width: 1 },
               ]}
@@ -116,7 +117,7 @@ export default function Pits() {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th className="text-start p-4 font-medium">{t('areaName')}</th>
-                <th className="text-start p-4 font-medium">{t('selectBranch') || 'Mine'}</th>
+                <th className="text-start p-4 font-medium">{t('mineColumnLabel') || 'Mine'}</th>
                 <th className="text-start p-4 font-medium">{t('gpsCoordinates') || 'GPS'}</th>
                 <th className="text-start p-4 font-medium">{t('status')}</th>
                 <th className="text-end p-4 font-medium">{t('actions')}</th>

@@ -62,7 +62,9 @@ export default function ProductionFormPage() {
       setAllPits(pitsRes.data.pits || []);
       setAllBenches(benchesRes.data.benches || []);
       setMinerals(mineralsRes.data.minerals || []);
-      setEmployees((employeesRes.data.employees || []).filter(emp => emp.status === 'active'));
+      setEmployees((employeesRes.data.employees || []).filter(emp =>
+        emp.status === 'active' && (emp.Designation?.name || '').trim().toLowerCase() === 'supervisor'
+      ));
 
       if (isEdit) {
         const { data } = await api.get(`/production/${id}`, { params: shopParams() });
@@ -119,6 +121,10 @@ export default function ProductionFormPage() {
     }
     if (!form.date) {
       error(`${t('required') || 'Required'}: ${t('date')}`);
+      return;
+    }
+    if (!form.supervisor_id) {
+      error(`${t('required') || 'Required'}: ${t('supervisor')}`);
       return;
     }
     setSaving(true);
@@ -215,9 +221,9 @@ export default function ProductionFormPage() {
               </select>
             </div>
             <div>
-              <FormLabel>{t('supervisor')}</FormLabel>
-              <select className="input" value={form.supervisor_id} onChange={setF('supervisor_id')}>
-                <option value="">{t('none') || '--'}</option>
+              <FormLabel required>{t('supervisor')}</FormLabel>
+              <select className="input" required value={form.supervisor_id} onChange={setF('supervisor_id')}>
+                <option value="">{t('selectSupervisor') || '-- Select Supervisor --'}</option>
                 {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
               </select>
             </div>

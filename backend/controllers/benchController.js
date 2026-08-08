@@ -6,6 +6,28 @@ const ALLOWED_STATUS = ['active', 'under_development', 'suspended', 'closed', 'l
 
 const BENCH_ATTRIBUTES = ['id', 'shop_id', 'pit_id', 'bench_number', 'elevation', 'status'];
 
+// Sequential per-shop code, e.g. BN-3-0001. Mirrors branchController's
+// nextMineCode / employeeController's nextEmploymentId: the client only ever
+// sees this as a read-only preview — the value actually persisted is always
+// recomputed here, inside the create transaction, never trusted from the
+// request body.
+async function nextBenchNumber(shopId, transaction) {
+  const count = await db.Bench.count({ where: { shop_id: shopId }, transaction });
+  let seq = count + 1;
+  let code;
+  do {
+    code = `BN-${shopId}-${String(seq).padStart(4, '0')}`;
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await db.Bench.findOne({
+      where: { shop_id: shopId, bench_number: code },
+      transaction,
+    });
+    if (!exists) return code;
+    seq += 1;
+  } while (seq < count + 1000);
+  return `BN-${shopId}-${Date.now()}`;
+}
+
 // A fresh array/object per call — listBenches conditionally adds a `where` to
 // the Pit include depending on ?mine_id=, and mutating a shared module-level
 // constant would leak that filter across concurrent requests.
@@ -80,6 +102,19 @@ exports.getBench = async (req, res) => {
   }
 };
 
+// ── GET /api/benches/next-code — Preview the next auto-generated bench number ─
+exports.getNextBenchNumber = async (req, res) => {
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) return;
+    const bench_number = await nextBenchNumber(shopId);
+    return res.json({ bench_number });
+  } catch (error) {
+    console.error('getNextBenchNumber error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 // A bench's pit must exist and belong to the same shop.
 async function assertPitInShop(pitId, shopId) {
   const pit = await db.Pit.findOne({ where: { id: pitId, shop_id: shopId } });
@@ -92,31 +127,38 @@ async function assertPitInShop(pitId, shopId) {
 
 // ── POST /api/benches ─────────────────────────────────────────────────────────
 exports.createBench = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
   try {
     const shopId = requireShopId(req, res);
-    if (!shopId) return;
+    if (!shopId) { await transaction.rollback(); return; }
 
-    const { pit_id, bench_number, elevation, status } = req.body;
-    if (!pit_id) return res.status(400).json({ message: 'pit_id is required' });
-    if (!bench_number?.trim()) return res.status(400).json({ message: 'Bench number is required' });
+    const { pit_id, elevation, status } = req.body;
+    if (!pit_id) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'pit_id is required' });
+    }
 
     const benchStatus = status || 'active';
     if (!ALLOWED_STATUS.includes(benchStatus)) {
+      await transaction.rollback();
       return res.status(400).json({ message: `status must be one of: ${ALLOWED_STATUS.join(', ')}` });
     }
 
     await assertPitInShop(pit_id, shopId);
+    const bench_number = await nextBenchNumber(shopId, transaction);
 
     const bench = await db.Bench.create({
       shop_id: shopId,
       pit_id: parseInt(pit_id, 10),
-      bench_number: bench_number.trim(),
+      bench_number,
       elevation: elevation || null,
       status: benchStatus,
-    });
+    }, { transaction });
 
+    await transaction.commit();
     return res.status(201).json({ bench });
   } catch (error) {
+    if (!transaction.finished) await transaction.rollback();
     console.error('createBench error:', error);
     if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     return res.status(500).json({ message: 'Internal server error' });
@@ -132,7 +174,7 @@ exports.updateBench = async (req, res) => {
     const bench = await db.Bench.findOne({ where: { id: req.params.id, shop_id: shopId } });
     if (!bench) return res.status(404).json({ message: 'Bench not found' });
 
-    const { pit_id, bench_number, elevation, status } = req.body;
+    const { pit_id, elevation, status } = req.body;
 
     if (status !== undefined && !ALLOWED_STATUS.includes(status)) {
       return res.status(400).json({ message: `status must be one of: ${ALLOWED_STATUS.join(', ')}` });
@@ -140,7 +182,6 @@ exports.updateBench = async (req, res) => {
     if (pit_id !== undefined) await assertPitInShop(pit_id, shopId);
 
     if (pit_id !== undefined) bench.pit_id = parseInt(pit_id, 10);
-    if (bench_number !== undefined) bench.bench_number = bench_number.trim();
     if (elevation !== undefined) bench.elevation = elevation || null;
     if (status !== undefined) bench.status = status;
     await bench.save();

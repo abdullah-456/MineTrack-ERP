@@ -72,7 +72,8 @@ export default function Mines() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             <ReportActions
-              title={t('mines') || 'Mines'}
+              title={`${t('mines') || 'Mines'} Report`}
+              signature
               columns={[
                 { header: t('mineCode') || 'Code', key: 'mine_code', width: 1 },
                 { header: t('mineName') || 'Name', key: 'name', width: 1.6 },

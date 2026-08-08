@@ -12,6 +12,7 @@ import LocationPicker from '../../components/ui/LocationPicker';
 import EmployeePhotoFrame from '../../components/employees/EmployeePhotoFrame';
 import CnicAttachmentButton from '../../components/employees/CnicAttachmentButton';
 import EmployeeDocumentsSection from '../../components/employees/EmployeeDocumentsSection';
+import DesignationSelect from '../../components/ui/DesignationSelect';
 import api from '../../api/axios';
 import { SHIFTS } from '../../utils/shiftOptions';
 
@@ -50,7 +51,7 @@ function emptyForm(branches) {
     remarks: '',
     employment_id: '',
     hire_date: todayStr(),
-    designation: '',
+    designation_id: '',
     shift: '',
     overtime_rate: '',
     basic_salary: '',
@@ -144,7 +145,7 @@ export default function EmployeeFormPage() {
         remarks: e.remarks || '',
         employment_id: e.employment_id || '',
         hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : todayStr(),
-        designation: e.designation || '',
+        designation_id: e.designation_id ? String(e.designation_id) : '',
         shift: e.shift || '',
         overtime_rate: e.overtime_rate != null ? String(e.overtime_rate) : '',
         basic_salary: e.basic_salary != null ? String(e.basic_salary) : '',
@@ -179,7 +180,7 @@ export default function EmployeeFormPage() {
     if (!form.city?.trim()) return t('city') || 'City / Location';
     if (isHr) {
       if (!form.hire_date) return t('dateOfJoining') || 'Date of Joining';
-      if (!form.designation?.trim()) return t('designation') || 'Designation';
+      if (!form.designation_id) return t('designation') || 'Designation';
       if (form.basic_salary === '' || Number.isNaN(parseFloat(form.basic_salary))) return t('salary') || 'Salary';
       if (!form.branch_id) return t('branchGodownLocation');
     }
@@ -199,6 +200,7 @@ export default function EmployeeFormPage() {
         ...form,
         basic_salary: parseFloat(form.basic_salary),
         branch_id: form.branch_id ? parseInt(form.branch_id, 10) : undefined,
+        designation_id: form.designation_id ? parseInt(form.designation_id, 10) : undefined,
         age: form.age !== '' ? parseInt(form.age, 10) : null,
         experience: form.experience,
         dependants: form.dependants,
@@ -440,7 +442,7 @@ export default function EmployeeFormPage() {
               </div>
               <div>
                 <FormLabel required>{t('designation') || 'Designation'}</FormLabel>
-                <input className="input" required value={form.designation} onChange={setF('designation')} />
+                <DesignationSelect required value={form.designation_id} onChange={(id) => setForm(f => ({ ...f, designation_id: id }))} />
               </div>
               <div>
                 <FormLabel>{t('shift')}</FormLabel>

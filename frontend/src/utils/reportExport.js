@@ -4,12 +4,13 @@ import translations from '../translations';
 import { SOFTWARE_CREDIT } from '../config/branding';
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Shared reporting engine. Turns a column/row (or section/table) model into
-// either a printable browser window (Print → Save as PDF too) or a downloaded
-// PDF file. Both are laid out like the company stationery — company details on
-// top, bordered tables, totals, optional signature footer. All PDFs are drawn
-// with crisp jsPDF vector primitives (no rasterisation), so text stays sharp
-// and fully legible.
+// Shared reporting engine. Turns a column/row (or section/table) model into a
+// downloaded PDF file or a print — both are the exact same jsPDF document
+// (Print just opens it with auto-print armed), so the signature footer and
+// pagination always land in the same place either way. Laid out like company
+// stationery — company details on top, bordered tables, totals, optional
+// signature footer. Drawn with crisp jsPDF vector primitives (no
+// rasterisation), so text stays sharp and fully legible.
 // ──────────────────────────────────────────────────────────────────────────────
 
 // Helper to translate any Urdu text back to English for PDF generation
@@ -79,15 +80,12 @@ export const qty = (n) =>
 
 const asText = (v) => (v === null || v === undefined ? '' : String(v));
 
-// ── Letterhead brand colours (shared by PDF + HTML) ──────────────────────────
+// ── Letterhead brand colours ────────────────────────────────────────────────
 // A calm, professional indigo → emerald accent so every document reads as
 // company stationery without hurting print legibility (all body text stays dark).
 const BRAND_RGB = [67, 56, 202];        // indigo-700  → company name & main rule
 const BRAND_ACCENT_RGB = [5, 150, 105]; // emerald-600 → thin accent rule
 const TITLE_RGB = [49, 46, 129];        // indigo-900  → document title
-export const BRAND_HEX = '#4338ca';
-export const BRAND_ACCENT_HEX = '#059669';
-const TITLE_HEX = '#312e81';
 
 // Draw an uploaded logo (data URL / image URL) on the left of a jsPDF letterhead.
 // Returns nothing; silently skips anything jsPDF can't decode.
@@ -311,21 +309,35 @@ function createWriter(company, { title, meta = [], filters = [], orientation = '
       y += 8;
     },
     save(filename, fallback) { drawFooter(); doc.save(filename || fallback); },
+    // Print the exact same vector document instead of a separate HTML/CSS
+    // rendering — guarantees the signature footer lands in the same spot
+    // (bottom of the last page) whether the user clicks Print or Download PDF.
+    print() {
+      drawFooter();
+      doc.autoPrint();
+      window.open(doc.output('bloburl'), '_blank');
+    },
   };
 }
 
 const slugFile = (title, kind) => `${(title || kind).toLowerCase().replace(/[^a-z0-9]+/gi, '-')}.pdf`;
 
 // List report: one table + optional totals + optional signature.
-export function downloadReportPDF({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, filename, groupKey, orientation }) {
+function buildReportWriter({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, groupKey, orientation }) {
   const w = createWriter(company, { title, meta, filters, orientation });
   w.table({ columns, rows, totals, groupKey });
   if (signature) w.signature();
-  w.save(filename, slugFile(title, 'report'));
+  return w;
+}
+export function downloadReportPDF(opts) {
+  buildReportWriter(opts).save(opts.filename, slugFile(opts.title, 'report'));
+}
+export function printReport(opts) {
+  buildReportWriter(opts).print();
 }
 
 // Multi-section professional document: label/value sections + one or more tables.
-export function downloadDocumentPDF({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature, filename, groupKey }) {
+function buildDocumentWriter({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature, groupKey }) {
   const w = createWriter(company, { title, meta, filters });
   sections.forEach(s => {
     if (s.heading) w.heading(s.heading);
@@ -339,179 +351,19 @@ export function downloadDocumentPDF({ company = {}, title, meta = [], filters = 
     w.space(3);
   });
   if (signature) w.signature();
-  w.save(filename, slugFile(title, 'document'));
+  return w;
+}
+export function downloadDocumentPDF(opts) {
+  buildDocumentWriter(opts).save(opts.filename, slugFile(opts.title, 'document'));
+}
+export function printDetail(opts) {
+  buildDocumentWriter(opts).print();
 }
 
 // A single record's detail is just a document with sections + tables.
 export function downloadDetailPDF(opts) {
   return downloadDocumentPDF(opts);
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
-   HTML print windows (browser Print → also Save as PDF). Same letterhead.
-══════════════════════════════════════════════════════════════════════════ */
-function esc(s) {
-  return asText(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
-
-const PRINT_CSS = (orientation = 'portrait') => `
-  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: Inter, Arial, Helvetica, sans-serif; color: #111827; margin: 0; }
-  .page {
-    padding: 18px 22px 14px; min-height: calc(297mm - 16mm);
-    display: flex; flex-direction: column;
-  }
-  .page-body { flex: 1 1 auto; }
-  .lh { position: relative; background: ${BRAND_HEX}; margin: -18px -22px 0; padding: 14px 22px;
-        border-bottom: 4px solid ${BRAND_ACCENT_HEX}; }
-  .lh .logo { position: absolute; left: 22px; top: 50%; transform: translateY(-50%);
-              max-height: 56px; max-width: 110px; object-fit: contain; background: #fff;
-              border-radius: 6px; padding: 3px; }
-  .company { text-align: center; }
-  .company h1 { font-size: 22px; margin: 0 0 4px; color: #ffffff; }
-  .company .contact { font-size: 11.5px; color: #e0e7ff; }
-  .company .owner { font-size: 11.5px; color: #e0e7ff; margin-top: 2px; }
-  .title { text-align: center; font-size: 15px; font-weight: 800; letter-spacing: 1.5px;
-           text-transform: uppercase; margin: 14px 0 6px; color: ${TITLE_HEX}; }
-  .meta { font-size: 10px; color: #374151; text-align: center; }
-  .filters { font-size: 10px; color: #1f2937; margin: 8px 0; padding: 6px 8px;
-             background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11.5px; color: #111827; }
-  th, td { border: 1px solid #111827; padding: 6px 8px; }
-  th { background: #eef0f4; font-weight: 700; text-align: left; color: #111827; }
-  .a-left { text-align: left; } .a-right { text-align: right; } .a-center { text-align: center; }
-  tbody tr td { border-bottom: none; }
-  tr.group-border td { border-bottom: 1px solid #111827; }
-  tr.totals td { font-weight: 800; background: #e2e8f0; border-bottom: 1px solid #111827; }
-  .empty { text-align: center; color: #6b7280; font-style: italic; padding: 16px; }
-  .sec { margin-bottom: 12px; }
-  .sec-h {
-    font-size: 10.5px; font-weight: 800; color: ${TITLE_HEX}; text-transform: uppercase;
-    letter-spacing: 1px; margin: 14px 0 6px; padding: 6px 8px; background: #eef0f4;
-    border-left: 3px solid ${BRAND_HEX};
-  }
-  table.kv td { border: 1px solid #111827; font-size: 12px; }
-  table.kv td.k { color: #374151; width: 38%; background: #fafafa; }
-  table.kv td.v { font-weight: 700; }
-  .doc-close {
-    margin-top: auto; padding-top: 24px; padding-bottom: 8mm;
-    page-break-inside: avoid; break-inside: avoid;
-  }
-  .sign { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; gap: 24px; }
-  .sign > div { width: 44%; }
-  .sign .stamp {
-    height: 42px; border-bottom: 1px solid #111827; margin-bottom: 6px;
-    font-size: 9px; color: #9ca3af; font-style: italic; display: flex; align-items: flex-end;
-  }
-  .foot {
-    margin-top: 12px; padding-top: 8px; border-top: 1px solid #d1d5db;
-    display: flex; justify-content: space-between; font-size: 9px; color: #6b7280;
-  }
-  .soft-credit { text-align: center; font-size: 8px; color: #9ca3af; margin-top: 4px; }
-  @media print { @page { size: A4 ${orientation === 'landscape' ? 'landscape' : ''}; margin: 8mm; } .page { min-height: calc(297mm - 16mm); } }
-`;
-
-function letterheadHTML(company, title, meta = [], filters = []) {
-  const contact = [company.address, company.phone && `Ph: ${company.phone}`, company.email]
-    .filter(Boolean).map(esc).join(' &nbsp;|&nbsp; ');
-  const metaLine = [`Generated: ${nowStamp()}`, ...meta].map(esc).join(' &nbsp;&nbsp; ');
-  const filterLine = filters.length
-    ? `<div class="filters">${filters.map(f => `${esc(f.label)}: ${esc(f.value)}`).join(' &nbsp;&nbsp; ')}</div>`
-    : '';
-  return `
-    <div class="lh">
-      ${company.logo_url ? `<img class="logo" src="${esc(company.logo_url)}" alt=""/>` : ''}
-      <div class="company">
-        <h1>${esc(company.name || 'Company')}</h1>
-        ${contact ? `<div class="contact">${contact}</div>` : ''}
-        ${company.owner_name ? `<div class="owner">Proprietor: ${esc(company.owner_name)}</div>` : ''}
-      </div>
-    </div>
-    <div class="title">${esc(title || 'Document')}</div>
-    <div class="meta">${metaLine}</div>
-    ${filterLine}`;
-}
-
-function tableHTML({ columns, rows = [], totals, groupKey }) {
-  const head = columns.map(c => `<th class="a-${cellAlign(c)}">${esc(c.header)}</th>`).join('');
-  const body = rows.length
-    ? rows.map((r, idx) => {
-        const nextRow = rows[idx + 1];
-        const showBorder = !nextRow || (groupKey && nextRow[groupKey] !== r[groupKey]);
-        const borderClass = showBorder ? ' group-border' : '';
-        return `<tr${borderClass}>${columns.map(c => `<td class="a-${cellAlign(c)}">${esc(cellText(c, r))}</td>`).join('')}</tr>`;
-      }).join('')
-    : `<tr><td colspan="${columns.length}" class="empty">No records for the selected filters.</td></tr>`;
-  const totalRow = totals
-    ? `<tr class="totals">${columns.map((c, i) => {
-        if (i === 0 && totals.__label !== undefined) return `<td class="a-left">${esc(totals.__label || 'Total')}</td>`;
-        if (totals[c.key] !== undefined) return `<td class="a-${cellAlign(c)}">${esc(c.money ? money(totals[c.key]) : c.qty ? qty(totals[c.key]) : totals[c.key])}</td>`;
-        return `<td></td>`;
-      }).join('')}</tr>`
-    : '';
-  return `<table><thead><tr>${head}</tr></thead><tbody>${body}${totalRow}</tbody></table>`;
-}
-
-const signHTML = (signature) => {
-  if (!signature) return '';
-  const left = typeof signature === 'object' && signature.left ? signature.left : 'Prepared By';
-  const right = typeof signature === 'object' && signature.right ? signature.right : 'Received Sign & Thumb';
-  return `<div class="doc-close">
-    <div class="sign">
-      <div><div class="stamp">Sign / Stamp</div>${esc(left)}</div>
-      <div><div class="stamp">Sign / Stamp</div>${esc(right)}</div>
-    </div>
-    <div class="foot"><span>Computer generated document</span><span>${esc(nowStamp())}</span></div>
-    <div class="soft-credit">${esc(SOFTWARE_CREDIT)}</div>
-  </div>`;
-};
-
-export function buildReportHTML({ company = {}, title, meta = [], filters = [], columns, rows, totals, signature, groupKey, orientation }) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Report')}</title>
-  <style>${PRINT_CSS(orientation)}</style></head><body>
-    <div class="page">
-      <div class="page-body">
-        ${letterheadHTML(company, title, meta, filters)}
-        ${tableHTML({ columns, rows, totals, groupKey })}
-      </div>
-      ${signHTML(signature)}
-    </div>
-  </body></html>`;
-}
-
-export function buildDetailHTML({ company = {}, title, meta = [], filters = [], sections = [], table, tables, signature, groupKey, orientation }) {
-  const secHtml = sections.map(s => `
-    <div class="sec">
-      ${s.heading ? `<div class="sec-h">${esc(s.heading)}</div>` : ''}
-      <table class="kv">${(s.rows || []).filter(Boolean).map(r => `<tr><td class="k">${esc(r.label)}</td><td class="v">${esc(r.value)}</td></tr>`).join('')}</table>
-    </div>`).join('');
-  const allTables = [...(table ? [table] : []), ...(tables || [])];
-  const tablesHtml = allTables.map(tb => `${tb.heading ? `<div class="sec-h">${esc(tb.heading)}</div>` : ''}${tableHTML({ ...tb, groupKey })}`).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title || 'Detail')}</title>
-  <style>${PRINT_CSS(orientation)}</style></head><body>
-    <div class="page">
-      <div class="page-body">
-        ${letterheadHTML(company, title, meta, filters)}
-        ${secHtml}
-        ${tablesHtml}
-      </div>
-      ${signHTML(signature)}
-    </div>
-  </body></html>`;
-}
-
-function openPrintWindow(html) {
-  const w = window.open('', '_blank');
-  if (!w) { alert('Please allow pop-ups to print.'); return; }
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(() => { try { w.print(); } catch { /* user can print manually */ } }, 400);
-}
-
-export function printReport(opts) { openPrintWindow(buildReportHTML(opts)); }
-export function printDetail(opts) { openPrintWindow(buildDetailHTML(opts)); }
 
 // ── Excel Export (CSV with UTF-8 BOM for Excel compatibility) ──────────────────
 export function downloadReportExcel(payload) {
@@ -570,7 +422,7 @@ export function downloadReportExcel(payload) {
 }
 
 export function downloadDetailExcel(payload) {
-  const { company = {}, title, sections = [], table, filename } = payload;
+  const { company = {}, title, sections = [], table, tables, filename } = payload;
   let csvContent = '\uFEFF';
 
   const companyName = toEnglishText(company.name || 'Business Record');
@@ -588,17 +440,31 @@ export function downloadDetailExcel(payload) {
     csvContent += '\n';
   });
 
-  if (table && table.columns && table.rows) {
-    const headers = table.columns.map(c => `"${toEnglishText(c.header || '').replace(/"/g, '""')}"`).join(',');
+  const allTables = [...(table ? [table] : []), ...(tables || [])];
+  allTables.forEach(tb => {
+    if (!tb || !tb.columns || !tb.rows) return;
+    if (tb.heading) csvContent += `"${toEnglishText(tb.heading).replace(/"/g, '""')}"\n`;
+    const headers = tb.columns.map(c => `"${toEnglishText(c.header || '').replace(/"/g, '""')}"`).join(',');
     csvContent += `${headers}\n`;
-    table.rows.forEach(r => {
-      const rowVals = table.columns.map(c => {
+    tb.rows.forEach(r => {
+      const rowVals = tb.columns.map(c => {
         let val = c.render ? c.render(r) : (c.key ? r[c.key] : '');
         return `"${asText(toEnglishText(val)).replace(/"/g, '""')}"`;
       });
       csvContent += `${rowVals.join(',')}\n`;
     });
-  }
+    if (tb.totals) {
+      const totalsValues = tb.columns.map((c, idx) => {
+        if (idx === 0) return `"${toEnglishText(tb.totals.__label || 'Total').replace(/"/g, '""')}"`;
+        if (c.key && tb.totals[c.key] !== undefined) {
+          return `"${c.money ? money(tb.totals[c.key]) : tb.totals[c.key]}"`;
+        }
+        return '""';
+      });
+      csvContent += `${totalsValues.join(',')}\n`;
+    }
+    csvContent += '\n';
+  });
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const fname = (filename || `${(title || 'detail').toLowerCase().replace(/\s+/g, '-')}.csv`).replace(/\.pdf$/i, '.csv');

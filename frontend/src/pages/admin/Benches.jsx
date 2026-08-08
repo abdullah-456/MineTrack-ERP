@@ -81,11 +81,12 @@ export default function Benches() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             <ReportActions
-              title={t('benches') || 'Benches'}
+              title={`${t('benches') || 'Benches'} Report`}
+              signature
               columns={[
                 { header: t('benchNumber') || 'Bench #', key: 'bench_number', width: 1.2 },
-                { header: t('selectPit') || 'Pit', render: b => b.Pit?.area_name || '', width: 1.4 },
-                { header: t('selectBranch') || 'Mine', render: b => b.Pit?.Mine?.name || '', width: 1.4 },
+                { header: t('pitColumnLabel') || 'Pit', render: b => b.Pit?.area_name || '', width: 1.4 },
+                { header: t('mineColumnLabel') || 'Mine', render: b => b.Pit?.Mine?.name || '', width: 1.4 },
                 { header: t('elevation') || 'Elevation', render: b => b.elevation || '', width: 1 },
                 { header: t('status') || 'Status', key: 'status', width: 1 },
               ]}
@@ -128,8 +129,8 @@ export default function Benches() {
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th className="text-start p-4 font-medium">{t('benchNumber')}</th>
-                <th className="text-start p-4 font-medium">{t('selectPit') || 'Pit'}</th>
-                <th className="text-start p-4 font-medium">{t('selectBranch') || 'Mine'}</th>
+                <th className="text-start p-4 font-medium">{t('pitColumnLabel') || 'Pit'}</th>
+                <th className="text-start p-4 font-medium">{t('mineColumnLabel') || 'Mine'}</th>
                 <th className="text-start p-4 font-medium">{t('elevation')}</th>
                 <th className="text-start p-4 font-medium">{t('status')}</th>
                 <th className="text-end p-4 font-medium">{t('actions')}</th>
