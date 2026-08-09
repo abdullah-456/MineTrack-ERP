@@ -20,6 +20,7 @@ const productionRoutes = require('./routes/productionRoutes');
 const leaveRoutes = require('./routes/leaveRoutes');
 const holidayRoutes = require('./routes/holidayRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
+const assetRoutes = require('./routes/assetRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const businessRoutes = require('./routes/businessRoutes');
 
@@ -102,6 +103,7 @@ app.use('/api/production', productionRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/vehicles', vehicleRoutes);
+app.use('/api/assets', assetRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api', businessRoutes);
 

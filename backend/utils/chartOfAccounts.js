@@ -144,6 +144,104 @@ async function getOrCreateBodCurrentParent(shopId, kind, createdBy, transaction)
   }, transaction);
 }
 
+// Shared, get-once-per-shop accounts used only when a paid fixed asset is
+// disposed (see assetController.dispose). Depreciation itself is never
+// posted period-by-period — these three accounts absorb the whole
+// un-booked depreciation plus any gain/loss in a single lump-sum entry at
+// the moment the asset leaves the books.
+async function getOrCreateDepreciationExpenseAccount(shopId, createdBy, transaction) {
+  const existing = await db.ChartOfAccount.findOne({
+    where: { shop_id: shopId, account_code: '07-DEP-EXP' },
+    transaction,
+  });
+  if (existing) return existing;
+
+  const expenseParent = await db.ChartOfAccount.findOne({
+    where: { account_code: '07-EXPENSE' },
+    transaction,
+  });
+
+  return createAccount({
+    shopId,
+    accountName: 'Depreciation Expense',
+    accountType: 'expense',
+    parent: expenseParent || null,
+    accountCode: '07-DEP-EXP',
+    createdBy,
+  }, transaction);
+}
+
+// Shared, get-once-per-shop contra-asset account. Credited once per elapsed
+// year by the depreciation catch-up job (assetDepreciationRun.js) — nets
+// negative under Assets, so Total Assets on the Balance Sheet automatically
+// reads as cost minus accumulated depreciation (net book value) with no
+// change needed to buildBalanceSheet itself.
+async function getOrCreateAccumulatedDepreciationAccount(shopId, createdBy, transaction) {
+  const existing = await db.ChartOfAccount.findOne({
+    where: { shop_id: shopId, account_code: '04-ACCUM-DEP' },
+    transaction,
+  });
+  if (existing) return existing;
+
+  const ltAssetParent = await db.ChartOfAccount.findOne({
+    where: { account_code: '04-LT-ASSET' },
+    transaction,
+  });
+
+  return createAccount({
+    shopId,
+    accountName: 'Accumulated Depreciation',
+    accountType: 'asset',
+    parent: ltAssetParent || null,
+    accountCode: '04-ACCUM-DEP',
+    createdBy,
+  }, transaction);
+}
+
+async function getOrCreateGainOnDisposalAccount(shopId, createdBy, transaction) {
+  const existing = await db.ChartOfAccount.findOne({
+    where: { shop_id: shopId, account_code: '06-GAIN-DISPOSAL' },
+    transaction,
+  });
+  if (existing) return existing;
+
+  const incomeParent = await db.ChartOfAccount.findOne({
+    where: { account_code: '06-INCOME' },
+    transaction,
+  });
+
+  return createAccount({
+    shopId,
+    accountName: 'Gain on Disposal of Fixed Assets',
+    accountType: 'income',
+    parent: incomeParent || null,
+    accountCode: '06-GAIN-DISPOSAL',
+    createdBy,
+  }, transaction);
+}
+
+async function getOrCreateLossOnDisposalAccount(shopId, createdBy, transaction) {
+  const existing = await db.ChartOfAccount.findOne({
+    where: { shop_id: shopId, account_code: '07-LOSS-DISPOSAL' },
+    transaction,
+  });
+  if (existing) return existing;
+
+  const expenseParent = await db.ChartOfAccount.findOne({
+    where: { account_code: '07-EXPENSE' },
+    transaction,
+  });
+
+  return createAccount({
+    shopId,
+    accountName: 'Loss on Disposal of Fixed Assets',
+    accountType: 'expense',
+    parent: expenseParent || null,
+    accountCode: '07-LOSS-DISPOSAL',
+    createdBy,
+  }, transaction);
+}
+
 function isFundParent(parent) {
   return !!(parent && FUND_PARENT_CODES.has(parent.account_code));
 }
@@ -295,4 +393,8 @@ module.exports = {
   getOrCreateDirectorsParent,
   getOrCreateDueFromBodParent,
   getOrCreateBodCurrentParent,
+  getOrCreateDepreciationExpenseAccount,
+  getOrCreateGainOnDisposalAccount,
+  getOrCreateLossOnDisposalAccount,
+  getOrCreateAccumulatedDepreciationAccount,
 };

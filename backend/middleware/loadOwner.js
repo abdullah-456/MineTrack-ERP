@@ -12,6 +12,7 @@ const OWNER_MODELS = {
   customer: 'Customer',
   board_member: 'BoardMember',
   vehicle: 'Vehicle',
+  asset: 'Asset',
 };
 
 // Generic version of loadEmployee.js — resolves req.params.id to a

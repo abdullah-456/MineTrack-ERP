@@ -4,8 +4,10 @@ import { ArrowLeft, Loader2, Pickaxe } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
+import { useDocumentStaging } from '../../hooks/useDocumentStaging';
 import PageHeader from '../../components/ui/PageHeader';
 import FormLabel from '../../components/ui/FormLabel';
+import OwnerDocumentsSection from '../../components/documents/OwnerDocumentsSection';
 import api from '../../api/axios';
 import { PAKISTAN_PROVINCES, districtsForProvince } from '../../utils/pakistanRegions';
 import { MINE_STATUSES } from '../../utils/mineStatus';
@@ -44,6 +46,8 @@ export default function MineFormPage() {
   const [previewCode, setPreviewCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const attachments = useDocumentStaging('branch', isEdit ? id : null);
 
   const setF = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -114,8 +118,12 @@ export default function MineFormPage() {
         await api.put(`/branches/${id}`, payload);
         success(t('branchUpdated'));
       } else {
-        await api.post('/branches', payload);
+        const { data } = await api.post('/branches', payload);
+        const result = await attachments.commitToOwner(data.branch.id);
         success(t('branchCreated'));
+        if (result?.failed) {
+          error(t('someAttachmentsFailed') || 'Some attachments failed to upload. You can retry from the edit page.');
+        }
       }
       navigate('/admin/mines');
     } catch (err) {
@@ -247,6 +255,17 @@ export default function MineFormPage() {
             <input className="input" placeholder="e.g. 500 Acres" value={form.area} onChange={setF('area')} />
           </div>
         </FormSection>
+
+        <OwnerDocumentsSection
+          ownerType="branch"
+          ownerId={isEdit ? id : null}
+          documents={attachments.documents}
+          canEdit
+          isStaging={attachments.isStaging}
+          shopParams={attachments.shopParams}
+          title={t('mineDocuments') || 'Documents'}
+          subtitle={t('mineDocumentsSub') || 'Mining license, lease deed, contracts and other supporting documents — add a description and set an expiry date to get a reminder before it lapses.'}
+        />
 
         <FormSection title={t('mineOther') || 'Other'}>
           <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>

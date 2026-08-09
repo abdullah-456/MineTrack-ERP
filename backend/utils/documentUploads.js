@@ -15,7 +15,7 @@ const { UploadValidationError } = require('./employeeUploads');
 // without a persistent disk mount.
 const UPLOAD_ROOT = path.join(__dirname, '..', 'uploads', 'documents');
 
-const DOCUMENT_CATEGORIES = ['license', 'cnic', 'contract', 'vehicle_papers', 'insurance', 'lease', 'other'];
+const DOCUMENT_CATEGORIES = ['license', 'cnic', 'contract', 'vehicle_papers', 'insurance', 'lease', 'asset_deed', 'warranty', 'other'];
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const DOCUMENT_TYPES = [

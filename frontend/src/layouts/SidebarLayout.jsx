@@ -59,6 +59,7 @@ const shopNavGroups = [
       { to: '/accounting/vouchers/new',      icon: FileBarChart2, labelKey: 'voucherEntry',    module: 'accounting', action: 'create' },
       { to: '/accounting/general-ledger',    icon: TrendingUp,    labelKey: 'generalLedger',   module: 'accounting', action: 'read' },
       { to: '/expenses',                     icon: Receipt,       labelKey: 'expenses',        module: 'expenses',   action: 'read' },
+      { to: '/assets',                       icon: Landmark,      labelKey: 'assets',          module: 'assets',     action: 'read' },
     ]
   },
   {

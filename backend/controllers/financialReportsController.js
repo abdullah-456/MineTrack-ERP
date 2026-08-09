@@ -11,6 +11,8 @@ const {
   buildCashFlowStatement,
 } = require('../utils/financialStatements');
 const { defaultDateRangeForCurrentFY } = require('../utils/fiscalYear');
+const { computeDepreciation } = require('../utils/assetDepreciation');
+const { catchUpAssetDepreciation } = require('../utils/assetDepreciationRun');
 
 // Explicit from/to/as_of always wins. Otherwise the report follows the fiscal
 // year selected in the UI, falling back to the shop's current year.
@@ -124,12 +126,37 @@ exports.balanceSheet = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
+    await catchUpAssetDepreciation(shopId, req.user.id);
+
     const { asOf } = await resolveReportRange(req, shopId);
     const branchId = parseBranchId(req.query);
     const { accounts, balanceMap } = await loadReportData(shopId, { asOf, branchId });
     const report = buildBalanceSheet(accounts, balanceMap);
 
-    return res.json({ as_of: asOf, branch_id: branchId || null, ...report });
+    // Assets recorded without a paid/account-attached posting never touch the
+    // GL, so buildBalanceSheet (which reads only GL balances) never sees them.
+    // Surfaced here as a separate, purely informational appendix — excluded
+    // from total_assets/is_balanced so the real sheet still balances.
+    const unpaidWhere = { shop_id: shopId, is_paid: false, status: 'active' };
+    if (branchId) unpaidWhere.branch_id = branchId;
+    const unattachedAssetRows = await db.Asset.findAll({ where: unpaidWhere });
+    const unattached_assets = unattachedAssetRows.map(asset => {
+      const dep = computeDepreciation({
+        purchaseCost: asset.purchase_cost,
+        salvageValue: asset.salvage_value,
+        depreciationPercentage: asset.depreciation_percentage,
+        usefulLifeYears: asset.useful_life_years,
+        purchaseDate: asset.purchase_date,
+        asOfDate: asOf,
+      });
+      return { asset_name: asset.asset_name, category: asset.category, amount: dep.bookValue };
+    });
+    const total_unattached_assets = Math.round(unattached_assets.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+
+    return res.json({
+      as_of: asOf, branch_id: branchId || null, ...report,
+      unattached_assets, total_unattached_assets,
+    });
   } catch (error) {
     console.error('balanceSheet error:', error);
     return res.status(500).json({ message: 'Internal server error' });

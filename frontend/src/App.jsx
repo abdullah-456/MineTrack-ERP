@@ -56,6 +56,7 @@ import Attendance from './pages/employees/Attendance';
 import Leave from './pages/employees/Leave';
 import HolidayCalendar from './pages/employees/HolidayCalendar';
 import ChartOfAccounts from './pages/accounting/ChartOfAccounts';
+import Assets from './pages/accounting/Assets';
 import JournalEntry from './pages/accounting/JournalEntry';
 import GeneralLedger from './pages/accounting/GeneralLedger';
 import TrialBalance from './pages/reports/TrialBalance';
@@ -322,6 +323,8 @@ function App() {
               {/* Accounting */}
               <Route path="/accounting/chart-of-accounts"
                 element={<ProtectedRoute module="accounting" action="read"><ChartOfAccounts /></ProtectedRoute>} />
+              <Route path="/assets"
+                element={<ProtectedRoute module="assets" action="read"><Assets /></ProtectedRoute>} />
               <Route path="/accounting/vouchers/new"
                 element={<ProtectedRoute module="accounting" action="create"><JournalEntry /></ProtectedRoute>} />
               <Route path="/accounting/general-ledger"

@@ -8,6 +8,7 @@ const OWNER_BASE_PATHS = {
   customer: (id) => `/customers/${id}`,
   board_member: (id) => `/board-members/${id}`,
   vehicle: (id) => `/vehicles/${id}`,
+  asset: (id) => `/assets/${id}`,
   shop: () => '/company',
 };
 
@@ -40,4 +41,4 @@ export function documentFileUrl(ownerType, ownerId, docId) {
   return `${ownerBase(ownerType, ownerId)}/documents/${docId}/file`;
 }
 
-export const DOCUMENT_CATEGORIES = ['license', 'cnic', 'contract', 'vehicle_papers', 'insurance', 'lease', 'other'];
+export const DOCUMENT_CATEGORIES = ['license', 'cnic', 'contract', 'vehicle_papers', 'insurance', 'lease', 'asset_deed', 'warranty', 'other'];

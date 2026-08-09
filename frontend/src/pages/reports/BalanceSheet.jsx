@@ -51,6 +51,8 @@ export default function BalanceSheet() {
   const [assets, setAssets] = useState([]);
   const [liabilities, setLiabilities] = useState([]);
   const [equity, setEquity] = useState([]);
+  const [unattachedAssets, setUnattachedAssets] = useState([]);
+  const [totalUnattachedAssets, setTotalUnattachedAssets] = useState(0);
   const [summary, setSummary] = useState({
     total_assets: 0, total_liabilities: 0, total_equity: 0,
     total_liabilities_and_equity: 0, is_balanced: true,
@@ -75,6 +77,8 @@ export default function BalanceSheet() {
       setAssets(data.assets || []);
       setLiabilities(data.liabilities || []);
       setEquity(data.equity || []);
+      setUnattachedAssets(data.unattached_assets || []);
+      setTotalUnattachedAssets(data.total_unattached_assets || 0);
       setSummary({
         total_assets: data.total_assets || 0,
         total_liabilities: data.total_liabilities || 0,
@@ -91,6 +95,13 @@ export default function BalanceSheet() {
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
+  const unattachedRows = useMemo(() => unattachedAssets.map(a => ({
+    account_code: '',
+    account_name: `${a.asset_name} (${t('withoutAccountAttachment') || 'without any account attachment'})`,
+    amount: a.amount,
+    is_computed: true,
+  })), [unattachedAssets, t]);
+
   const flatRows = useMemo(() => [
     ...assets.map(r => ({ ...r, section: 'Assets' })),
     { account_name: t('totalAssets') || 'Total Assets', amount: summary.total_assets, __total: true },
@@ -98,7 +109,11 @@ export default function BalanceSheet() {
     { account_name: t('totalLiabilities') || 'Total Liabilities', amount: summary.total_liabilities, __total: true },
     ...equity.map(r => ({ ...r, section: 'Equity' })),
     { account_name: t('totalEquity') || 'Total Equity', amount: summary.total_equity, __total: true },
-  ], [assets, liabilities, equity, summary, t]);
+    ...(unattachedRows.length > 0 ? [
+      ...unattachedRows.map(r => ({ ...r, section: 'Fixed Assets (informational)' })),
+      { account_name: t('totalUnattachedAssets') || 'Total (without any account attachment)', amount: totalUnattachedAssets, __total: true },
+    ] : []),
+  ], [assets, liabilities, equity, summary, unattachedRows, totalUnattachedAssets, t]);
 
   const reportColumns = [
     { header: t('account') || 'Account', key: 'account_name', width: 2.8 },
@@ -180,6 +195,21 @@ export default function BalanceSheet() {
             lang={lang}
             t={t}
           />
+          {unattachedRows.length > 0 && (
+            <>
+              <SectionTable
+                title={t('fixedAssetsWithoutAccountAttachment') || 'Fixed Assets (without any account attachment)'}
+                rows={unattachedRows}
+                totalLabel={t('totalUnattachedAssets') || 'Total (without any account attachment)'}
+                totalAmount={totalUnattachedAssets}
+                lang={lang}
+                t={t}
+              />
+              <p className="text-xs px-1" style={{ color: 'var(--text-muted)' }}>
+                {t('unattachedAssetsHint') || 'These assets were not paid for through any bank/cash account, so no journal entry exists for them. Shown here for reference only — not included in Total Assets.'}
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>

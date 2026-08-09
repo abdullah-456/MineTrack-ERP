@@ -3,6 +3,7 @@ const { requireShopId } = require('../utils/shopScope');
 const { isAdminRole } = require('../utils/deletionRequest');
 const { performVoidExpense } = require('./expenseController');
 const { performVoidReturn } = require('./saleReturnController');
+const { performVoidAsset } = require('./assetController');
 const { guardWritableDates, handleFiscalYearError } = require('../utils/fiscalYear');
 
 function requireAdmin(req, res) {
@@ -76,6 +77,14 @@ async function applyModuleDeletion(module, entityId, shopId, req, transaction) {
       if (row && row.status !== 'void') {
         await guardWritableDates(shopId, row.expense_date, transaction);
         await performVoidExpense(row, shopId, req.user.id, transaction);
+      }
+      return !!row;
+    }
+    case 'assets': {
+      const row = await db.Asset.findOne({ where: { id: entityId, shop_id: shopId }, transaction });
+      if (row && row.status === 'active') {
+        if (row.is_paid) await guardWritableDates(shopId, row.purchase_date, transaction);
+        await performVoidAsset(row, shopId, req.user.id, transaction);
       }
       return !!row;
     }
