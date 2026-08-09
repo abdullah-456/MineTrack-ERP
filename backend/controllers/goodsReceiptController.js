@@ -690,3 +690,8 @@ exports.receiveFromPo = async (req, res) => {
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+exports.postGoodsReceiptInTransaction = postGoodsReceiptInTransaction;
+exports.loadLockedGrnWithItems = loadLockedGrnWithItems;
+exports.normalizeGrnItems = normalizeGrnItems;
+exports.validatePoReceiptLines = validatePoReceiptLines;

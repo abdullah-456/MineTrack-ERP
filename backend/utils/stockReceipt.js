@@ -116,6 +116,40 @@ async function generatePoNumber(shopId, transaction) {
   return `${prefix}${String(seq).padStart(4, '0')}`;
 }
 
+async function generatePrNumber(shopId, transaction) {
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const prefix = `PR-${shopId}-${dateStr}-`;
+  const last = await db.PurchaseRequisition.findOne({
+    where: { shop_id: shopId, pr_number: { [db.Sequelize.Op.like]: `${prefix}%` } },
+    order: [['id', 'DESC']],
+    transaction,
+  });
+  let seq = 1;
+  if (last?.pr_number) {
+    const parts = last.pr_number.split('-');
+    const n = parseInt(parts[parts.length - 1], 10);
+    if (!Number.isNaN(n)) seq = n + 1;
+  }
+  return `${prefix}${String(seq).padStart(4, '0')}`;
+}
+
+async function generateDaNumber(shopId, transaction) {
+  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const prefix = `DA-${shopId}-${dateStr}-`;
+  const last = await db.DepartmentalApproval.findOne({
+    where: { shop_id: shopId, da_number: { [db.Sequelize.Op.like]: `${prefix}%` } },
+    order: [['id', 'DESC']],
+    transaction,
+  });
+  let seq = 1;
+  if (last?.da_number) {
+    const parts = last.da_number.split('-');
+    const n = parseInt(parts[parts.length - 1], 10);
+    if (!Number.isNaN(n)) seq = n + 1;
+  }
+  return `${prefix}${String(seq).padStart(4, '0')}`;
+}
+
 async function generateGrnNumber(shopId, transaction) {
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const prefix = `GRN-${shopId}-${dateStr}-`;
@@ -165,6 +199,8 @@ module.exports = {
   calcLineTotal,
   calcOrderTotals,
   generatePoNumber,
+  generatePrNumber,
+  generateDaNumber,
   generateGrnNumber,
   refreshPurchaseOrderStatus,
   roundQty,

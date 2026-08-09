@@ -9,7 +9,7 @@ import {
   TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2, Landmark,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
   Zap, Search, ChevronLeft, Sun, Moon, Globe, Check,
-  Store, Pickaxe, CircleDot, Layers, Factory, Gem, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar, CalendarCheck, CalendarOff, PartyPopper, Truck } from 'lucide-react';
+  Store, Pickaxe, CircleDot, Layers, Factory, Gem, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar, CalendarCheck, CalendarOff, PartyPopper, Truck, FileText } from 'lucide-react';
 
 // ── Nav structure for regular shop users (uses translation keys) ─
 const shopNavGroups = [
@@ -34,9 +34,16 @@ const shopNavGroups = [
   {
     labelKey: 'navProcurement',
     items: [
-      { to: '/purchase-orders',   icon: ClipboardList,   labelKey: 'purchaseOrders', module: 'purchases',    action: 'read' },
       { to: '/suppliers',         icon: Building2,       labelKey: 'suppliers',      module: 'suppliers',    action: 'read' },
       { to: '/invoices',          icon: CreditCard,      labelKey: 'invoices',       module: 'sales',        action: 'read' },
+    ]
+  },
+  {
+    labelKey: 'navPurchaseWorkflow',
+    items: [
+      { to: '/purchase-workflow/requisitions', icon: FileText, labelKey: 'purchaseRequisitions', module: 'purchases', action: 'read' },
+      { to: '/purchase-workflow/approvals', icon: ShieldCheck, labelKey: 'departmentalApprovals', module: 'purchases', action: 'read' },
+      { to: '/purchase-workflow/orders', icon: ClipboardList, labelKey: 'workflowPurchaseOrders', module: 'purchases', action: 'read' },
     ]
   },
   {

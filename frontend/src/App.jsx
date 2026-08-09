@@ -81,8 +81,19 @@ import VoucherPrintPage      from './pages/accounting/VoucherPrintPage';
 import LedgerVoucherPrint   from './pages/accounting/LedgerVoucherPrint';
 import GatePasses        from './pages/gatepasses/GatePasses';
 import GatePassPrintPage  from './pages/gatepasses/GatePassPrintPage';
-import PurchaseOrders    from './pages/purchases/PurchaseOrders';
 import PurchaseOrderPrintPage from './pages/purchases/PurchaseOrderPrintPage';
+import PurchaseRequisitions from './pages/purchases/PurchaseRequisitions';
+import PurchaseRequisitionFormPage from './pages/purchases/PurchaseRequisitionFormPage';
+import PurchaseRequisitionViewPage from './pages/purchases/PurchaseRequisitionViewPage';
+import PurchaseRequisitionPrintPage from './pages/purchases/PurchaseRequisitionPrintPage';
+import DepartmentalApprovals from './pages/purchases/DepartmentalApprovals';
+import DepartmentalApprovalFormPage from './pages/purchases/DepartmentalApprovalFormPage';
+import DepartmentalApprovalViewPage from './pages/purchases/DepartmentalApprovalViewPage';
+import DepartmentalApprovalPrintPage from './pages/purchases/DepartmentalApprovalPrintPage';
+import PurchaseWorkflowOrders from './pages/purchases/PurchaseWorkflowOrders';
+import PurchaseWorkflowOrderFormPage from './pages/purchases/PurchaseWorkflowOrderFormPage';
+import PurchaseWorkflowOrderViewPage from './pages/purchases/PurchaseWorkflowOrderViewPage';
+import PurchaseWorkflowOrderPrintPage from './pages/purchases/PurchaseWorkflowOrderPrintPage';
 import FiscalYears from './pages/admin/FiscalYears';
 
 const queryClient = new QueryClient({
@@ -152,6 +163,9 @@ function App() {
             <Route path="/invoice/:invoiceId" element={<ProtectedRoute><InvoicePrintPage /></ProtectedRoute>} />
             <Route path="/gatepass/:id" element={<ProtectedRoute><GatePassPrintPage /></ProtectedRoute>} />
             <Route path="/purchase-order/:id" element={<ProtectedRoute><PurchaseOrderPrintPage /></ProtectedRoute>} />
+            <Route path="/purchase-requisition/:id" element={<ProtectedRoute><PurchaseRequisitionPrintPage /></ProtectedRoute>} />
+            <Route path="/departmental-approval/:id" element={<ProtectedRoute><DepartmentalApprovalPrintPage /></ProtectedRoute>} />
+            <Route path="/purchase-workflow-order/:id" element={<ProtectedRoute><PurchaseWorkflowOrderPrintPage /></ProtectedRoute>} />
             <Route path="/vouchers/:voucherId" element={<ProtectedRoute><VoucherPrintPage /></ProtectedRoute>} />
             <Route path="/ledger-voucher" element={<ProtectedRoute><LedgerVoucherPrint /></ProtectedRoute>} />
             <Route path="/suppliers/:id/statement" element={<ProtectedRoute><SupplierStatementPrint /></ProtectedRoute>} />
@@ -250,9 +264,28 @@ function App() {
               <Route path="/stock-transfers/new"
                 element={<ProtectedRoute module="inventory" action="create"><ComingSoon title="Stock Transfer" /></ProtectedRoute>} />
 
-              {/* Procurement */}
-              <Route path="/purchase-orders"
-                element={<ProtectedRoute module="purchases" action="read"><PurchaseOrders /></ProtectedRoute>} />
+              {/* Procurement & Purchase Workflow */}
+              <Route path="/purchase-orders" element={<Navigate to="/purchase-workflow/orders" replace />} />
+              <Route path="/purchase-workflow/requisitions"
+                element={<ProtectedRoute module="purchases" action="read"><PurchaseRequisitions /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/requisitions/create"
+                element={<ProtectedRoute module="purchases" action="create"><PurchaseRequisitionFormPage /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/requisitions/:id/edit"
+                element={<ProtectedRoute module="purchases" action="update"><PurchaseRequisitionFormPage /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/requisitions/:id"
+                element={<ProtectedRoute module="purchases" action="read"><PurchaseRequisitionViewPage /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/approvals"
+                element={<ProtectedRoute module="purchases" action="read"><DepartmentalApprovals /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/approvals/create"
+                element={<ProtectedRoute module="purchases" action="approve"><DepartmentalApprovalFormPage /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/approvals/:id"
+                element={<ProtectedRoute module="purchases" action="read"><DepartmentalApprovalViewPage /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/orders"
+                element={<ProtectedRoute module="purchases" action="read"><PurchaseWorkflowOrders /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/orders/create"
+                element={<ProtectedRoute module="purchases" action="create"><PurchaseWorkflowOrderFormPage /></ProtectedRoute>} />
+              <Route path="/purchase-workflow/orders/:id"
+                element={<ProtectedRoute module="purchases" action="read"><PurchaseWorkflowOrderViewPage /></ProtectedRoute>} />
               <Route path="/suppliers"
                 element={<ProtectedRoute module="suppliers" action="read"><Suppliers /></ProtectedRoute>} />
               <Route path="/suppliers/:id"

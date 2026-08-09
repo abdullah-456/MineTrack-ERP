@@ -6,6 +6,7 @@ module.exports = (sequelize, DataTypes) => {
       PurchaseOrder.belongsTo(models.Shop, { foreignKey: 'shop_id' });
       PurchaseOrder.belongsTo(models.Supplier, { foreignKey: 'supplier_id' });
       PurchaseOrder.belongsTo(models.Branch, { foreignKey: 'branch_id' });
+      PurchaseOrder.belongsTo(models.PurchaseRequisition, { foreignKey: 'purchase_requisition_id' });
       PurchaseOrder.belongsTo(models.User, { as: 'Creator', foreignKey: 'created_by' });
       PurchaseOrder.hasMany(models.PurchaseOrderItem, { foreignKey: 'purchase_order_id', as: 'PurchaseOrderItems' });
       PurchaseOrder.hasMany(models.GoodsReceiptNote, { foreignKey: 'purchase_order_id' });
@@ -16,6 +17,7 @@ module.exports = (sequelize, DataTypes) => {
     shop_id: { type: DataTypes.INTEGER, allowNull: false },
     supplier_id: { type: DataTypes.INTEGER, allowNull: false },
     branch_id: { type: DataTypes.INTEGER, allowNull: true },
+    purchase_requisition_id: { type: DataTypes.INTEGER, allowNull: true },
     po_number: { type: DataTypes.STRING, allowNull: false },
     order_date: { type: DataTypes.DATEONLY, allowNull: false },
     expected_date: { type: DataTypes.DATEONLY, allowNull: true },

@@ -28,6 +28,9 @@ const deletionRequestController = require('../controllers/deletionRequestControl
 const gatePassController = require('../controllers/gatePassController');
 const godownController = require('../controllers/godownController');
 const purchaseOrderController = require('../controllers/purchaseOrderController');
+const purchaseRequisitionController = require('../controllers/purchaseRequisitionController');
+const departmentalApprovalController = require('../controllers/departmentalApprovalController');
+const purchaseFulfillmentController = require('../controllers/purchaseFulfillmentController');
 const goodsReceiptController = require('../controllers/goodsReceiptController');
 const fiscalYearController = require('../controllers/fiscalYearController');
 const auditLog = require('../middleware/auditLog');
@@ -36,6 +39,8 @@ const loadOwner = require('../middleware/loadOwner');
 const documentController = require('../controllers/documentController');
 const { employeeUpload } = require('../utils/employeeUploads');
 const { documentUpload } = require('../utils/documentUploads');
+const { approvalUpload } = require('../utils/approvalUploads');
+const { fulfillmentUpload } = require('../utils/fulfillmentUploads');
 
 router.use(authenticate);
 router.use(tenantScope);
@@ -67,6 +72,31 @@ router.post(  '/purchase-orders/:id/send',           authorize('purchases', 'upd
 router.post(  '/purchase-orders/:id/cancel',         authorize('purchases', 'update'), purchaseOrderController.cancel);
 router.post(  '/purchase-orders/:poId/receipts',     authorize('purchases', 'create'), goodsReceiptController.createFromPo);
 router.post(  '/purchase-orders/:id/receive',        authorize('purchases', 'create'), goodsReceiptController.receiveFromPo);
+
+// Purchase Requisitions
+router.get(   '/purchase-requisitions',              authorize('purchases', 'read'),   purchaseRequisitionController.list);
+router.get(   '/purchase-requisitions/:id',        authorize('purchases', 'read'),   purchaseRequisitionController.get);
+router.post(  '/purchase-requisitions',            authorize('purchases', 'create'), purchaseRequisitionController.create);
+router.put(   '/purchase-requisitions/:id',        authorize('purchases', 'update'), purchaseRequisitionController.update);
+router.delete('/purchase-requisitions/:id',        authorize('purchases', 'delete'), purchaseRequisitionController.remove);
+router.post(  '/purchase-requisitions/:id/submit', authorize('purchases', 'update'), purchaseRequisitionController.submit);
+
+// Departmental Approvals
+router.get(   '/departmental-approvals/eligible-requisitions', authorize('purchases', 'read'),   departmentalApprovalController.listEligibleRequisitions);
+router.get(   '/departmental-approvals',                       authorize('purchases', 'read'),   departmentalApprovalController.list);
+router.get(   '/departmental-approvals/:id',                   authorize('purchases', 'read'),   departmentalApprovalController.get);
+router.get(   '/departmental-approvals/:id/attachment',        authorize('purchases', 'read'),   departmentalApprovalController.getAttachment);
+router.post(  '/departmental-approvals',                       authorize('purchases', 'approve'), approvalUpload.single('attachment'), departmentalApprovalController.create);
+router.delete('/departmental-approvals/:id',                   authorize('purchases', 'delete'), departmentalApprovalController.remove);
+
+// Purchase Workflow — PO fulfillment from approved PRs
+router.get(   '/purchase-workflow/eligible-requisitions', authorize('purchases', 'read'),   purchaseFulfillmentController.listEligibleRequisitions);
+router.get(   '/purchase-workflow/orders',                authorize('purchases', 'read'),   purchaseFulfillmentController.list);
+router.get(   '/purchase-workflow/orders/:id',              authorize('purchases', 'read'),   purchaseFulfillmentController.get);
+router.get(   '/purchase-workflow/orders/:id/documents/:docType', authorize('purchases', 'read'), purchaseFulfillmentController.getDocument);
+router.post(  '/purchase-workflow/orders',                authorize('purchases', 'create'),
+  fulfillmentUpload.fields([{ name: 'grn_document', maxCount: 1 }, { name: 'invoice_document', maxCount: 1 }]),
+  purchaseFulfillmentController.execute);
 
 // Goods Receipt Notes (GRN)
 router.get(   '/goods-receipts',                     authorize('purchases', 'read'),   goodsReceiptController.list);
