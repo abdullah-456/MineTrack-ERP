@@ -322,6 +322,7 @@ exports.create = async (req, res) => {
         product_name: line.product.name,
         quantity: line.qty,
         unit_price: line.unitPrice,
+        unit_cost: parseFloat(line.product.cost_price || 0),
         discount: line.lineDiscount,
         line_total: line.lineTotal,
       }, { transaction });
@@ -484,6 +485,10 @@ exports.create = async (req, res) => {
       }, { transaction });
       const dueAcct = await db.ChartOfAccount.findByPk(member.due_from_coa_id, { transaction });
       paymentLine = { accountCode: dueAcct.account_code, debit: payAmount };
+      // Remembered on the sale so a later refund reverses against THIS
+      // director's Current wallet, not company cash/bank (which never
+      // actually held this money) — see saleReturnController.js.
+      await sale.update({ board_member_id: member.id }, { transaction });
 
       await db.BoardMemberTransaction.create({
         shop_id: shopId,

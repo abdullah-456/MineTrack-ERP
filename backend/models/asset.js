@@ -27,6 +27,7 @@ module.exports = (sequelize, DataTypes) => {
     useful_life_years: { type: DataTypes.DECIMAL(5, 2), allowNull: false },
     depreciation_percentage: { type: DataTypes.DECIMAL(5, 2), allowNull: true },
     depreciation_years_posted: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    accumulated_depreciation_posted: { type: DataTypes.DECIMAL(14, 2), allowNull: false, defaultValue: 0 },
     is_paid: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     paid_via: { type: DataTypes.STRING(10), allowNull: true },
     bank_account_id: { type: DataTypes.INTEGER, allowNull: true },

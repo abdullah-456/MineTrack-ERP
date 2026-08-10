@@ -261,12 +261,12 @@ router.get('/reports/modules/board/filter-options', authorize('board_directors',
 router.get('/reports/modules/production/filter-options', authorize('branches', 'read'), moduleReportsController.productionFilterOptions);
 
 // Financial Setup (first-time wizard) & Cash Sessions
-router.post(  '/financial-setup',                 financialSetupController.completeSetup);
-router.post(  '/financial-setup/skip',          financialSetupController.skipSetup);
-router.post(  '/financial-setup/opening-cash',  financialSetupController.setOpeningCash);
-router.post(  '/financial-setup/bank-accounts', financialSetupController.addBankAccounts);
+router.post(  '/financial-setup',                 authorize('accounting', 'create'), financialSetupController.completeSetup);
+router.post(  '/financial-setup/skip',          authorize('accounting', 'create'), financialSetupController.skipSetup);
+router.post(  '/financial-setup/opening-cash',  authorize('accounting', 'create'), financialSetupController.setOpeningCash);
+router.post(  '/financial-setup/bank-accounts', authorize('accounting', 'create'), financialSetupController.addBankAccounts);
 router.get(   '/bank-accounts',          financialSetupController.listBankAccounts);
-router.post(  '/cash-sessions',          financialSetupController.recordCashSession);
+router.post(  '/cash-sessions',          authorize('accounting', 'create'), financialSetupController.recordCashSession);
 router.get(   '/cash-sessions/today',    financialSetupController.getTodaySession);
 router.get(   '/cash-sessions',          financialSetupController.listSessions);
 router.get(   '/balances',               financialSetupController.getLiveBalances);

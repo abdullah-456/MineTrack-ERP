@@ -18,8 +18,18 @@ function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-// Attaches live-computed depreciation/book value to a plain asset row.
-// Depreciation is never stored — see utils/assetDepreciation.js.
+// Attaches depreciation/book value to a plain asset row.
+//
+// Paid assets: accumulatedDepreciation/bookValue come from
+// accumulated_depreciation_posted — the ACTUAL amount posted to the GL by
+// the catch-up job (assetDepreciationRun.js), not a formula recompute. A
+// live recompute would silently disagree with the ledger the moment
+// depreciation_percentage or useful_life_years is edited after some years
+// are already posted (the formula has no memory of what rate applied when).
+//
+// Unpaid assets ("without any account attachment"): no ledger to stay
+// consistent with, so book value is purely a live estimate — see
+// utils/assetDepreciation.js.
 function withComputed(asset) {
   const plain = asset.toJSON ? asset.toJSON() : asset;
   const asOf = plain.status === 'disposed' && plain.disposal_date ? plain.disposal_date : new Date();
@@ -31,6 +41,13 @@ function withComputed(asset) {
     purchaseDate: plain.purchase_date,
     asOfDate: asOf,
   });
+
+  if (plain.is_paid && plain.fixed_asset_account_id) {
+    const accumulatedDepreciation = round2(parseFloat(plain.accumulated_depreciation_posted || 0));
+    dep.accumulatedDepreciation = accumulatedDepreciation;
+    dep.bookValue = round2(parseFloat(plain.purchase_cost) - accumulatedDepreciation);
+  }
+
   return { ...plain, ...dep };
 }
 
@@ -237,7 +254,9 @@ exports.update = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
-    const asset = await db.Asset.findOne({ where: { id: req.params.id, shop_id: shopId }, transaction });
+    const asset = await db.Asset.findOne({
+      where: { id: req.params.id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE,
+    });
     if (!asset) { await transaction.rollback(); return res.status(404).json({ message: 'Asset not found' }); }
     if (asset.status !== 'active') { await transaction.rollback(); return res.status(400).json({ message: 'Only active assets can be edited' }); }
 
@@ -430,7 +449,9 @@ exports.remove = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
-    const asset = await db.Asset.findOne({ where: { id: req.params.id, shop_id: shopId }, transaction });
+    const asset = await db.Asset.findOne({
+      where: { id: req.params.id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE,
+    });
     if (!asset) { await transaction.rollback(); return res.status(404).json({ message: 'Asset not found' }); }
     if (asset.status !== 'active') { await transaction.rollback(); return res.status(400).json({ message: 'Only active assets can be deleted' }); }
 
@@ -468,7 +489,9 @@ exports.dispose = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) { await transaction.rollback(); return; }
 
-    const asset = await db.Asset.findOne({ where: { id: req.params.id, shop_id: shopId }, transaction });
+    const asset = await db.Asset.findOne({
+      where: { id: req.params.id, shop_id: shopId }, transaction, lock: transaction.LOCK.UPDATE,
+    });
     if (!asset) { await transaction.rollback(); return res.status(404).json({ message: 'Asset not found' }); }
     if (asset.status !== 'active') { await transaction.rollback(); return res.status(400).json({ message: 'Asset is not active' }); }
 
@@ -484,19 +507,29 @@ exports.dispose = async (req, res) => {
     const date = new Date(disposal_date);
     if (asset.is_paid) await guardWritableDates(shopId, date, transaction);
 
+    let bookValue;
+    let accumulatedDepreciation;
+
     if (asset.is_paid && asset.fixed_asset_account_id) {
       await catchUpOneAsset(asset, shopId, req.user.id, transaction, { asOfDate: date });
+      // Ground truth — what's ACTUALLY posted, not a formula recompute (which
+      // would silently disagree with the ledger after a mid-stream rate/life
+      // edit). catchUpOneAsset just refreshed this to reflect right up to
+      // the disposal date.
+      accumulatedDepreciation = round2(parseFloat(asset.accumulated_depreciation_posted || 0));
+      bookValue = round2(parseFloat(asset.purchase_cost) - accumulatedDepreciation);
+    } else {
+      const dep = computeDepreciation({
+        purchaseCost: asset.purchase_cost,
+        salvageValue: asset.salvage_value,
+        depreciationPercentage: asset.depreciation_percentage,
+        usefulLifeYears: asset.useful_life_years,
+        purchaseDate: asset.purchase_date,
+        asOfDate: date,
+      });
+      bookValue = dep.bookValue;
+      accumulatedDepreciation = dep.accumulatedDepreciation;
     }
-
-    const dep = computeDepreciation({
-      purchaseCost: asset.purchase_cost,
-      salvageValue: asset.salvage_value,
-      depreciationPercentage: asset.depreciation_percentage,
-      usefulLifeYears: asset.useful_life_years,
-      purchaseDate: asset.purchase_date,
-      asOfDate: date,
-    });
-    const bookValue = dep.bookValue;
 
     let disposalVoucher = null;
     let disposalBankAcc = null;
@@ -518,9 +551,9 @@ exports.dispose = async (req, res) => {
 
       const assetAccount = await db.ChartOfAccount.findByPk(asset.fixed_asset_account_id, { transaction });
       const lines = [];
-      if (dep.accumulatedDepreciation > 0) {
+      if (accumulatedDepreciation > 0) {
         const accumDepAccount = await getOrCreateAccumulatedDepreciationAccount(shopId, req.user.id, transaction);
-        lines.push({ accountCode: accumDepAccount.account_code, debit: dep.accumulatedDepreciation });
+        lines.push({ accountCode: accumDepAccount.account_code, debit: accumulatedDepreciation });
       }
       if (dispValue > 0) {
         lines.push({ accountCode: paymentAccountCode(disposal_via, disposalBankAcc), debit: dispValue });

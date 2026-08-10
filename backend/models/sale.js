@@ -12,6 +12,7 @@ module.exports = (sequelize, DataTypes) => {
       Sale.hasMany(models.Payment,    { foreignKey: 'sale_id', as: 'Payments' });
       Sale.hasMany(models.SaleReturn, { foreignKey: 'sale_id' });
       Sale.hasMany(models.GatePass,   { foreignKey: 'sale_id' });
+      Sale.belongsTo(models.BoardMember, { foreignKey: 'board_member_id' });
     }
   }
   Sale.init({
@@ -76,6 +77,10 @@ module.exports = (sequelize, DataTypes) => {
     status: {
       type: DataTypes.ENUM('completed', 'held', 'cancelled'),
       defaultValue: 'completed'
+    },
+    board_member_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     }
   }, {
     sequelize,

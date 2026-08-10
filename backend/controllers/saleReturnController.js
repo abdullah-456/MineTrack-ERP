@@ -4,6 +4,7 @@ const { requireShopId } = require('../utils/shopScope');
 const { postVoucher } = require('../utils/postVoucher');
 const { debitBankAccount, creditBankAccount, bankAccountCode } = require('../utils/cashHelpers');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
+const { reverseReceiveFromBodCurrent } = require('../utils/bodAccounts');
 const { computeReturnLineTotal, computeRefundUnitPrice } = require('../utils/saleRefundAmount');
 const { guardWritableDates, handleFiscalYearError, resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
 const { parseTransactionDate } = require('../utils/transactionDate');
@@ -28,7 +29,10 @@ const returnIncludes = [
   { model: db.User, as: 'ProcessedBy', attributes: ['id', 'name'] },
   {
     model: db.SaleReturnItem, as: 'ReturnItems',
-    include: [{ model: db.Product, attributes: ['id', 'name', 'sku'] }],
+    include: [
+      { model: db.Product, attributes: ['id', 'name', 'sku'] },
+      { model: db.SaleItem, attributes: ['id', 'unit_cost'] },
+    ],
   },
 ];
 
@@ -275,8 +279,17 @@ exports.create = async (req, res) => {
         balance_after: newQty,
       }, { transaction });
 
-      const returnedProduct = await db.Product.findByPk(rl.product_id, { transaction, attributes: ['cost_price'] });
-      restockCogsAmount += rl.quantity * parseFloat(returnedProduct?.cost_price || 0);
+      // Reverse at the cost actually posted when this item was SOLD, not
+      // today's cost — the two can differ if a purchase updated the
+      // product's weighted-average cost in between, and using today's
+      // figure would silently reverse a different amount than was booked.
+      const originalSaleItem = saleItemById[rl.sale_item_id];
+      let unitCost = originalSaleItem?.unit_cost != null ? parseFloat(originalSaleItem.unit_cost) : null;
+      if (unitCost == null) {
+        const returnedProduct = await db.Product.findByPk(rl.product_id, { transaction, attributes: ['cost_price'] });
+        unitCost = parseFloat(returnedProduct?.cost_price || 0);
+      }
+      restockCogsAmount += rl.quantity * unitCost;
     }
     restockCogsAmount = Math.round(restockCogsAmount * 100) / 100;
 
@@ -518,7 +531,26 @@ exports.create = async (req, res) => {
     // ── Bank balance adjustments ─────────────────────────────────────────────
     // Refund paid out via bank/card → bank balance DECREASES
     let refundBankAcc = null;
-    if (return_type === 'refund' && ['card', 'bank', 'mobile_wallet'].includes(effectiveRefundMethod) && refundAmount > 0) {
+    let bodRefundReversal = null;
+    if (return_type === 'refund' && refundAmount > 0 && sale.board_member_id) {
+      // The original sale was collected into a director's BOD Current wallet —
+      // that money never touched company cash/bank, so the refund must come
+      // back out of the SAME wallet, not out of the company's funds.
+      const collectionPayment = await db.Payment.findOne({
+        where: { sale_id: sale.id }, order: [['id', 'ASC']], transaction,
+      });
+      const wallet = collectionPayment?.payment_method === 'bank' ? 'bank' : 'cash';
+      bodRefundReversal = await reverseReceiveFromBodCurrent(shopId, {
+        boardMemberId: sale.board_member_id,
+        wallet,
+        amount: refundAmount,
+        debitAccountCode: '06-RETURNS',
+        narration: `Refund — ${returnedItemsSummary}`,
+        createdBy: req.user.id,
+        date: returnDate,
+        branchId: sale.branch_id,
+      }, transaction);
+    } else if (return_type === 'refund' && ['card', 'bank', 'mobile_wallet'].includes(effectiveRefundMethod) && refundAmount > 0) {
       refundBankAcc = await debitBankAccount(shopId, refundAmount, transaction, bank_account_id);
     }
     // Exchange settlement received via bank/card → bank balance INCREASES
@@ -536,9 +568,16 @@ exports.create = async (req, res) => {
       glLines.push({ accountCode: '07-COGS', credit: restockCogsAmount });
     }
     if (return_type === 'refund' && returnedValue > 0) {
-      glLines.push({ accountCode: '06-RETURNS', debit: returnedValue });
+      // When refundAmount was reversed out of a director's BOD Current wallet
+      // (bodRefundReversal above), that portion's Dr 06-RETURNS / Cr Due-from
+      // already posted as its own voucher — only the non-BOD remainder
+      // (typically the store-credit/AR portion) belongs in this one.
+      const mainReturnsDebit = bodRefundReversal
+        ? Math.round((returnedValue - refundAmount) * 100) / 100
+        : returnedValue;
+      if (mainReturnsDebit > 0) glLines.push({ accountCode: '06-RETURNS', debit: mainReturnsDebit });
       if (creditApplied > 0) glLines.push({ accountCode: '05-AR', credit: creditApplied });
-      if (refundAmount > 0) {
+      if (refundAmount > 0 && !bodRefundReversal) {
         glLines.push({
           accountCode: ['card', 'bank', 'mobile_wallet'].includes(effectiveRefundMethod) ? bankAccountCode(refundBankAcc) : '05-CASH',
           credit: refundAmount,
@@ -609,8 +648,15 @@ async function performVoidReturn(ret, shopId, req, transaction) {
         balance_after: newQty,
       }, { transaction });
 
-      const voidedProduct = await db.Product.findByPk(rl.product_id, { transaction, attributes: ['cost_price'] });
-      voidCogsAmount += rl.quantity * parseFloat(voidedProduct?.cost_price || 0);
+      // Same cost basis the return itself used to restock (rl.SaleItem.unit_cost,
+      // the ORIGINAL sale's cost) — pulling it back out at today's cost would
+      // introduce a fresh mismatch of its own.
+      let unitCost = rl.SaleItem?.unit_cost != null ? parseFloat(rl.SaleItem.unit_cost) : null;
+      if (unitCost == null) {
+        const voidedProduct = await db.Product.findByPk(rl.product_id, { transaction, attributes: ['cost_price'] });
+        unitCost = parseFloat(voidedProduct?.cost_price || 0);
+      }
+      voidCogsAmount += rl.quantity * unitCost;
     }
   }
   voidCogsAmount = Math.round(voidCogsAmount * 100) / 100;
@@ -677,7 +723,13 @@ exports.void = async (req, res) => {
 
     const ret = await db.SaleReturn.findOne({
       where: { id: req.params.id, shop_id: shopId },
-      include: [{ model: db.SaleReturnItem, as: 'ReturnItems' }, { model: db.Sale }],
+      include: [
+        {
+          model: db.SaleReturnItem, as: 'ReturnItems',
+          include: [{ model: db.SaleItem, attributes: ['id', 'unit_cost'] }],
+        },
+        { model: db.Sale },
+      ],
       transaction,
     });
     if (!ret) { await transaction.rollback(); return res.status(404).json({ message: 'Return not found' }); }

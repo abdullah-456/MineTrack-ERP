@@ -90,6 +90,8 @@ exports.trialBalance = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
+    await catchUpAssetDepreciation(shopId, req.user.id);
+
     const { asOf } = await resolveReportRange(req, shopId);
     const branchId = parseBranchId(req.query);
     const { accounts, balanceMap } = await loadReportData(shopId, { asOf, branchId });
@@ -107,6 +109,8 @@ exports.profitAndLoss = async (req, res) => {
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
+
+    await catchUpAssetDepreciation(shopId, req.user.id);
 
     const { from, to } = await resolveReportRange(req, shopId, { preferPeriod: true });
     const branchId = parseBranchId(req.query);
@@ -170,6 +174,8 @@ exports.equityStatement = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
 
+    await catchUpAssetDepreciation(shopId, req.user.id);
+
     const { from, to } = await resolveReportRange(req, shopId, { preferPeriod: true });
     const branchId = parseBranchId(req.query);
     const { accounts, openingMap, periodMap } = await loadReportData(shopId, { from, to, branchId });
@@ -188,6 +194,8 @@ exports.cashFlow = async (req, res) => {
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
+
+    await catchUpAssetDepreciation(shopId, req.user.id);
 
     const { from, to } = await resolveReportRange(req, shopId, { preferPeriod: true });
     const branchId = parseBranchId(req.query);

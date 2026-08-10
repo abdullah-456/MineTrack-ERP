@@ -298,6 +298,24 @@ async function openingBalanceLines({
     throw err;
   }
 
+  // Lock the source BEFORE reading its balance, not after — this used to be
+  // a plain check-then-act (read balance, THEN lock while updating), so two
+  // concurrent transfers out of the same source could both read the same
+  // pre-transfer balance, both pass the floor check below, and jointly
+  // overdraw it. Mirrors findTargetBankAccount's row lock for a named fund,
+  // and assertCashAvailable's shop-row lock for the shared '05-CASH' drawer,
+  // which has no BankAccount row of its own to lock.
+  const sourceFund = await db.BankAccount.findOne({
+    where: { shop_id: shopId, chart_of_account_id: sourceLedger.id },
+    transaction,
+    lock: transaction ? transaction.LOCK.UPDATE : undefined,
+  });
+  if (!sourceFund && transaction) {
+    await db.Shop.findOne({
+      where: { id: shopId }, attributes: ['id'], transaction, lock: transaction.LOCK.UPDATE,
+    });
+  }
+
   // Same floor every other payment path enforces — you cannot move out more
   // than the source holds.
   const available = await computeAccountBalance(shopId, sourceLedger.id, { transaction });
@@ -309,11 +327,6 @@ async function openingBalanceLines({
 
   // Keep the linked BankAccount's stored balance in step with the ledger. The
   // shared drawer has no such row, hence the conditional.
-  const sourceFund = await db.BankAccount.findOne({
-    where: { shop_id: shopId, chart_of_account_id: sourceLedger.id },
-    transaction,
-    lock: transaction ? transaction.LOCK.UPDATE : undefined,
-  });
   if (sourceFund) {
     await sourceFund.update({
       current_balance: Math.round((parseFloat(sourceFund.current_balance || 0) - openingBal) * 100) / 100,

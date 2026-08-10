@@ -72,6 +72,14 @@ async function applyModuleDeletion(module, entityId, shopId, req, transaction) {
       if (row) await row.destroy({ transaction });
       return !!row;
     }
+    case 'gatepasses': {
+      const row = await db.GatePass.findOne({ where: { id: entityId, shop_id: shopId }, transaction });
+      if (row) {
+        await db.GatePassItem.destroy({ where: { gate_pass_id: row.id }, transaction });
+        await row.destroy({ transaction });
+      }
+      return !!row;
+    }
     case 'expenses': {
       const row = await db.Expense.findOne({ where: { id: entityId, shop_id: shopId }, transaction });
       if (row && row.status !== 'void') {
@@ -91,7 +99,13 @@ async function applyModuleDeletion(module, entityId, shopId, req, transaction) {
     case 'returns': {
       const row = await db.SaleReturn.findOne({
         where: { id: entityId, shop_id: shopId },
-        include: [{ model: db.SaleReturnItem, as: 'ReturnItems' }, { model: db.Sale }],
+        include: [
+          {
+            model: db.SaleReturnItem, as: 'ReturnItems',
+            include: [{ model: db.SaleItem, attributes: ['id', 'unit_cost'] }],
+          },
+          { model: db.Sale },
+        ],
         transaction,
       });
       if (row && row.status !== 'void') {

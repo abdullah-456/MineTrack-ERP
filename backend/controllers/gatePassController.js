@@ -2,6 +2,7 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId } = require('../utils/shopScope');
 const { resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
+const { requestOrAllowDelete } = require('../utils/deletionRequest');
 
 const GatePass     = db.GatePass;
 const GatePassItem = db.GatePassItem;
@@ -164,10 +165,30 @@ exports.create = async (req, res) => {
       await t.rollback();
       return res.status(400).json({ message: 'Branch is required' });
     }
+    const branchOk = await Branch.findOne({ where: { id: branch_id, shop_id }, transaction: t });
+    if (!branchOk) {
+      await t.rollback();
+      return res.status(400).json({ message: 'Branch not found for this shop' });
+    }
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       await t.rollback();
       return res.status(400).json({ message: 'At least one item is required for a gate pass' });
+    }
+
+    // A product_id is optional (a gate pass can carry a free-text item with no
+    // catalog product behind it), but if one IS given it must actually exist
+    // in this shop — otherwise a dispatch note could reference a nonexistent
+    // or another shop's product.
+    const productIds = [...new Set(items.map(i => i.product_id).filter(Boolean).map(id => parseInt(id, 10)))];
+    if (productIds.length) {
+      const foundProducts = await Product.findAll({ where: { id: productIds, shop_id }, attributes: ['id'], transaction: t });
+      const foundIds = new Set(foundProducts.map(p => p.id));
+      const missing = productIds.filter(id => !foundIds.has(id));
+      if (missing.length) {
+        await t.rollback();
+        return res.status(400).json({ message: `Product(s) not found for this shop: ${missing.join(', ')}` });
+      }
     }
 
     let resolvedCustomerName  = customer_name;
@@ -254,6 +275,15 @@ exports.remove = async (req, res) => {
       await t.rollback();
       return res.status(404).json({ message: 'Gate pass not found' });
     }
+
+    // Admin/super_admin delete immediately; everyone else's request needs
+    // admin review first — same governance every other module goes through
+    // (see deletionRequestController.js's 'gatepasses' case).
+    const { pending } = await requestOrAllowDelete({
+      req, res, shopId: shop_id, module: 'gatepasses', entityId: gatePass.id,
+      entityLabel: gatePass.gate_pass_number, transaction: t,
+    });
+    if (pending) { await t.commit(); return; }
 
     await GatePassItem.destroy({ where: { gate_pass_id: id }, transaction: t });
     await gatePass.destroy({ transaction: t });

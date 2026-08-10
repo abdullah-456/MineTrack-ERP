@@ -243,6 +243,14 @@ function buildCashAccountIds(accounts) {
 function cashFlowCategory(acct, accountsById, cashIds) {
   if (cashIds.has(acct.id)) return 'cash';
   if (acct.account_type === 'income' || acct.account_type === 'expense') return 'skip';
+  // Accumulated Depreciation is a contra-asset that only ever moves in step
+  // with Depreciation Expense (already inside net profit) — it's never a real
+  // cash event of its own. Categorizing it as operating turns its balance
+  // change into the standard indirect-method "add back depreciation" line,
+  // instead of misfiling it as a phantom Investing cash inflow (which is what
+  // a plain '04-LT-ASSET' ancestor walk would otherwise produce, since it's
+  // nested under the fixed-asset parent).
+  if (acct.account_code === '04-ACCUM-DEP') return 'operating';
   const codes = ancestorCodes(acct, accountsById);
   if (codes.some(c => c === '05-CASH' || c === '05-BANK')) return 'cash';
   if (codes.some(c => c === '04-LT-ASSET')) return 'investing';
@@ -260,6 +268,12 @@ function balanceChange(openingMap, closingMap, acct) {
 }
 
 function adjustmentLabel(acct, change, category) {
+  // Accumulated Depreciation is credit-normal (a contra-asset), so a growing
+  // balance moves `change` negative — the opposite of every other asset
+  // account. "Depreciation" avoids the Increase/Decrease framing entirely,
+  // matching how every other indirect-method cash flow statement labels
+  // this exact add-back line.
+  if (acct.account_code === '04-ACCUM-DEP') return 'Depreciation';
   const dir = change > 0 ? 'Increase' : 'Decrease';
   if (category === 'operating') {
     if (acct.account_type === 'asset') return `${dir} in ${acct.account_name}`;

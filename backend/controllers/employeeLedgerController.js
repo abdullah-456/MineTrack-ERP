@@ -294,6 +294,11 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     e.statusCode = 404;
     throw e;
   }
+  if (employee.status === 'terminated') {
+    const e = new Error(`${employee.name} was terminated and cannot be paid a regular salary run. Use the clearance certificate for a final settlement instead.`);
+    e.statusCode = 400;
+    throw e;
+  }
 
   const {
     month, bonus, temp_allowance, tax_deduction_percent, method, bank_account_id, date,

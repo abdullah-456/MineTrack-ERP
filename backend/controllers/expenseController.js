@@ -5,6 +5,7 @@ const { postVoucher } = require('../utils/postVoucher');
 const { assertCashAvailable, debitBankAccount, debitCashPayment, creditBankAccount, creditCashPayment, bankAccountCode, paymentAccountCode } = require('../utils/cashHelpers');
 const { requestOrAllowDelete } = require('../utils/deletionRequest');
 const { guardWritableDates, handleFiscalYearError, resolveListDateRange, applyDateRangeToWhere } = require('../utils/fiscalYear');
+const { postPayFromBodCurrent, reversePayFromBodCurrent } = require('../utils/bodAccounts');
 
 const EXPENSE_ACCOUNT_CODE = '07-OPEX';
 
@@ -132,7 +133,6 @@ exports.create = async (req, res) => {
     const storedVia = isBod ? (paid_via === 'bod_bank' ? 'bank' : 'cash') : paid_via;
 
     if (isBod) {
-      const { postPayFromBodCurrent } = require('../utils/bodAccounts');
       const result = await postPayFromBodCurrent(shopId, {
         amount: amt,
         method: paid_via,
@@ -173,6 +173,7 @@ exports.create = async (req, res) => {
       paid_via: storedVia,
       bank_account_id: bankAcc?.id || null,
       expense_account_id: expenseAccount.id,
+      board_member_id: isBod ? parseInt(board_member_id, 10) : null,
       created_by: req.user.id,
       status: 'posted',
       voucher_id: voucher.id,
@@ -231,61 +232,99 @@ exports.update = async (req, res) => {
     let newBankAcc = null;
     let newExpenseAccount = { id: oldExpenseAccountId };
     if (financialChanged) {
-      // Undo the old entry's cash/bank + expense-category effect (against
-      // the SAME accounts it originally used), then apply the new ones.
-      let oldBankAcc = null;
-      if (oldMethod === 'cash') {
-        if (oldBankAccountId) {
-          oldBankAcc = await creditCashPayment(shopId, oldAmount, transaction, oldBankAccountId);
-        }
-      } else {
-        oldBankAcc = await creditBankAccount(shopId, oldAmount, transaction, oldBankAccountId);
-      }
-
       const oldExpenseAccount = oldExpenseAccountId
         ? await db.ChartOfAccount.findByPk(oldExpenseAccountId, { transaction })
         : await db.ChartOfAccount.findOne({ where: { account_code: EXPENSE_ACCOUNT_CODE }, transaction });
       newExpenseAccount = await resolveExpenseAccount(newExpenseAccountId, transaction);
 
-      // The reversal is posted BEFORE the availability check. Shared cash has no
-      // balance row — it is derived from the ledger — so until this voucher
-      // exists the old payment is still counted as spent, and raising a cash
-      // expense could be rejected for insufficient funds that the edit itself
-      // was about to release.
-      await postVoucher(shopId, {
-        type: 'journal',
-        date: new Date(),
-        narration: `Reversal: Expense #${expense.id} edited`,
-        createdBy: req.user.id,
-        branchId: expense.branch_id,
-        lines: [
-          { accountCode: oldExpenseAccount.account_code, credit: oldAmount },
-          { accountCode: paymentAccountCode(oldMethod, oldBankAcc), debit: oldAmount },
-        ],
-      }, transaction);
+      if (expense.board_member_id) {
+        // Originally funded from a director's BOD Current wallet — reverse
+        // and reapply against that SAME wallet, never company cash/bank
+        // (which never actually held this money).
+        const origTxn = await db.BoardMemberTransaction.findOne({
+          where: { voucher_id: expense.voucher_id, board_member_id: expense.board_member_id, type: 'current_payment' },
+          transaction,
+        });
+        const wallet = origTxn?.method || (oldMethod === 'bank' ? 'bank' : 'cash');
+        const dueAmt = origTxn ? parseFloat(origTxn.company_amount) : oldAmount;
+        const personalAmt = origTxn ? parseFloat(origTxn.personal_amount) : 0;
 
-      if (newMethod === 'cash' && !newBankAccountId) {
-        await assertCashAvailable(shopId, newAmount, transaction);
+        await reversePayFromBodCurrent(shopId, {
+          boardMemberId: expense.board_member_id,
+          wallet,
+          amount: oldAmount,
+          dueAmt,
+          personalAmt,
+          creditAccountCode: oldExpenseAccount.account_code,
+          narration: `Reversal: Expense #${expense.id} edited`,
+          createdBy: req.user.id,
+          branchId: expense.branch_id,
+        }, transaction);
+
+        const result = await postPayFromBodCurrent(shopId, {
+          amount: newAmount,
+          method: wallet === 'bank' ? 'bod_bank' : 'bod_cash',
+          boardMemberId: expense.board_member_id,
+          debitAccountCode: newExpenseAccount.account_code,
+          narration: narrationFor(category ?? expense.category, description ?? expense.description),
+          createdBy: req.user.id,
+          date: newDate,
+          branchId: branch_id !== undefined ? parseInt(branch_id, 10) : expense.branch_id,
+        }, transaction);
+
+        expense.voucher_id = result.voucher.id;
+      } else {
+        // Undo the old entry's cash/bank + expense-category effect (against
+        // the SAME accounts it originally used), then apply the new ones.
+        let oldBankAcc = null;
+        if (oldMethod === 'cash') {
+          if (oldBankAccountId) {
+            oldBankAcc = await creditCashPayment(shopId, oldAmount, transaction, oldBankAccountId);
+          }
+        } else {
+          oldBankAcc = await creditBankAccount(shopId, oldAmount, transaction, oldBankAccountId);
+        }
+
+        // The reversal is posted BEFORE the availability check. Shared cash has
+        // no balance row — it is derived from the ledger — so until this
+        // voucher exists the old payment is still counted as spent, and
+        // raising a cash expense could be rejected for insufficient funds that
+        // the edit itself was about to release.
+        await postVoucher(shopId, {
+          type: 'journal',
+          date: new Date(),
+          narration: `Reversal: Expense #${expense.id} edited`,
+          createdBy: req.user.id,
+          branchId: expense.branch_id,
+          lines: [
+            { accountCode: oldExpenseAccount.account_code, credit: oldAmount },
+            { accountCode: paymentAccountCode(oldMethod, oldBankAcc), debit: oldAmount },
+          ],
+        }, transaction);
+
+        if (newMethod === 'cash' && !newBankAccountId) {
+          await assertCashAvailable(shopId, newAmount, transaction);
+        }
+        if (newMethod === 'bank') {
+          newBankAcc = await debitBankAccount(shopId, newAmount, transaction, newBankAccountId);
+        } else if (newMethod === 'cash' && newBankAccountId) {
+          newBankAcc = await debitCashPayment(shopId, newAmount, transaction, newBankAccountId);
+        }
+
+        const voucher = await postVoucher(shopId, {
+          type: 'payment',
+          date: newDate,
+          narration: narrationFor(category ?? expense.category, description ?? expense.description),
+          createdBy: req.user.id,
+          branchId: branch_id !== undefined ? parseInt(branch_id, 10) : expense.branch_id,
+          lines: [
+            { accountCode: newExpenseAccount.account_code, debit: newAmount },
+            { accountCode: paymentAccountCode(newMethod, newBankAcc), credit: newAmount },
+          ],
+        }, transaction);
+
+        expense.voucher_id = voucher.id;
       }
-      if (newMethod === 'bank') {
-        newBankAcc = await debitBankAccount(shopId, newAmount, transaction, newBankAccountId);
-      } else if (newMethod === 'cash' && newBankAccountId) {
-        newBankAcc = await debitCashPayment(shopId, newAmount, transaction, newBankAccountId);
-      }
-
-      const voucher = await postVoucher(shopId, {
-        type: 'payment',
-        date: newDate,
-        narration: narrationFor(category ?? expense.category, description ?? expense.description),
-        createdBy: req.user.id,
-        branchId: branch_id !== undefined ? parseInt(branch_id, 10) : expense.branch_id,
-        lines: [
-          { accountCode: newExpenseAccount.account_code, debit: newAmount },
-          { accountCode: paymentAccountCode(newMethod, newBankAcc), credit: newAmount },
-        ],
-      }, transaction);
-
-      expense.voucher_id = voucher.id;
     }
 
     if (category !== undefined) expense.category = category;
@@ -293,9 +332,9 @@ exports.update = async (req, res) => {
     if (branch_id !== undefined) expense.branch_id = parseInt(branch_id, 10);
     expense.amount = newAmount;
     expense.paid_via = newMethod;
-    expense.bank_account_id = newMethod === 'bank' || newBankAcc
-      ? (newBankAcc?.id || newBankAccountId || null)
-      : null;
+    expense.bank_account_id = expense.board_member_id
+      ? null
+      : (newMethod === 'bank' || newBankAcc ? (newBankAcc?.id || newBankAccountId || null) : null);
     expense.expense_account_id = newExpenseAccount.id;
     expense.expense_date = newDate;
     await expense.save({ transaction });
@@ -314,28 +353,50 @@ exports.update = async (req, res) => {
 // (everyone else's requests, once an admin approves them).
 async function performVoidExpense(expense, shopId, userId, transaction) {
   const amt = parseFloat(expense.amount);
-  let bankAcc = null;
-  if (expense.paid_via === 'bank') {
-    bankAcc = await creditBankAccount(shopId, amt, transaction, expense.bank_account_id);
-  } else if (expense.bank_account_id) {
-    bankAcc = await creditCashPayment(shopId, amt, transaction, expense.bank_account_id);
-  }
-
   const expenseAccount = expense.expense_account_id
     ? await db.ChartOfAccount.findByPk(expense.expense_account_id, { transaction })
     : await db.ChartOfAccount.findOne({ where: { account_code: EXPENSE_ACCOUNT_CODE }, transaction });
 
-  await postVoucher(shopId, {
-    type: 'journal',
-    date: new Date(),
-    narration: `Reversal: Expense #${expense.id} deleted`,
-    createdBy: userId,
-    branchId: expense.branch_id,
-    lines: [
-      { accountCode: expenseAccount.account_code, credit: amt },
-      { accountCode: paymentAccountCode(expense.paid_via, bankAcc), debit: amt },
-    ],
-  }, transaction);
+  if (expense.board_member_id) {
+    const origTxn = await db.BoardMemberTransaction.findOne({
+      where: { voucher_id: expense.voucher_id, board_member_id: expense.board_member_id, type: 'current_payment' },
+      transaction,
+    });
+    const wallet = origTxn?.method || (expense.paid_via === 'bank' ? 'bank' : 'cash');
+    const dueAmt = origTxn ? parseFloat(origTxn.company_amount) : amt;
+    const personalAmt = origTxn ? parseFloat(origTxn.personal_amount) : 0;
+
+    await reversePayFromBodCurrent(shopId, {
+      boardMemberId: expense.board_member_id,
+      wallet,
+      amount: amt,
+      dueAmt,
+      personalAmt,
+      creditAccountCode: expenseAccount.account_code,
+      narration: `Reversal: Expense #${expense.id} deleted`,
+      createdBy: userId,
+      branchId: expense.branch_id,
+    }, transaction);
+  } else {
+    let bankAcc = null;
+    if (expense.paid_via === 'bank') {
+      bankAcc = await creditBankAccount(shopId, amt, transaction, expense.bank_account_id);
+    } else if (expense.bank_account_id) {
+      bankAcc = await creditCashPayment(shopId, amt, transaction, expense.bank_account_id);
+    }
+
+    await postVoucher(shopId, {
+      type: 'journal',
+      date: new Date(),
+      narration: `Reversal: Expense #${expense.id} deleted`,
+      createdBy: userId,
+      branchId: expense.branch_id,
+      lines: [
+        { accountCode: expenseAccount.account_code, credit: amt },
+        { accountCode: paymentAccountCode(expense.paid_via, bankAcc), debit: amt },
+      ],
+    }, transaction);
+  }
 
   expense.status = 'void';
   await expense.save({ transaction });

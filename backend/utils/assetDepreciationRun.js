@@ -14,7 +14,7 @@ const { postVoucher } = require('./postVoucher');
 const {
   getOrCreateDepreciationExpenseAccount, getOrCreateAccumulatedDepreciationAccount,
 } = require('./chartOfAccounts');
-const { bookValueAfterYears, monthsBetween, round2 } = require('./assetDepreciation');
+const { monthsBetween, round2 } = require('./assetDepreciation');
 
 // The asset's Nth purchase-date anniversary.
 function anniversaryDate(purchaseDate, years) {
@@ -43,10 +43,15 @@ async function catchUpOneAsset(asset, shopId, userId, transaction, { asOfDate } 
   let postedYears = asset.depreciation_years_posted || 0;
   if (dueYears <= postedYears) return;
 
+  // Ground truth, not a formula recompute: starting from what's ACTUALLY
+  // been posted so far means a mid-stream rate/useful-life edit only changes
+  // the NEXT increment, never retroactively recalculates years already in
+  // the GL under a different rate.
+  let bookValue = round2(cost - parseFloat(asset.accumulated_depreciation_posted || 0));
+
   for (let year = postedYears + 1; year <= dueYears; year++) {
-    const before = bookValueAfterYears(cost, salvage, pct, year - 1);
-    const after = bookValueAfterYears(cost, salvage, pct, year);
-    const amount = round2(before - after);
+    const rawAmount = round2(bookValue * pct / 100);
+    const amount = Math.min(rawAmount, round2(bookValue - salvage));
     if (amount <= 0) { postedYears = year; continue; }
 
     const depExpAccount = await getOrCreateDepreciationExpenseAccount(shopId, userId, transaction);
@@ -83,10 +88,12 @@ async function catchUpOneAsset(asset, shopId, userId, transaction, { asOfDate } 
         throw err;
       }
     }
+    bookValue = round2(bookValue - amount);
     postedYears = year;
   }
 
   asset.depreciation_years_posted = postedYears;
+  asset.accumulated_depreciation_posted = round2(cost - bookValue);
   await asset.save({ transaction });
 }
 

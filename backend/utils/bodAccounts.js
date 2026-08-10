@@ -240,6 +240,125 @@ async function postPayFromBodCurrent(shopId, {
 }
 
 /**
+ * Reverse a postPayFromBodCurrent payment — used when the expense/bill it
+ * funded is later edited or voided. Restores the member's Current wallet and
+ * Due-from/Investment balances using the SAME dueAmt/personalAmt split the
+ * original payment actually applied (passed in, not recomputed), since
+ * due_from_balance may have moved on since then and a fresh split could
+ * silently diverge from what was really posted.
+ */
+async function reversePayFromBodCurrent(shopId, {
+  boardMemberId, wallet, amount, dueAmt, personalAmt, creditAccountCode, creditLines, narration, createdBy, date, branchId,
+}, transaction) {
+  const amt = round2(amount);
+  if (!(amt > 0)) throw err(400, 'amount must be greater than 0');
+  const member = await loadBodMemberForPayment(shopId, boardMemberId, transaction);
+  const field = currentBalanceField(wallet);
+  const due = round2(dueAmt || 0);
+  const personal = round2(personalAmt || 0);
+  const invBal = round2(parseFloat(member.investment_balance || 0) - personal);
+
+  await member.update({
+    [field]: round2(parseFloat(member[field]) + amt),
+    due_from_balance: round2(parseFloat(member.due_from_balance) + due),
+    investment_balance: invBal,
+    current_balance: invBal,
+  }, { transaction });
+
+  const dueCode = await codeOf(member.due_from_coa_id, transaction);
+  const invCode = await codeOf(member.chart_of_account_id, transaction);
+  const debitLines = [];
+  if (due > 0) debitLines.push({ accountCode: dueCode, debit: due });
+  if (personal > 0) debitLines.push({ accountCode: invCode, debit: personal });
+
+  const credits = creditLines && creditLines.length
+    ? creditLines
+    : [{ accountCode: creditAccountCode, credit: amt }];
+
+  const voucher = await postVoucher(shopId, {
+    type: 'journal',
+    date: date ? new Date(date) : new Date(),
+    narration: narration || `Reversal: BOD Current payment — ${member.name}`,
+    createdBy,
+    branchId: branchId || null,
+    lines: [...debitLines, ...credits],
+  }, transaction);
+
+  const txn = await db.BoardMemberTransaction.create({
+    shop_id: shopId,
+    board_member_id: member.id,
+    date: date ? new Date(date) : new Date(),
+    type: 'current_payment_reversal',
+    amount: amt,
+    method: wallet,
+    notes: narration || null,
+    created_by: createdBy,
+    voucher_id: voucherIdOf(voucher),
+    account_bucket: wallet === 'bank' ? 'current_bank' : 'current_cash',
+    fund_origin: personal > 0 && due > 0 ? 'mixed' : (personal > 0 ? 'personal' : 'company'),
+    personal_amount: personal,
+    company_amount: due,
+  }, { transaction });
+
+  return { member, voucher, transaction: txn };
+}
+
+/**
+ * Reverse a postReceiveToBodCurrent-style collection — used when a sale that
+ * was collected into a director's Current wallet is refunded. Current and
+ * Due-from always move together on the way in (postReceiveToBodCurrent never
+ * touches Investment), so they're reversed together too. Guards against
+ * reversing more than the wallet still holds — the director may have already
+ * moved some of it to Capital via transferToCapital.
+ */
+async function reverseReceiveFromBodCurrent(shopId, {
+  boardMemberId, wallet, amount, debitAccountCode, debitLines, narration, createdBy, date, branchId,
+}, transaction) {
+  const amt = round2(amount);
+  if (!(amt > 0)) throw err(400, 'amount must be greater than 0');
+  const member = await loadBodMemberForPayment(shopId, boardMemberId, transaction);
+  const field = currentBalanceField(wallet);
+  const bal = round2(member[field]);
+  const dueBal = round2(member.due_from_balance);
+  if (bal + 1e-9 < amt || dueBal + 1e-9 < amt) {
+    throw err(400, `Cannot reverse Rs. ${amt} — ${member.name}'s Current wallet no longer holds this collection (available ${Math.min(bal, dueBal)}). Settle the difference manually via the BOD ledger first.`);
+  }
+
+  await member.update({
+    [field]: round2(bal - amt),
+    due_from_balance: round2(dueBal - amt),
+  }, { transaction });
+
+  const dueCode = await codeOf(member.due_from_coa_id, transaction);
+  const debits = debitLines && debitLines.length ? debitLines : [{ accountCode: debitAccountCode, debit: amt }];
+
+  const voucher = await postVoucher(shopId, {
+    type: 'journal',
+    date: date ? new Date(date) : new Date(),
+    narration: narration || `Reversal: BOD Current collection — ${member.name}`,
+    createdBy,
+    branchId: branchId || null,
+    lines: [...debits, { accountCode: dueCode, credit: amt }],
+  }, transaction);
+
+  const txn = await db.BoardMemberTransaction.create({
+    shop_id: shopId,
+    board_member_id: member.id,
+    date: date ? new Date(date) : new Date(),
+    type: 'current_receipt_reversal',
+    amount: amt,
+    method: wallet,
+    notes: narration || null,
+    created_by: createdBy,
+    voucher_id: voucherIdOf(voucher),
+    account_bucket: wallet === 'bank' ? 'current_bank' : 'current_cash',
+    fund_origin: 'company',
+  }, { transaction });
+
+  return { member, voucher, transaction: txn };
+}
+
+/**
  * Receipt INTO BOD Current (sale / customer collection held by director).
  * Dr Due-from, Cr Sales/AR (or multiple credit lines). Current ↑, Due-from ↑.
  */
@@ -621,6 +740,8 @@ module.exports = {
   bodWalletMethod,
   postPayFromBodCurrent,
   postReceiveToBodCurrent,
+  reversePayFromBodCurrent,
+  reverseReceiveFromBodCurrent,
   personalDeposit,
   transferToCapital,
   transferFromCapital,

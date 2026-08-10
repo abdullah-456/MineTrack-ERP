@@ -6,6 +6,7 @@ const { createAccount, getOrCreateDirectorsParent } = require('../utils/chartOfA
 const { assertCnicAvailable } = require('../utils/cnic');
 const { parseTransactionDate } = require('../utils/transactionDate');
 const { ensureBodAccounts, composeWalletName } = require('../utils/bodAccounts');
+const { deleteFileQuiet, absoluteFilePath } = require('../utils/documentUploads');
 
 exports.list = async (req, res) => {
   try {
@@ -257,6 +258,21 @@ exports.remove = async (req, res) => {
         member.current_cash_coa_id,
         member.current_bank_coa_id,
       ].filter(Boolean);
+
+      // BoardMember is the only owner type in the polymorphic documents
+      // system that's hard-deleted (every other owner is soft-deleted) — its
+      // uploaded files/rows would otherwise become permanently unreachable
+      // (loadOwner's shop-scoped lookup returns null for a deleted member)
+      // but never actually cleaned up.
+      const orphanedDocs = await db.Document.findAll({
+        where: { owner_type: 'board_member', owner_id: member.id, shop_id: shopId },
+        transaction,
+      });
+      for (const doc of orphanedDocs) deleteFileQuiet(absoluteFilePath(doc.file_path));
+      await db.Document.destroy({
+        where: { owner_type: 'board_member', owner_id: member.id, shop_id: shopId },
+        transaction,
+      });
 
       await member.destroy({ transaction });
 

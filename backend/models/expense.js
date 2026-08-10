@@ -9,6 +9,7 @@ module.exports = (sequelize, DataTypes) => {
       Expense.belongsTo(models.User, { as: 'Creator', foreignKey: 'created_by' });
       Expense.belongsTo(models.BankAccount, { foreignKey: 'bank_account_id' });
       Expense.belongsTo(models.ChartOfAccount, { as: 'ExpenseAccount', foreignKey: 'expense_account_id' });
+      Expense.belongsTo(models.BoardMember, { foreignKey: 'board_member_id' });
     }
   }
   Expense.init({
@@ -50,6 +51,10 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     voucher_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    board_member_id: {
       type: DataTypes.INTEGER,
       allowNull: true
     },

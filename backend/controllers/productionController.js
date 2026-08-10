@@ -31,6 +31,19 @@ async function assertHierarchy(shopId, mineId, pitId, benchId, transaction) {
   }
 }
 
+// Same cross-tenant guard as assertHierarchy, for the two fields that didn't
+// have one — a mineral_id/supervisor_id from another shop was previously
+// accepted as-is.
+async function assertMineralInShop(shopId, mineralId, transaction) {
+  const mineral = await db.Mineral.findOne({ where: { id: mineralId, shop_id: shopId }, transaction });
+  if (!mineral) { const e = new Error('Mineral not found for this shop'); e.statusCode = 400; throw e; }
+}
+
+async function assertSupervisorInShop(shopId, supervisorId, transaction) {
+  const supervisor = await db.Employee.findOne({ where: { id: supervisorId, shop_id: shopId }, transaction });
+  if (!supervisor) { const e = new Error('Supervisor not found for this shop'); e.statusCode = 400; throw e; }
+}
+
 function parseFilters(query) {
   const f = {};
   if (query.mine_id) f.mineId = parseInt(query.mine_id, 10);
@@ -130,6 +143,8 @@ exports.create = async (req, res) => {
     }
 
     await assertHierarchy(shopId, mine_id, pit_id, bench_id);
+    if (mineral_id) await assertMineralInShop(shopId, mineral_id);
+    await assertSupervisorInShop(shopId, supervisor_id);
 
     const entry = await db.ProductionEntry.create({
       shop_id: shopId,
@@ -170,6 +185,8 @@ exports.update = async (req, res) => {
     if (mine_id !== undefined || pit_id !== undefined || bench_id !== undefined) {
       await assertHierarchy(shopId, nextMine, nextPit, nextBench);
     }
+    if (mineral_id) await assertMineralInShop(shopId, mineral_id);
+    if (supervisor_id) await assertSupervisorInShop(shopId, supervisor_id);
 
     if (date !== undefined) entry.date = date;
     if (mine_id !== undefined) entry.mine_id = parseInt(mine_id, 10);

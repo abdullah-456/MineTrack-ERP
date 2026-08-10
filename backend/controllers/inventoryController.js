@@ -170,8 +170,13 @@ exports.adjust = async (req, res) => {
     });
 
     const absQty = Math.abs(parseFloat(quantity));
-    const delta = direction === 'decrease' ? -absQty : absQty;
-    const newQty = Math.max(0, Math.round((parseFloat(stock.quantity_on_hand || 0) + delta) * 1000) / 1000);
+    const requestedDelta = direction === 'decrease' ? -absQty : absQty;
+    const oldQty = parseFloat(stock.quantity_on_hand || 0);
+    const newQty = Math.max(0, Math.round((oldQty + requestedDelta) * 1000) / 1000);
+    // The floor-at-zero above can silently clamp a large decrease — log the
+    // change actually applied, not the requested one, so the audit trail
+    // (and anything built from it) doesn't disagree with quantity_on_hand.
+    const actualDelta = Math.round((newQty - oldQty) * 1000) / 1000;
     await stock.update({ quantity_on_hand: newQty }, { transaction });
 
     // Record in stock_movements
@@ -180,7 +185,7 @@ exports.adjust = async (req, res) => {
       branch_id,
       ref_type: 'adjustment',
       ref_id: stock.id,
-      quantity: delta,
+      quantity: actualDelta,
       balance_after: newQty,
     }, { transaction });
 
@@ -188,7 +193,7 @@ exports.adjust = async (req, res) => {
     await db.StockAdjustment.create({
       product_id,
       branch_id,
-      quantity_change: delta,
+      quantity_change: actualDelta,
       reason: String(reason).trim(),
       approved_by: req.user?.id || null,
     }, { transaction });

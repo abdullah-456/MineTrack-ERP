@@ -474,13 +474,44 @@ async function markAttendance(shopId, userId, rawDate, entries, transaction) {
   const employeeIds = entries.map(e => parseInt(e.employee_id, 10));
   const employees = await db.Employee.findAll({
     where: { id: { [Op.in]: employeeIds }, shop_id: shopId },
-    attributes: ['id', 'branch_id', 'shift'],
+    attributes: ['id', 'name', 'branch_id', 'shift', 'status'],
     transaction,
   });
   const employeeById = new Map(employees.map(e => [e.id, e]));
   for (const id of employeeIds) {
-    if (!employeeById.has(id)) {
+    const emp = employeeById.get(id);
+    if (!emp) {
       const e = new Error(`Employee ${id} not found for this shop`);
+      e.statusCode = 400;
+      throw e;
+    }
+    if (emp.status === 'terminated') {
+      const e = new Error(`${emp.name} was terminated and can no longer be marked for attendance`);
+      e.statusCode = 400;
+      throw e;
+    }
+  }
+
+  // Marking present/absent over an approved leave day would desync the two
+  // sources of truth: LeaveRecord still shows the leave consumed (feeds
+  // getLeaveBalance) while Attendance says present/absent (feeds payroll
+  // deduction) — the two would permanently disagree for the same date.
+  const onLeaveIds = new Set(
+    (await db.LeaveRecord.findAll({
+      where: {
+        employee_id: { [Op.in]: employeeIds },
+        start_date: { [Op.lte]: date },
+        end_date: { [Op.gte]: date },
+      },
+      attributes: ['employee_id'],
+      transaction,
+    })).map(r => r.employee_id),
+  );
+  for (const entry of entries) {
+    const employeeId = parseInt(entry.employee_id, 10);
+    if (entry.status !== 'leave' && onLeaveIds.has(employeeId)) {
+      const emp = employeeById.get(employeeId);
+      const e = new Error(`${emp.name} has an approved leave record covering ${date} — mark it as 'leave' instead, or adjust the leave record first.`);
       e.statusCode = 400;
       throw e;
     }
