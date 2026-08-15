@@ -99,9 +99,12 @@ function calcOrderTotals(items, discount = 0, tax = 0) {
   return { subtotal, discount: disc, tax: taxAmt, total };
 }
 
+// Continuous per-shop sequence — no date segment, never resets. Matching
+// against the bare "PREFIX-{shopId}-" also picks up older date-stamped
+// numbers (e.g. "PO-1-20260814-0001"), so the count picks up from the last
+// number ever issued to this shop rather than restarting.
 async function generatePoNumber(shopId, transaction) {
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const prefix = `PO-${shopId}-${dateStr}-`;
+  const prefix = `PO-${shopId}-`;
   const last = await db.PurchaseOrder.findOne({
     where: { shop_id: shopId, po_number: { [db.Sequelize.Op.like]: `${prefix}%` } },
     order: [['id', 'DESC']],
@@ -117,8 +120,7 @@ async function generatePoNumber(shopId, transaction) {
 }
 
 async function generatePrNumber(shopId, transaction) {
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const prefix = `PR-${shopId}-${dateStr}-`;
+  const prefix = `PR-${shopId}-`;
   const last = await db.PurchaseRequisition.findOne({
     where: { shop_id: shopId, pr_number: { [db.Sequelize.Op.like]: `${prefix}%` } },
     order: [['id', 'DESC']],
@@ -134,8 +136,7 @@ async function generatePrNumber(shopId, transaction) {
 }
 
 async function generateDaNumber(shopId, transaction) {
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const prefix = `DA-${shopId}-${dateStr}-`;
+  const prefix = `DA-${shopId}-`;
   const last = await db.DepartmentalApproval.findOne({
     where: { shop_id: shopId, da_number: { [db.Sequelize.Op.like]: `${prefix}%` } },
     order: [['id', 'DESC']],

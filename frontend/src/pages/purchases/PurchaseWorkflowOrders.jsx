@@ -65,6 +65,7 @@ export default function PurchaseWorkflowOrders() {
               columns={[
                 { header: t('poNumber') || 'PO #', key: 'po_number', width: 1.2 },
                 { header: t('prNumber') || 'PR #', render: o => o.PurchaseRequisition?.pr_number || '', width: 1.2 },
+                { header: t('approvalNumber') || 'Approval #', render: o => o.PurchaseRequisition?.DepartmentalApproval?.da_number || '', width: 1.2 },
                 { header: t('orderDate') || 'Date', key: 'order_date', width: 1 },
                 { header: t('supplier') || 'Supplier', render: o => o.Supplier?.company_name || '', width: 1.4 },
                 { header: t('mine') || 'Mine', render: o => o.Branch?.name || '', width: 1.2 },
@@ -97,6 +98,7 @@ export default function PurchaseWorkflowOrders() {
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th className="text-start p-4 font-medium">{t('poNumber') || 'PO #'}</th>
                 <th className="text-start p-4 font-medium">{t('prNumber') || 'PR #'}</th>
+                <th className="text-start p-4 font-medium">{t('approvalNumber') || 'Approval #'}</th>
                 <th className="text-start p-4 font-medium">{t('orderDate') || 'Date'}</th>
                 <th className="text-start p-4 font-medium">{t('supplier') || 'Supplier'}</th>
                 <th className="text-start p-4 font-medium">{t('mine') || 'Mine'}</th>
@@ -110,6 +112,7 @@ export default function PurchaseWorkflowOrders() {
                 <tr key={o.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 font-mono text-xs" style={{ color: 'var(--text-secondary)' }}>{o.po_number}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{o.PurchaseRequisition?.pr_number || '—'}</td>
+                  <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{o.PurchaseRequisition?.DepartmentalApproval?.da_number || '—'}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{o.order_date || '—'}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{o.Supplier?.company_name || '—'}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{o.Branch?.name || '—'}</td>
@@ -124,7 +127,7 @@ export default function PurchaseWorkflowOrders() {
                 </tr>
               ))}
               {orders.length === 0 && (
-                <tr><td colSpan={8} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noWorkflowPOs') || 'No workflow purchase orders yet'}</td></tr>
+                <tr><td colSpan={9} className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>{t('noWorkflowPOs') || 'No workflow purchase orders yet'}</td></tr>
               )}
             </tbody>
           </table>

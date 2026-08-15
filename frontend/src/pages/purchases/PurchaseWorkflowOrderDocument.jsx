@@ -42,6 +42,10 @@ export default function PurchaseWorkflowOrderDocument({ order, showPrintBar = tr
   const supplier = order.Supplier || {};
   const branch = order.Branch || {};
   const pr = order.PurchaseRequisition || {};
+  // The departmental approval that cleared this PO's requisition — fetched
+  // by the backend already (workflowPoIncludes nests it under the
+  // requisition), just never surfaced on this document until now.
+  const approval = pr.DepartmentalApproval || {};
   const items = order.PurchaseOrderItems || [];
   const grn = (order.GoodsReceiptNotes || [])[0] || order.GoodsReceiptNote || null;
   const invoice = grn?.PurchaseInvoice || null;
@@ -58,6 +62,7 @@ export default function PurchaseWorkflowOrderDocument({ order, showPrintBar = tr
             { label: 'PO Number', value: order.po_number },
             { label: 'Order Date', value: fmtDate(order.order_date) },
             { label: 'PR Number', value: pr.pr_number || '—' },
+            { label: 'Approval Number', value: approval.da_number || '—' },
             { label: 'Supplier', value: supplier.company_name || '—' },
             { label: 'Mine / Branch', value: branch.name || '—' },
             { label: 'Status', value: (order.status || '—').replace(/_/g, ' ').toUpperCase() },
