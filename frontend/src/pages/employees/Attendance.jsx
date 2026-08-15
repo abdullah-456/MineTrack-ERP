@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { CalendarCheck, Loader2, Save } from 'lucide-react';
+import { CalendarCheck, CalendarCheck2, CalendarOff, Loader2, Save } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import AttendanceReportsView from '../../components/attendance/AttendanceReportsView';
-import { STATUS_META, STATUS_ORDER, nextStatus } from '../../utils/attendanceStatus';
+import { STATUS_META, STATUS_ORDER, HOLIDAY_META } from '../../utils/attendanceStatus';
 import { SHIFTS } from '../../utils/shiftOptions';
 import api from '../../api/axios';
 
@@ -80,6 +80,10 @@ export default function Attendance() {
 function TodayView({ shopParams, branchId, branches, t, error, success }) {
   const [date, setDate] = useState(todayStr());
   const [employees, setEmployees] = useState([]);
+  // Name of the holiday on the selected date, or null — a shop-wide fact
+  // (not per employee), fetched alongside the roster so an unmarked cell can
+  // read as "day off" instead of looking like nobody got around to it.
+  const [holiday, setHoliday] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // Local edits keyed by employee id, seeded from the fetched roster and
@@ -94,6 +98,7 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
       if (branchId) params.branch_id = branchId;
       const { data } = await api.get('/attendance', { params });
       setEmployees(data.employees || []);
+      setHoliday(data.holiday || null);
       setPending({});
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
@@ -110,7 +115,6 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
   const setStatus = (empId, status) => setPending(p => ({ ...p, [empId]: { ...p[empId], status } }));
   const setShift = (empId, shift) => setPending(p => ({ ...p, [empId]: { ...p[empId], shift } }));
   const setOvertimeHours = (empId, overtime_hours) => setPending(p => ({ ...p, [empId]: { ...p[empId], overtime_hours } }));
-  const cycleStatus = (emp) => setStatus(emp.id, nextStatus(statusFor(emp)));
   const markAllPresent = () => {
     const next = {};
     employees.forEach(e => { next[e.id] = { ...pending[e.id], status: 'present' }; });
@@ -169,6 +173,16 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
         </button>
       </div>
 
+      {holiday && (
+        <div
+          className="glass-card p-3 flex items-center gap-2 text-sm"
+          style={{ color: HOLIDAY_META.cell, border: `1px solid ${HOLIDAY_META.cell}` }}
+        >
+          <CalendarOff className="w-4 h-4 shrink-0" />
+          {(t('holidayOnDate') || 'This date is a holiday: {name}').replace('{name}', holiday)}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-emerald-400" /></div>
       ) : (
@@ -220,21 +234,45 @@ function TodayView({ shopParams, branchId, branches, t, error, success }) {
                       />
                     </td>
                     <td className="p-4">
-                      <div className="flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => cycleStatus(emp)}
-                          title={status ? (t(STATUS_META[status]?.labelKey) || STATUS_META[status]?.fallback) : (t('unmarked') || 'Unmarked')}
-                          className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm transition-opacity hover:opacity-80"
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Colour swatch keeps the at-a-glance scan the old
+                            cycling button gave, while the select next to it
+                            makes every option visible and reachable in one
+                            action — with five statuses, cycling would take up
+                            to five clicks to land on the right one. */}
+                        <span
+                          className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0"
+                          title={
+                            status
+                              ? (t(STATUS_META[status]?.labelKey) || STATUS_META[status]?.fallback)
+                              : holiday
+                                ? (t('holidayOnDate') || 'This date is a holiday: {name}').replace('{name}', holiday)
+                                : (t('unmarked') || 'Unmarked')
+                          }
                           style={{
-                            background: status ? STATUS_META[status]?.cell : 'var(--bg-elevated)',
-                            border: status ? 'none' : '1px dashed var(--border-subtle)',
-                            color: status ? '#fff' : 'var(--text-muted)',
+                            // An employee left unmarked on a holiday reads as a
+                            // day off, not a gap someone forgot to fill in — the
+                            // dashed "nothing here" outline is reserved for a
+                            // genuine working day nobody has marked yet.
+                            background: status ? STATUS_META[status]?.cell : holiday ? HOLIDAY_META.cell : 'var(--bg-elevated)',
+                            border: status || holiday ? 'none' : '1px dashed var(--border-subtle)',
+                            color: status || holiday ? '#fff' : 'var(--text-muted)',
                             boxShadow: isDirty ? '0 0 0 2px var(--text-primary)' : 'none',
                           }}
                         >
-                          {status ? STATUS_META[status]?.letter : ''}
-                        </button>
+                          {status ? STATUS_META[status]?.letter : holiday ? HOLIDAY_META.letter : ''}
+                        </span>
+                        <select
+                          className="input text-xs py-1"
+                          style={{ minWidth: '130px' }}
+                          value={status || ''}
+                          onChange={e => setStatus(emp.id, e.target.value)}
+                        >
+                          <option value="">{holiday ? (t('holiday') || 'Holiday') : (t('unmarked') || 'Unmarked')}</option>
+                          {STATUS_ORDER.map(s => (
+                            <option key={s} value={s}>{t(STATUS_META[s].labelKey) || STATUS_META[s].fallback}</option>
+                          ))}
+                        </select>
                       </div>
                     </td>
                   </tr>
@@ -296,12 +334,30 @@ function MonthView({ shopParams, branchId, t, error, success }) {
     return data.employees.find(e => e.id === employeeId)?.days?.[day]?.status || null;
   };
 
-  // Always cycles within the three real statuses — no dead end. A cell that
-  // was never marked starts at "present" on the first click; from there it
-  // only ever moves to the next of the three, wrapping around indefinitely.
-  const cycle = (employeeId, day) => {
+  const setStatus = (employeeId, day, status) => {
     if (`${data.month}-${day}` > todayStr()) return;
-    setPending(p => ({ ...p, [`${employeeId}:${day}`]: nextStatus(statusFor(employeeId, day)) }));
+    setPending(p => ({ ...p, [`${employeeId}:${day}`]: status }));
+  };
+
+  // One-click backfill for an employee who simply worked every day this
+  // month — stages 'present' across the whole row in one go instead of
+  // clicking through up to 31 cells by hand. Future days stay untouched:
+  // setStatus already refuses to edit past today, so looping through every
+  // day of the month and letting it silently skip the ones ahead is the same
+  // rule a single-cell edit already follows, just applied row-wide. Holiday
+  // days are skipped too — a day off is the default here, not something a
+  // "mark the working days present" shortcut should overwrite; anyone who
+  // actually worked a holiday can still be marked present on that one cell.
+  const markEmployeeMonthPresent = (employeeId) => {
+    setPending(p => {
+      const next = { ...p };
+      days.forEach(d => {
+        if (`${data.month}-${d}` > todayStr()) return;
+        if (data.holidays?.[d]) return;
+        next[`${employeeId}:${d}`] = 'present';
+      });
+      return next;
+    });
   };
 
   const dirtyCount = Object.keys(pending).length;
@@ -312,6 +368,10 @@ function MonthView({ shopParams, branchId, t, error, success }) {
     // touched — not one call per cell.
     const byDate = {};
     Object.entries(pending).forEach(([key, status]) => {
+      // Picking the blank "Unmarked" option stages an empty status — there is
+      // no "unmark" write on the API, so it's simply not sent rather than
+      // rejected as an invalid status on save.
+      if (!status) return;
       const [employeeId, day] = key.split(':');
       const date = `${data.month}-${day}`;
       (byDate[date] = byDate[date] || []).push({ employee_id: parseInt(employeeId, 10), status });
@@ -345,6 +405,10 @@ function MonthView({ shopParams, branchId, t, error, success }) {
               {t(STATUS_META[s].labelKey) || STATUS_META[s].fallback}
             </span>
           ))}
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: HOLIDAY_META.cell }} />
+            {t(HOLIDAY_META.labelKey) || HOLIDAY_META.fallback}
+          </span>
         </div>
         <div className="flex-1" />
         <button
@@ -383,34 +447,81 @@ function MonthView({ shopParams, branchId, t, error, success }) {
                     className="p-2 font-medium sticky start-0"
                     style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}
                   >
-                    {emp.name}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate">{emp.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => markEmployeeMonthPresent(emp.id)}
+                        title={t('markMonthPresent') || 'Mark whole month present'}
+                        className="shrink-0 p-1 rounded hover:bg-white/10 transition-colors"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        <CalendarCheck2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </td>
                   {days.map(d => {
                     const status = statusFor(emp.id, d);
                     const key = `${emp.id}:${d}`;
                     const isDirty = pending[key] !== undefined;
                     const future = `${data.month}-${d}` > todayStr();
+                    const dayHoliday = data.holidays?.[d];
                     return (
                       <td
                         key={d}
                         className="p-1 text-center"
                         style={{ borderBottom: '1px solid var(--border-subtle)' }}
                       >
-                        <button
-                          type="button"
-                          disabled={future}
-                          onClick={() => cycle(emp.id, d)}
-                          title={status ? (t(STATUS_META[status]?.labelKey) || status) : (t('unmarked') || 'Unmarked')}
-                          className="w-6 h-6 rounded flex items-center justify-center mx-auto font-bold text-[10px] leading-none transition-opacity hover:opacity-80 disabled:opacity-30"
+                        {/* A real <select> laid transparently over the colour
+                            cell: the grid keeps its compact one-letter density
+                            (31 full-width dropdowns per row would be unusable)
+                            while status is still picked from a list instead of
+                            by clicking through the options one at a time. */}
+                        <div
+                          className="relative w-6 h-6 mx-auto rounded flex items-center justify-center font-bold text-[10px] leading-none"
+                          title={
+                            status
+                              ? (t(STATUS_META[status]?.labelKey) || status)
+                              : dayHoliday
+                                ? (t('holidayOnDate') || 'This date is a holiday: {name}').replace('{name}', dayHoliday)
+                                : (t('unmarked') || 'Unmarked')
+                          }
                           style={{
-                            background: status ? STATUS_META[status]?.cell : 'var(--bg-elevated)',
-                            border: status ? 'none' : '1px dashed var(--border-subtle)',
-                            color: status ? '#fff' : 'var(--text-muted)',
+                            // Unmarked-but-a-holiday reads as a day off, not a
+                            // gap nobody filled in — same reasoning as the
+                            // Today tab's swatch above.
+                            background: status ? STATUS_META[status]?.cell : dayHoliday ? HOLIDAY_META.cell : 'var(--bg-elevated)',
+                            border: status || dayHoliday ? 'none' : '1px dashed var(--border-subtle)',
+                            color: status || dayHoliday ? '#fff' : 'var(--text-muted)',
                             boxShadow: isDirty ? '0 0 0 2px var(--text-primary)' : 'none',
+                            opacity: future ? 0.3 : 1,
                           }}
                         >
-                          {status ? STATUS_META[status]?.letter : ''}
-                        </button>
+                          {status ? STATUS_META[status]?.letter : dayHoliday ? HOLIDAY_META.letter : ''}
+                          <select
+                            disabled={future}
+                            value={status || ''}
+                            onChange={e => setStatus(emp.id, d, e.target.value)}
+                            aria-label={`${emp.name} ${data.month}-${d}`}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-default"
+                            // The select itself stays invisible (opacity-0) so
+                            // only the colour swatch behind it shows — but a
+                            // browser's native dropdown POPUP still renders its
+                            // option text in the select's own CSS colour, which
+                            // was inheriting the swatch's white text from the
+                            // parent div above. White text on the popup's own
+                            // (light) background made every option unreadable
+                            // except whichever one happened to be highlighted.
+                            // Pinned to a fixed dark colour here so the popup is
+                            // legible regardless of what status is selected.
+                            style={{ color: '#111827', colorScheme: 'light' }}
+                          >
+                            <option value="">{dayHoliday ? (t('holiday') || 'Holiday') : (t('unmarked') || 'Unmarked')}</option>
+                            {STATUS_ORDER.map(s => (
+                              <option key={s} value={s}>{t(STATUS_META[s].labelKey) || STATUS_META[s].fallback}</option>
+                            ))}
+                          </select>
+                        </div>
                       </td>
                     );
                   })}

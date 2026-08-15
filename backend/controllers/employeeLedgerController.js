@@ -5,6 +5,14 @@ const { assertCashAvailable, debitBankAccount, creditBankAccount, bankAccountCod
 const { postVoucher } = require('../utils/postVoucher');
 const { resolveListDateRange, sliceHistoryToRange, openingBalanceRow } = require('../utils/fiscalYear');
 const { getAttendanceSummaryForMonth, getOvertimeSummaryForMonth } = require('./attendanceController');
+const { getCommissionSituation, deferCommission, resolveCommissionPaid } = require('../utils/commissionHelpers');
+const { SALARY_DAYS_PER_MONTH } = require('../utils/attendanceStatus');
+
+// Cap for the optional free-text name on a one-off temp allowance ("Eid Bonus").
+// Trimmed and truncated here regardless of what the client sends — the column
+// is STRING(60) and an over-long value would be a database error, not a
+// validation message.
+const TEMP_ALLOWANCE_LABEL_MAX = 60;
 
 function currentMonthStr() {
   return new Date().toISOString().slice(0, 7);
@@ -25,6 +33,19 @@ exports.recordAdvance = async (req, res) => {
       transaction, lock: transaction.LOCK.UPDATE,
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
+    // A new advance given here is only ever recovered automatically by
+    // runGiveSalary auto-clearing it against a future month's salary — and
+    // that path is itself blocked for a terminated employee (see runGiveSalary
+    // above). Left open, this would create debt with no ordinary way to
+    // collect it back except the one-off termination settlement screen, which
+    // is where new money to/from a terminated employee belongs in the first
+    // place — not a fresh advance.
+    if (employee.status === 'terminated') {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: `${employee.name} was terminated and cannot be given a new advance. Use the clearance certificate for a final settlement instead.`,
+      });
+    }
 
     const { amount, method, bank_account_id, notes, for_month, date } = req.body;
     const amt = parseFloat(amount);
@@ -93,6 +114,16 @@ exports.recordLoan = async (req, res) => {
       transaction, lock: transaction.LOCK.UPDATE,
     });
     if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
+    // Same reasoning as recordAdvance above: issuing a brand-new loan to
+    // someone who no longer works here isn't a routine ledger action. Money
+    // to/from a terminated employee belongs on the termination settlement
+    // screen, not a fresh grant here.
+    if (employee.status === 'terminated') {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: `${employee.name} was terminated and cannot be given a new loan. Use the clearance certificate for a final settlement instead.`,
+      });
+    }
 
     const { amount, method, bank_account_id, notes, date } = req.body;
     const amt = parseFloat(amount);
@@ -301,9 +332,22 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   }
 
   const {
-    month, bonus, temp_allowance, tax_deduction_percent, method, bank_account_id, date,
+    month, bonus, temp_allowance, temp_allowance_label, tax_deduction_percent,
+    method, bank_account_id, date,
     deduct_for_absence, count_leave_as_absence, add_overtime,
+    // 'none' (default) leaves commission alone entirely — untouched, exactly
+    // like this employee has no commission involvement this run. 'pay' folds
+    // everything currently owed (this month's fresh figure plus anything
+    // postponed from an earlier month) into gross pay. 'defer' postpones only
+    // THIS month's fresh figure — whatever was already postponed before stays
+    // postponed regardless, ready to combine with a future month's.
+    commission_action = 'none',
   } = body;
+  if (!['none', 'pay', 'defer'].includes(commission_action)) {
+    const e = new Error("commission_action must be 'none', 'pay', or 'defer'");
+    e.statusCode = 400;
+    throw e;
+  }
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
     const e = new Error('month is required in YYYY-MM format');
     e.statusCode = 400;
@@ -331,13 +375,81 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   // Employee.allowances below, same reasoning as bonus never persisting
   // anywhere but this month's Payroll row.
   const tempAllowanceAmt = Math.max(0, parseFloat(temp_allowance) || 0);
+  // Only meaningful when there's actually an amount behind it — a label with
+  // no allowance would print a named line item worth nothing on the payslip.
+  const tempAllowanceLabel = tempAllowanceAmt > 0
+    ? (String(temp_allowance_label || '').trim().slice(0, TEMP_ALLOWANCE_LABEL_MAX) || null)
+    : null;
   const taxPercent = Math.min(100, Math.max(0, parseFloat(tax_deduction_percent) || 0));
-  const basicSalary = parseFloat(employee.basic_salary || 0);
+
+  // ── Base pay ───────────────────────────────────────────────────────────────
+  // Two pay types. A salary-based employee's base pay is their fixed monthly
+  // basic_salary (unchanged). A daily-wage employee's is daily_wage × the days
+  // they were actually paid for that month, counted off marked attendance by
+  // the shared countPaidDays weights.
+  //
+  // Either way the result lands in `basic_salary` on the Payroll row, so every
+  // downstream figure — gross, tax, net, the ledger voucher — needs no
+  // special-casing for pay type.
+  const employmentType = employee.employment_type === 'daily_wage' ? 'daily_wage' : 'salary';
+  const isDailyWage = employmentType === 'daily_wage';
+
+  // Fetched once and shared: the daily-wage base pay needs it unconditionally,
+  // and the absence deduction needs it when that checkbox is on.
+  const needsAttendance = isDailyWage || !!deduct_for_absence;
+  const attendance = needsAttendance
+    ? await getAttendanceSummaryForMonth(shopId, employee.id, month, transaction)
+    : null;
+
+  let wageDaysPaid = 0;
+  let dailyWageRate = 0;
+  let basicSalary;
+  if (isDailyWage) {
+    dailyWageRate = parseFloat(employee.daily_wage || 0);
+    wageDaysPaid = attendance.paid_days;
+    basicSalary = Math.round(wageDaysPaid * dailyWageRate * 100) / 100;
+  } else {
+    basicSalary = parseFloat(employee.basic_salary || 0);
+  }
+
   // Snapshotted onto the Payroll row below rather than re-read live later, so
   // a past payslip still reflects what the employee's allowances were AT THE
   // TIME even if their profile changes afterward — same precedent as basicSalary.
   const allowancesTotal = Math.round((Array.isArray(employee.allowances) ? employee.allowances : [])
     .reduce((s, a) => s + (parseFloat(a?.amount) || 0), 0) * 100) / 100;
+
+  // Optional, per-run: truck-loading commission, computed by the one shared
+  // function the Give Salary preview also calls — never re-derived here, or
+  // the previewed figure and the paid figure could drift apart. Snapshotted
+  // below like everything else on this row.
+  //
+  // 'pay' folds in EVERYTHING currently owed — this month's fresh figure plus
+  // any earlier month's commission still sitting deferred — not just this
+  // month's own amount, which is the whole point: postponing a month doesn't
+  // lose it, it just waits here until a run that can afford to pay it off.
+  let commissionAmount = 0;
+  let commissionNote = null;
+  let commissionRowIdsToResolve = [];
+  if (commission_action === 'pay' || commission_action === 'defer') {
+    const situation = await getCommissionSituation(shopId, employee.id, month, transaction);
+    if (commission_action === 'pay') {
+      commissionAmount = situation.total_amount;
+      const noteParts = [];
+      if (situation.current?.note) noteParts.push(situation.current.note);
+      situation.carried.forEach(c => {
+        if (c.note) noteParts.push(`[${c.month} carried] ${c.note}`);
+      });
+      commissionNote = noteParts.join('; ').slice(0, 255) || null;
+      // Only the CARRIED rows need resolving after Payroll.create — a fresh
+      // current-month figure that's paid immediately (never deferred) has no
+      // row to resolve; Payroll.commission below is its only record, same as
+      // it's always been for a month that was never postponed.
+      commissionRowIdsToResolve = situation.carried.map(c => c.id);
+    }
+    // else 'defer': adds nothing to this run's gross pay. deferCommission()
+    // itself runs after Payroll.create below, alongside resolveCommissionPaid,
+    // so every post-payroll commission side effect lives in one place.
+  }
 
   // Optional, per-run: mirrors deduct_for_absence exactly, but adds instead
   // of subtracts. No rate on the employee means overtime can't be paid — a
@@ -352,7 +464,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     overtimeAmount = Math.round(overtimeHours * overtimeRate * 100) / 100;
   }
 
-  const grossSalary = Math.round((basicSalary + allowancesTotal + tempAllowanceAmt + bonusAmt + overtimeAmount) * 100) / 100;
+  const grossSalary = Math.round((basicSalary + allowancesTotal + tempAllowanceAmt + bonusAmt + overtimeAmount + commissionAmount) * 100) / 100;
   const taxDeduction = Math.round((grossSalary * taxPercent / 100) * 100) / 100;
 
   const uncleared = await db.EmployeeTransaction.findAll({
@@ -364,18 +476,26 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   // Optional, per-run: counted straight off marked Attendance rows for this
   // employee/month, so a month with nothing marked yet costs nothing — the
   // feature is a no-op until a shop actually starts using attendance.
-  // Daily rate uses the REAL day count of this specific month (28-31), not a
-  // fixed divisor, so the same absence costs the same fraction of salary
-  // regardless of which month it falls in.
+  //
+  // Daily rate divides by a FIXED 26 days (SALARY_DAYS_PER_MONTH), not by the
+  // real length of this calendar month — business preference confirmed with the
+  // user: the same absence should cost the same fraction of salary whether it
+  // falls in February or August. The Give Salary preview uses the same constant.
+  //
+  // Half day and short leave never contribute here — they're informational for
+  // salaried employees (also confirmed), so only absent (and optionally leave)
+  // days are deducted.
   let attendanceDeduction = 0;
   let absentDays = 0;
   let leaveDays = 0;
-  if (deduct_for_absence) {
-    const summary = await getAttendanceSummaryForMonth(shopId, employee.id, month, transaction);
-    absentDays = summary.absent_days;
-    leaveDays = summary.leave_days;
+  // Skipped entirely for daily-wage employees: their base pay above is already
+  // only the days they worked, so deducting for absence on top would penalize
+  // the same missing day twice.
+  if (deduct_for_absence && !isDailyWage) {
+    absentDays = attendance.absent_days;
+    leaveDays = attendance.leave_days;
     const deductDays = absentDays + (count_leave_as_absence ? leaveDays : 0);
-    const dailyRate = basicSalary / summary.days_in_month;
+    const dailyRate = basicSalary / SALARY_DAYS_PER_MONTH;
     attendanceDeduction = Math.round(dailyRate * deductDays * 100) / 100;
   }
 
@@ -396,7 +516,12 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   const payroll = await db.Payroll.create({
     employee_id: employee.id,
     month,
+    employment_type: employmentType,
     basic_salary: basicSalary,
+    wage_days_paid: wageDaysPaid,
+    daily_wage_rate: dailyWageRate,
+    commission: commissionAmount,
+    commission_note: commissionNote,
     deductions: totalDeductions,
     advance_deduction: advanceDeduction,
     attendance_deduction: attendanceDeduction,
@@ -407,11 +532,24 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     bonus: bonusAmt,
     allowances_total: allowancesTotal,
     temp_allowance: tempAllowanceAmt,
+    temp_allowance_label: tempAllowanceLabel,
     overtime_hours: overtimeHours,
     overtime_amount: overtimeAmount,
     net_pay: netPay,
     status: 'paid',
   }, { transaction });
+
+  // Settle whatever this run decided about commission, now that payroll.id
+  // exists to link against. Both are no-ops for the ordinary case (no
+  // deferral ever involved): resolveCommissionPaid has nothing to resolve
+  // when commissionRowIdsToResolve is empty, and deferCommission is simply
+  // never called when the action isn't 'defer'.
+  if (commissionRowIdsToResolve.length) {
+    await resolveCommissionPaid(commissionRowIdsToResolve, payroll.id, month, transaction);
+  }
+  if (commission_action === 'defer') {
+    await deferCommission(shopId, employee.id, month, userId, transaction);
+  }
 
   for (const a of uncleared) {
     await a.update({ cleared: true }, { transaction });
@@ -421,7 +559,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'salary_due',
     amount: grossSalary, method: null,
     created_by: userId,
-    notes: `Salary ${month}${overtimeAmount > 0 ? ` (incl. overtime ${overtimeHours}h = ${overtimeAmount.toFixed(2)})` : ''}`,
+    notes: `Salary ${month}${isDailyWage ? ` (wage ${wageDaysPaid}d × ${dailyWageRate.toFixed(2)})` : ''}${overtimeAmount > 0 ? ` (incl. overtime ${overtimeHours}h = ${overtimeAmount.toFixed(2)})` : ''}${commissionAmount > 0 ? ` (incl. commission ${commissionAmount.toFixed(2)}${commissionNote ? ` — ${commissionNote}` : ''})` : ''}`,
   }, { transaction });
 
   if (totalDeductions > 0) {
@@ -473,7 +611,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
       // EmployeeTransaction rows above (which DO carry txnDate) and the
       // general ledger disagreed on which day the same salary run happened.
       date: txnDate,
-      narration: `Salary paid to employee ${employee.name} for month ${month} (Basic: ${basicSalary}, Allowances: ${allowancesTotal}, Temp Allowance: ${tempAllowanceAmt}, Bonus: ${bonusAmt}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
+      narration: `Salary paid to employee ${employee.name} for month ${month} (${isDailyWage ? `Wage Pay: ${basicSalary} (${wageDaysPaid}d × ${dailyWageRate})` : `Basic: ${basicSalary}`}, Allowances: ${allowancesTotal}, Temp Allowance: ${tempAllowanceAmt}${tempAllowanceLabel ? ` (${tempAllowanceLabel})` : ''}, Bonus: ${bonusAmt}${commissionAmount > 0 ? `, Commission: ${commissionAmount}` : ''}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
       createdBy: userId,
       branchId: employee.branch_id,
       lines: [
@@ -577,7 +715,9 @@ exports.getLedger = async (req, res) => {
         name: employee.name,
         designation: employee.designation,
         status: employee.status,
+        employment_type: employee.employment_type || 'salary',
         basic_salary: parseFloat(employee.basic_salary || 0),
+        daily_wage: parseFloat(employee.daily_wage || 0),
         photo_path: employee.photo_path,
       },
       summary: {
@@ -638,10 +778,18 @@ exports.getTransactionSlip = async (req, res) => {
       },
       payroll: txn.Payroll ? {
         month: txn.Payroll.month,
+        // Read off the snapshot on the payroll row, never off the employee —
+        // the employee may have changed pay type or rate since this run.
+        employment_type: txn.Payroll.employment_type || 'salary',
         basic_salary: parseFloat(txn.Payroll.basic_salary || 0),
+        wage_days_paid: parseFloat(txn.Payroll.wage_days_paid || 0),
+        daily_wage_rate: parseFloat(txn.Payroll.daily_wage_rate || 0),
+        commission: parseFloat(txn.Payroll.commission || 0),
+        commission_note: txn.Payroll.commission_note || null,
         bonus: parseFloat(txn.Payroll.bonus || 0),
         allowances_total: parseFloat(txn.Payroll.allowances_total || 0),
         temp_allowance: parseFloat(txn.Payroll.temp_allowance || 0),
+        temp_allowance_label: txn.Payroll.temp_allowance_label || null,
         deductions: parseFloat(txn.Payroll.deductions || 0),
         advance_deduction: parseFloat(txn.Payroll.advance_deduction || 0),
         attendance_deduction: parseFloat(txn.Payroll.attendance_deduction || 0),
@@ -694,6 +842,11 @@ exports.getClearanceCertificate = async (req, res) => {
     const advancePending = txns
       .filter(t => t.type === 'advance_given' && !t.cleared)
       .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+    // Money recovered directly at final settlement (see
+    // employeeTermination.js's applyCollectOverpayment / applyCollectAdvance)
+    // — exposed so the certificate can account for it explicitly instead of
+    // leaving it invisibly folded into current_payable.
+    const receivableCollected = txns.filter(t => t.type === 'receivable_collected').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
 
     const currentPayable = parseFloat(employee.current_payable || 0);
     const salaryPayable = Math.max(0, Math.round(currentPayable * 100) / 100);
@@ -747,8 +900,11 @@ exports.getClearanceCertificate = async (req, res) => {
         cnic: employee.cnic,
         phone: employee.phone,
         address: employee.address,
+        employment_type: employee.employment_type || 'salary',
         basic_salary: parseFloat(employee.basic_salary || 0),
+        daily_wage: parseFloat(employee.daily_wage || 0),
         hire_date: employee.hire_date,
+        suspended_at: employee.suspended_at,
         terminated_at: employee.terminated_at,
         termination_notes: employee.termination_notes,
         branch: employee.Branch?.name || null,
@@ -759,9 +915,11 @@ exports.getClearanceCertificate = async (req, res) => {
         total_paid: Math.round(totalPaid * 100) / 100,
         current_payable: currentPayable,
         loan_given: Math.round(loanGiven * 100) / 100,
+        loan_repaid: Math.round(loanRepaid * 100) / 100,
         loan_receivable: loanReceivable,
         advance_given: Math.round(advanceGiven * 100) / 100,
         advance_pending: Math.round(advancePending * 100) / 100,
+        receivable_collected: Math.round(receivableCollected * 100) / 100,
       },
       clearance: {
         items: clearanceItems,
@@ -770,7 +928,13 @@ exports.getClearanceCertificate = async (req, res) => {
       },
       payroll_history: payrollHistory.map(p => ({
         month: p.month,
+        employment_type: p.employment_type || 'salary',
         basic_salary: parseFloat(p.basic_salary || 0),
+        wage_days_paid: parseFloat(p.wage_days_paid || 0),
+        daily_wage_rate: parseFloat(p.daily_wage_rate || 0),
+        allowances_total: parseFloat(p.allowances_total || 0),
+        temp_allowance: parseFloat(p.temp_allowance || 0),
+        commission: parseFloat(p.commission || 0),
         bonus: parseFloat(p.bonus || 0),
         deductions: parseFloat(p.deductions || 0),
         advance_deduction: parseFloat(p.advance_deduction || 0),

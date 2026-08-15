@@ -10,6 +10,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
+import { formatSalaryMonth } from '../../utils/attendanceStatus';
 import EmployeeAttachments from '../../components/employees/EmployeeAttachments';
 import { useAuthedImage } from '../../hooks/useAuthedImage';
 import api from '../../api/axios';
@@ -190,20 +191,30 @@ export default function EmployeeLedger() {
                 <FileCheck className="w-4 h-4" />{t('clearanceCertificate') || 'Clearance Certificate'}
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => { setAdvanceForm({ amount: '', method: 'cash', for_month: currentMonth, date: '', notes: '' }); setModal('advance'); }}
-              className="btn-secondary flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />{t('giveAdvance') || 'Advance'}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setLoanForm({ amount: '', method: 'cash', date: '', notes: '' }); setModal('loan'); }}
-              className="btn-secondary flex items-center gap-2"
-            >
-              <HandCoins className="w-4 h-4" />{t('giveLoan') || 'Loan'}
-            </button>
+            {/* A terminated employee has no future payroll run to auto-clear a
+                new advance against (runGiveSalary refuses to run for one),
+                and issuing a fresh loan to someone no longer on staff isn't a
+                routine action either — the backend now refuses both. New
+                money to/from a terminated employee belongs on the clearance
+                certificate's settlement screen instead. */}
+            {employee.status !== 'terminated' && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => { setAdvanceForm({ amount: '', method: 'cash', for_month: currentMonth, date: '', notes: '' }); setModal('advance'); }}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />{t('giveAdvance') || 'Advance'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setLoanForm({ amount: '', method: 'cash', date: '', notes: '' }); setModal('loan'); }}
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <HandCoins className="w-4 h-4" />{t('giveLoan') || 'Loan'}
+                </button>
+              </>
+            )}
             {loanReceivable > 0 && (
               <button
                 type="button"
@@ -326,7 +337,7 @@ export default function EmployeeLedger() {
                     {TXN_LABELS[txn.type] || txn.type}
                     {txn.type === 'advance_given' && txn.for_month && (
                       <span className={`badge ms-1.5 text-[10px] ${txn.cleared ? 'badge-green' : 'badge-yellow'}`}>
-                        {txn.for_month}{txn.cleared ? ` · ${t('cleared') || 'Cleared'}` : ` · ${t('pending') || 'Pending'}`}
+                        {formatSalaryMonth(txn.for_month)}{txn.cleared ? ` · ${t('cleared') || 'Cleared'}` : ` · ${t('pending') || 'Pending'}`}
                       </span>
                     )}
                   </td>
@@ -383,7 +394,7 @@ export default function EmployeeLedger() {
                     navigate(`/payroll?highlight=${p.id}`);
                   }}
                 >
-                  <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{p.month}</td>
+                  <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{formatSalaryMonth(p.month)}</td>
                   <td className="p-4 text-end">{formatPKR(p.basic_salary, lang)}</td>
                   <td className="p-4 text-end text-emerald-400">{formatPKR((parseFloat(p.allowances_total) || 0) + (parseFloat(p.temp_allowance) || 0), lang)}</td>
                   <td className="p-4 text-end text-emerald-400">{formatPKR(p.bonus, lang)}</td>

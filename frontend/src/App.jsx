@@ -37,6 +37,8 @@ import Minerals from './pages/admin/Minerals';
 import Vehicles from './pages/admin/Vehicles';
 import Production from './pages/admin/Production';
 import ProductionFormPage from './pages/admin/ProductionFormPage';
+import TruckLoading from './pages/admin/TruckLoading';
+import TruckLoadingFormPage from './pages/admin/TruckLoadingFormPage';
 import Expenses from './pages/expenses/Expenses';
 import Roles from './pages/admin/Roles';
 import DeletionRequests from './pages/admin/DeletionRequests';
@@ -228,6 +230,12 @@ function App() {
                 element={<ProtectedRoute module="branches" action="create"><ProductionFormPage /></ProtectedRoute>} />
               <Route path="/admin/production/:id/edit"
                 element={<ProtectedRoute module="branches" action="update"><ProductionFormPage /></ProtectedRoute>} />
+              <Route path="/admin/truck-loading"
+                element={<ProtectedRoute module="truck_loading" action="read"><TruckLoading /></ProtectedRoute>} />
+              <Route path="/admin/truck-loading/create"
+                element={<ProtectedRoute module="truck_loading" action="create"><TruckLoadingFormPage /></ProtectedRoute>} />
+              <Route path="/admin/truck-loading/:id/edit"
+                element={<ProtectedRoute module="truck_loading" action="update"><TruckLoadingFormPage /></ProtectedRoute>} />
               <Route path="/admin/minerals"
                 element={<ProtectedRoute module="branches" action="read"><Minerals /></ProtectedRoute>} />
               <Route path="/vehicles"

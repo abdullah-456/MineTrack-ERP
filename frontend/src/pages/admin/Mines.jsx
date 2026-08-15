@@ -58,7 +58,7 @@ export default function Mines() {
   };
 
   const filtered = mines.filter(m => !search.trim() || [
-    m.mine_code, m.name, m.address, m.company, m.Mineral?.name, m.province, m.district,
+    m.mine_code, m.name, m.location_abbr, m.address, m.company, m.Mineral?.name, m.province, m.district,
     m.Godown?.name, m.Manager?.name, m.status,
   ].some(v => (v || '').toLowerCase().includes(search.trim().toLowerCase())));
 
@@ -77,6 +77,7 @@ export default function Mines() {
               columns={[
                 { header: t('mineCode') || 'Code', key: 'mine_code', width: 1 },
                 { header: t('mineName') || 'Name', key: 'name', width: 1.6 },
+                { header: t('locationAbbr') || 'Abbreviation', render: m => m.location_abbr || '', width: 1 },
                 { header: t('company') || 'Company', render: m => m.company || '', width: 1.4 },
                 { header: t('mineralType') || 'Mineral Type', render: m => m.Mineral?.name || '', width: 1.2 },
                 { header: t('province') || 'Province', render: m => m.province || '', width: 1.1 },
@@ -132,6 +133,10 @@ export default function Mines() {
                     <td className="p-4 font-mono text-xs" style={{ color: 'var(--text-secondary)' }}>{m.mine_code || '—'}</td>
                     <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>
                       {m.name}
+                      {/* The prefix employment IDs for this mine's staff use. */}
+                      {m.location_abbr && (
+                        <span className="badge badge-purple text-xs ms-2 font-mono">{m.location_abbr}</span>
+                      )}
                       {m.is_default && <span className="badge badge-blue text-xs ms-2">{t('defaultBranch')}</span>}
                     </td>
                     <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{m.province || '—'}</td>

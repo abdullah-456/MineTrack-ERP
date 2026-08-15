@@ -5,9 +5,19 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
-import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
+import FinancialReportFilters, { buildReportFilterList, buildStatementSubtitle } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
 import { useFiscalYear } from '../../context/FiscalYearContext';
+import { contraLabel, isContraRow } from '../../utils/reportExport';
+
+// Contra accounts (Accumulated Depreciation and friends) are deductions by
+// design, not abnormal balances. Labelling them "Less: …" lets the figure print
+// positive without misleading anyone — the stored value stays negative, so every
+// total still subtracts it. Applied once here so the screen and every export
+// show the same thing.
+const withContraLabels = (rows = []) => rows.map(r => (
+  isContraRow(r) ? { ...r, account_name: contraLabel(r.account_name) } : r
+));
 
 function SectionTable({ title, rows, totalLabel, totalAmount, lang, t }) {
   return (
@@ -24,7 +34,9 @@ function SectionTable({ title, rows, totalLabel, totalAmount, lang, t }) {
                 {row.account_name}
                 {row.is_computed && <span className="ms-2 text-[10px] uppercase" style={{ color: 'var(--text-muted)' }}>({t('computed') || 'computed'})</span>}
               </td>
-              <td className="p-4 text-end w-40 font-medium" style={{ color: 'var(--text-primary)' }}>{formatPKR(row.amount, lang)}</td>
+              <td className="p-4 text-end w-40 font-medium" style={{ color: 'var(--text-primary)' }}>
+                {formatPKR(isContraRow(row) ? Math.abs(row.amount) : row.amount, lang)}
+              </td>
             </tr>
           ))}
           {rows.length === 0 && (
@@ -74,9 +86,9 @@ export default function BalanceSheet() {
       const params = { ...shopParams(), as_of: asOf };
       if (branchId) params.branch_id = branchId;
       const { data } = await api.get('/reports/balance-sheet', { params });
-      setAssets(data.assets || []);
-      setLiabilities(data.liabilities || []);
-      setEquity(data.equity || []);
+      setAssets(withContraLabels(data.assets));
+      setLiabilities(withContraLabels(data.liabilities));
+      setEquity(withContraLabels(data.equity));
       setUnattachedAssets(data.unattached_assets || []);
       setTotalUnattachedAssets(data.total_unattached_assets || 0);
       setSummary({
@@ -102,24 +114,51 @@ export default function BalanceSheet() {
     is_computed: true,
   })), [unattachedAssets, t]);
 
-  const flatRows = useMemo(() => [
-    ...assets.map(r => ({ ...r, section: 'Assets' })),
-    { account_name: t('totalAssets') || 'Total Assets', amount: summary.total_assets, __total: true },
-    ...liabilities.map(r => ({ ...r, section: 'Liabilities' })),
-    { account_name: t('totalLiabilities') || 'Total Liabilities', amount: summary.total_liabilities, __total: true },
-    ...equity.map(r => ({ ...r, section: 'Equity' })),
-    { account_name: t('totalEquity') || 'Total Equity', amount: summary.total_equity, __total: true },
-    ...(unattachedRows.length > 0 ? [
-      ...unattachedRows.map(r => ({ ...r, section: 'Fixed Assets (informational)' })),
-      { account_name: t('totalUnattachedAssets') || 'Total (without any account attachment)', amount: totalUnattachedAssets, __total: true },
-    ] : []),
-  ], [assets, liabilities, equity, summary, unattachedRows, totalUnattachedAssets, t]);
+  // The exported statement, structured the way a published balance sheet is:
+  // section headings, indented line items, a ruled subtotal per section, and a
+  // grand total that proves the sheet balances. The export engine reads the
+  // __section/__total/__grand/__level tags and renders each accordingly, so PDF,
+  // print and Excel all get the same structure rather than a flat list of rows.
+  const statementRows = useMemo(() => {
+    const section = (heading, rows, totalLabel, totalAmount) => [
+      { __section: true, account_name: heading },
+      ...rows.map(r => ({ ...r, __level: 1 })),
+      ...(rows.length ? [] : [{ account_name: t('noEntries') || 'No entries', __level: 1 }]),
+      { __total: true, __level: 1, account_name: totalLabel, amount: totalAmount },
+      { __spacer: true },
+    ];
+
+    return [
+      ...section(t('assets') || 'Assets', assets, t('totalAssets') || 'Total Assets', summary.total_assets),
+      ...section(t('liabilities') || 'Liabilities', liabilities, t('totalLiabilities') || 'Total Liabilities', summary.total_liabilities),
+      ...section(t('equity') || 'Equity', equity, t('totalEquity') || 'Total Equity', summary.total_equity),
+      {
+        __grand: true,
+        account_name: t('totalLiabilitiesAndEquity') || 'Total Liabilities & Equity',
+        amount: summary.total_liabilities_and_equity,
+      },
+      // Assets bought outside any bank/cash account have no journal entry, so
+      // they sit below the balancing grand total, clearly marked as memoranda —
+      // never folded into a figure the sheet claims to balance.
+      ...(unattachedRows.length > 0 ? [
+        { __spacer: true },
+        ...section(
+          t('fixedAssetsWithoutAccountAttachment') || 'Memorandum — Fixed Assets Without Account Attachment',
+          unattachedRows,
+          t('totalUnattachedAssets') || 'Total (without any account attachment)',
+          totalUnattachedAssets,
+        ),
+      ] : []),
+    ];
+  }, [assets, liabilities, equity, summary, unattachedRows, totalUnattachedAssets, t]);
 
   const reportColumns = [
-    { header: t('account') || 'Account', key: 'account_name', width: 2.8 },
-    { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.2 },
+    { header: t('accountCode') || 'Code', key: 'account_code', width: 0.8, excelWidth: 12 },
+    { header: t('account') || 'Account', key: 'account_name', width: 3.2, excelWidth: 46 },
+    { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.3, excelWidth: 20 },
   ];
-  const reportFilters = buildReportFilterList({ t, asOf, branchId, branches, mode: 'point' });
+  const reportFilters = buildReportFilterList({ t, asOf, branchId, branches, mode: 'point', dates: false });
+  const reportSubtitle = buildStatementSubtitle({ mode: 'point', asOf });
 
   return (
     <div className="space-y-6">
@@ -131,9 +170,9 @@ export default function BalanceSheet() {
         action={
           <ReportActions
             title={t('balanceSheet') || 'Balance Sheet'}
+            subtitle={reportSubtitle}
             columns={reportColumns}
-            rows={flatRows}
-            totals={{ __label: t('totalLiabilitiesAndEquity') || 'Total Liabilities & Equity', amount: summary.total_liabilities_and_equity }}
+            rows={statementRows}
             filters={reportFilters}
             filename="balance-sheet.pdf"
           />

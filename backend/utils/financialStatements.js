@@ -267,6 +267,11 @@ function balanceChange(openingMap, closingMap, acct) {
   return round2(closeAmt - openAmt);
 }
 
+// Counter-entry account for balances carried in when a shop is first set up
+// (opening cash/bank, supplier payables, employee balances). Equity by nature,
+// but NOT owner activity — see migrations/20260811000005.
+const OPENING_BALANCE_EQUITY_CODE = '01-OBE';
+
 function adjustmentLabel(acct, change, category) {
   // Accumulated Depreciation is credit-normal (a contra-asset), so a growing
   // balance moves `change` negative — the opposite of every other asset
@@ -274,6 +279,17 @@ function adjustmentLabel(acct, change, category) {
   // matching how every other indirect-method cash flow statement labels
   // this exact add-back line.
   if (acct.account_code === '04-ACCUM-DEP') return 'Depreciation';
+  // Opening Balance Equity moving is a migration artifact — a shop's setup
+  // vouchers (voucher_type 'opening') recording its starting cash/stock/AP
+  // position — not the owner putting money in. Calling it "Capital
+  // contributed" like any other rising equity account below tells the reader
+  // the owner made a real injection this period, which can misstate a cash
+  // flow statement by the shop's entire opening position (seen in practice:
+  // a one-off setup posting read as a multi-million-rupee financing inflow).
+  // buildEquityStatement already carries this exact distinction for the same
+  // account; the cash flow statement must agree rather than silently disagree
+  // with the statement sitting right next to it in the Reports menu.
+  if (acct.account_code === OPENING_BALANCE_EQUITY_CODE) return 'Opening balances recorded';
   const dir = change > 0 ? 'Increase' : 'Decrease';
   if (category === 'operating') {
     if (acct.account_type === 'asset') return `${dir} in ${acct.account_name}`;
@@ -286,11 +302,6 @@ function adjustmentLabel(acct, change, category) {
   }
   return acct.account_name;
 }
-
-// Counter-entry account for balances carried in when a shop is first set up
-// (opening cash/bank, supplier payables, employee balances). Equity by nature,
-// but NOT owner activity — see migrations/20260811000005.
-const OPENING_BALANCE_EQUITY_CODE = '01-OBE';
 
 function buildEquityStatement(accounts, openingMap, periodMap) {
   const detail = [];
@@ -308,6 +319,7 @@ function buildEquityStatement(accounts, openingMap, periodMap) {
       opening,
       movement,
       closing: round2(opening + movement),
+      is_contra: !!acct.is_contra,
     });
     // Balances carried in at setup are migration artifacts, not the owner
     // putting money in or taking it out. Reporting them as "Capital
@@ -460,7 +472,16 @@ function buildBalanceSheet(accounts, balanceMap) {
     const amount = naturalAmount(acct.account_type, bal.net);
     if (Math.abs(amount) < 0.005) continue;
 
-    const row = { account_code: acct.account_code, account_name: acct.account_name, amount };
+    // is_contra travels with the row so the statement can tell a structural
+    // deduction (Accumulated Depreciation — always negative by design) from a
+    // genuinely abnormal balance (an overdrawn bank). After naturalAmount() the
+    // sign alone can't distinguish them, and they must not print alike.
+    const row = {
+      account_code: acct.account_code,
+      account_name: acct.account_name,
+      amount,
+      is_contra: !!acct.is_contra,
+    };
     if (acct.account_type === 'asset') {
       assets.push(row);
       totalAssets += amount;
@@ -495,6 +516,12 @@ function buildBalanceSheet(accounts, balanceMap) {
       account_name: 'Current Period Earnings',
       amount: unclosedEarnings,
       is_computed: true,
+      // A computed RESULT plugged in to balance the sheet before the year is
+      // closed — the exact figure the P&L statement shows as its own net
+      // profit/loss — not an account with an abnormal balance. If negative it
+      // must print signed ("-Rs. 119,604"), never bracketed as if the balance
+      // itself were the abnormal thing. See isResultRow() in reportExport.js.
+      is_result: true,
     });
     totalEquity += unclosedEarnings;
   }

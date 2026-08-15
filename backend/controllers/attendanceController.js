@@ -2,7 +2,10 @@ const db = require('../models');
 const { Op } = require('sequelize');
 const { requireShopId, resolveBranchId } = require('../utils/shopScope');
 const { toBusinessDate, parseTransactionDate } = require('../utils/transactionDate');
-const { getHolidayDatesForMonth } = require('../utils/holidayHelpers');
+const { getHolidayDatesForMonth, getHolidayMapForMonth } = require('../utils/holidayHelpers');
+const {
+  ATTENDANCE_STATUSES, SALARY_DAYS_PER_MONTH, WAGE_DAY_WEIGHTS, countPaidDays,
+} = require('../utils/attendanceStatus');
 
 // Marking attendance for tomorrow makes no sense — you can't already know
 // someone was present on a day that hasn't happened. Reuses the same 24h
@@ -50,15 +53,21 @@ exports.getDay = async (req, res) => {
       order: [['name', 'ASC']],
     });
 
-    const marks = await db.Attendance.findAll({
-      where: { shop_id: shopId, date, employee_id: { [Op.in]: employees.map(e => e.id) } },
-      raw: true,
-    });
+    const [marks, holidayMap] = await Promise.all([
+      db.Attendance.findAll({
+        where: { shop_id: shopId, date, employee_id: { [Op.in]: employees.map(e => e.id) } },
+        raw: true,
+      }),
+      getHolidayMapForMonth(shopId, date.slice(0, 7)),
+    ]);
     const byEmployee = {};
     marks.forEach(m => { byEmployee[m.employee_id] = m; });
 
     return res.json({
       date,
+      // Same for the whole roster (a holiday is shop-wide, not per-employee),
+      // so it travels once at the top level rather than repeated on every row.
+      holiday: holidayMap.get(date) || null,
       employees: employees.map(e => ({
         id: e.id,
         name: e.name,
@@ -108,16 +117,19 @@ async function buildMonthGrid(shopId, month, branchId, transaction) {
   const from = `${month}-01`;
   const to = `${month}-${String(new Date(year, mon, 0).getDate()).padStart(2, '0')}`;
 
-  const marks = await db.Attendance.findAll({
-    where: {
-      shop_id: shopId,
-      employee_id: { [Op.in]: employees.map(e => e.id) },
-      date: { [Op.between]: [from, to] },
-    },
-    attributes: ['employee_id', 'date', 'status', 'notes', 'shift'],
-    raw: true,
-    transaction,
-  });
+  const [marks, holidayMap] = await Promise.all([
+    db.Attendance.findAll({
+      where: {
+        shop_id: shopId,
+        employee_id: { [Op.in]: employees.map(e => e.id) },
+        date: { [Op.between]: [from, to] },
+      },
+      attributes: ['employee_id', 'date', 'status', 'notes', 'shift'],
+      raw: true,
+      transaction,
+    }),
+    getHolidayMapForMonth(shopId, month, transaction),
+  ]);
 
   // Keyed by day-of-month ("05"), not the full date string Sequelize returns
   // for `date` — the frontend's month grid is built as a plain array of
@@ -132,10 +144,16 @@ async function buildMonthGrid(shopId, month, branchId, transaction) {
     (byEmployee[key] = byEmployee[key] || {})[day] = { status: m.status, notes: m.notes, shift: m.shift };
   });
 
+  // Keyed by 2-digit day, same as each employee's `days` map, so the frontend
+  // can look a cell's holiday status up the same way it looks up a mark.
+  const holidays = {};
+  holidayMap.forEach((name, dateKey) => { holidays[dateKey.slice(8, 10)] = name; });
+
   return {
     month,
     from,
     to,
+    holidays,
     employees: employees.map(e => ({
       id: e.id,
       name: e.name,
@@ -220,7 +238,7 @@ async function getAttendanceSummaryForMonth(shopId, employeeId, month, transacti
     getHolidayDatesForMonth(shopId, month, transaction),
   ]);
 
-  const counts = { present: 0, absent: 0, leave: 0 };
+  const counts = Object.fromEntries(ATTENDANCE_STATUSES.map(s => [s, 0]));
   rows.forEach(r => {
     const dateKey = String(r.date).slice(0, 10);
     if (holidayDates.has(dateKey)) return;
@@ -230,9 +248,18 @@ async function getAttendanceSummaryForMonth(shopId, employeeId, month, transacti
   return {
     month,
     days_in_month: Math.max(0, daysInMonth - holidayDates.size),
+    // Fixed divisor the absence deduction actually uses (see
+    // SALARY_DAYS_PER_MONTH) — returned alongside days_in_month, which stays
+    // as the informational "how many working days did this month have".
+    salary_days_divisor: SALARY_DAYS_PER_MONTH,
     present_days: counts.present,
     absent_days: counts.absent,
     leave_days: counts.leave,
+    half_day_days: counts.half_day,
+    short_leave_days: counts.short_leave,
+    // What a DAILY-WAGE employee gets paid for this month. Salaried runs
+    // ignore this entirely.
+    paid_days: countPaidDays(counts),
     marked_days: rows.length,
     holiday_days: holidayDates.size,
   };
@@ -326,7 +353,11 @@ exports.getDailyReport = async (req, res) => {
     const byEmployee = {};
     marks.forEach(m => { byEmployee[m.employee_id] = m; });
 
-    const totals = { total_employees: employees.length, present: 0, absent: 0, leave: 0, unmarked: 0 };
+    const totals = {
+      total_employees: employees.length,
+      ...Object.fromEntries(ATTENDANCE_STATUSES.map(s => [s, 0])),
+      unmarked: 0,
+    };
     const employeeRows = employees.map(e => {
       const status = byEmployee[e.id]?.status || null;
       if (status && totals[status] !== undefined) totals[status] += 1;
@@ -397,9 +428,9 @@ async function buildRangeGrid(shopId, rawFrom, rawTo, branchId, employeeIdsParam
     days_in_range: spanDays,
     employees: employees.map(e => {
       const days = byEmployee[e.id] || {};
-      const counts = { present: 0, absent: 0, leave: 0 };
+      const counts = Object.fromEntries(ATTENDANCE_STATUSES.map(s => [s, 0]));
       Object.values(days).forEach(d => { if (counts[d.status] !== undefined) counts[d.status] += 1; });
-      const marked_days = counts.present + counts.absent + counts.leave;
+      const marked_days = ATTENDANCE_STATUSES.reduce((s, k) => s + counts[k], 0);
       return {
         id: e.id,
         name: e.name,
@@ -410,6 +441,9 @@ async function buildRangeGrid(shopId, rawFrom, rawTo, branchId, employeeIdsParam
           present_days: counts.present,
           absent_days: counts.absent,
           leave_days: counts.leave,
+          half_day_days: counts.half_day,
+          short_leave_days: counts.short_leave,
+          paid_days: countPaidDays(counts),
           unmarked_days: spanDays - marked_days,
           marked_days,
           days_in_range: spanDays,
@@ -456,7 +490,7 @@ async function markAttendance(shopId, userId, rawDate, entries, transaction) {
   const date = parseDateParam(parseTransactionDate(rawDate, 'date'), 'date');
   assertNotFuture(date);
 
-  const validStatuses = new Set(['present', 'absent', 'leave']);
+  const validStatuses = new Set(ATTENDANCE_STATUSES);
   const validShifts = new Set(['morning', 'evening', 'night']);
   for (const entry of entries) {
     if (!entry.employee_id || !validStatuses.has(entry.status)) {

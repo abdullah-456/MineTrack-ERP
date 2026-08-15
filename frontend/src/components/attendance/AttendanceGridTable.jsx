@@ -1,12 +1,13 @@
 import { STATUS_META, enumerateDates } from '../../utils/attendanceStatus';
 
 // Shared grid for the Monthly and Date Range reports: employee rows × date
-// columns (P/A/L letters, blank = not marked) + summary columns.
+// columns (P/A/L/H/S letters, blank = not marked) + summary columns.
 export default function AttendanceGridTable({ report, t }) {
   if (!report) return null;
   const dates = enumerateDates(report.from, report.to);
   const spansMultipleMonths = dates.length > 0 && dates[0].slice(0, 7) !== dates[dates.length - 1].slice(0, 7);
-  const colCount = dates.length + 5;
+  // Name + one per date + the five summary columns below.
+  const colCount = dates.length + 7;
 
   return (
     <div className="glass-card overflow-hidden">
@@ -32,6 +33,8 @@ export default function AttendanceGridTable({ report, t }) {
               <th className="px-2 py-2 font-semibold text-center whitespace-nowrap" style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{t('totalPresentDays') || 'Present'}</th>
               <th className="px-2 py-2 font-semibold text-center whitespace-nowrap" style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{t('totalAbsentDays') || 'Absent'}</th>
               <th className="px-2 py-2 font-semibold text-center whitespace-nowrap" style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{t('totalLeaveDays') || 'Leave'}</th>
+              <th className="px-2 py-2 font-semibold text-center whitespace-nowrap" style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{t('halfDay') || 'Half Day'}</th>
+              <th className="px-2 py-2 font-semibold text-center whitespace-nowrap" style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{t('shortLeave') || 'Short Leave'}</th>
               <th className="px-2 py-2 font-semibold text-center whitespace-nowrap" style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{t('attendancePercentage') || '%'}</th>
             </tr>
           </thead>
@@ -65,6 +68,8 @@ export default function AttendanceGridTable({ report, t }) {
                 <td className="text-center px-2 py-1.5 font-semibold" style={{ color: STATUS_META.present.cell, borderBottom: '1px solid var(--border-subtle)' }}>{emp.summary.present_days}</td>
                 <td className="text-center px-2 py-1.5 font-semibold" style={{ color: STATUS_META.absent.cell, borderBottom: '1px solid var(--border-subtle)' }}>{emp.summary.absent_days}</td>
                 <td className="text-center px-2 py-1.5 font-semibold" style={{ color: STATUS_META.leave.cell, borderBottom: '1px solid var(--border-subtle)' }}>{emp.summary.leave_days}</td>
+                <td className="text-center px-2 py-1.5 font-semibold" style={{ color: STATUS_META.half_day.cell, borderBottom: '1px solid var(--border-subtle)' }}>{emp.summary.half_day_days ?? 0}</td>
+                <td className="text-center px-2 py-1.5 font-semibold" style={{ color: STATUS_META.short_leave.cell, borderBottom: '1px solid var(--border-subtle)' }}>{emp.summary.short_leave_days ?? 0}</td>
                 <td className="text-center px-2 py-1.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>{emp.summary.percentage}%</td>
               </tr>
             ))}

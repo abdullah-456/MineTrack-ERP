@@ -25,7 +25,7 @@ const FUND_PARENT_CODES = new Set(['05-BANK', '05-CASH']);
 
 const EMPTY = {
   account_name: '', account_type: 'asset', parent_account_id: '', account_code: '',
-  opening_balance: '', bank_name: '', account_number: '', is_active: true,
+  opening_balance: '', bank_name: '', account_number: '', is_active: true, is_contra: false,
   // Defaults to new money so behaviour is unchanged when the question is ignored.
   funding_source: 'new_capital', source_account_id: '',
 };
@@ -132,7 +132,7 @@ export default function ChartOfAccounts() {
   const fundSourceOptions = accounts.filter(a => isPaymentAccount(a) && a.is_active && a.balance > 0);
 
   const setF = (k) => (e) => {
-    const value = k === 'is_active' ? e.target.checked : e.target.value;
+    const value = (k === 'is_active' || k === 'is_contra') ? e.target.checked : e.target.value;
     setForm(f => {
       const next = { ...f, [k]: value };
       if (k === 'parent_account_id') {
@@ -155,6 +155,7 @@ export default function ChartOfAccounts() {
       bank_name: account.bank_name || '',
       account_number: account.account_number || '',
       is_active: account.is_active,
+      is_contra: !!account.is_contra,
     });
     setModal('edit');
   };
@@ -170,6 +171,7 @@ export default function ChartOfAccounts() {
           account_type: form.account_type,
           parent_account_id: form.parent_account_id || null,
           account_code: form.account_code || undefined,
+          is_contra: form.is_contra,
           ...(isFundForm ? {
             opening_balance: form.opening_balance,
             bank_name: fundKind === 'bank' ? form.bank_name : undefined,
@@ -186,6 +188,7 @@ export default function ChartOfAccounts() {
           account_type: form.account_type,
           parent_account_id: form.parent_account_id || null,
           is_active: form.is_active,
+          is_contra: form.is_contra,
           ...(isFundForm ? {
             bank_name: fundKind === 'bank' ? form.bank_name : undefined,
             account_number: fundKind === 'bank' ? form.account_number : undefined,
@@ -402,6 +405,21 @@ export default function ChartOfAccounts() {
                 {t('active')}
               </label>
             )}
+            <label className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={!!form.is_contra}
+                onChange={setF('is_contra')}
+              />
+              <span>
+                {t('contraAccount') || 'Contra account (deduction)'}
+                <span className="block text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {t('contraAccountHint')
+                    || 'Its balance is opposite to its type by design — e.g. Accumulated Depreciation. Statements print it as a positive figure under a "Less:" label instead of a negative one. Presentation only; no posted figure changes.'}
+                </span>
+              </span>
+            </label>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
               <button type="submit" disabled={saving} className="btn-primary flex-1">{t('save')}</button>

@@ -26,7 +26,7 @@ async function generateAccountCode(parent, transaction) {
   return code;
 }
 
-async function createAccount({ shopId, accountName, accountType, parent, accountCode, createdBy }, transaction) {
+async function createAccount({ shopId, accountName, accountType, parent, accountCode, createdBy, isContra }, transaction) {
   const code = accountCode || await generateAccountCode(parent, transaction);
   return db.ChartOfAccount.create({
     shop_id: shopId,
@@ -35,6 +35,7 @@ async function createAccount({ shopId, accountName, accountType, parent, account
     account_type: accountType,
     parent_account_id: parent ? parent.id : null,
     is_active: true,
+    is_contra: !!isContra,
     created_by: createdBy || null,
   }, { transaction });
 }
@@ -195,6 +196,9 @@ async function getOrCreateAccumulatedDepreciationAccount(shopId, createdBy, tran
     parent: ltAssetParent || null,
     accountCode: '04-ACCUM-DEP',
     createdBy,
+    // Structurally a deduction, not an abnormal balance: statements print it
+    // positive under "Less:" rather than as a negative asset.
+    isContra: true,
   }, transaction);
 }
 

@@ -6,6 +6,7 @@ const { applyTerminationSettlements, loadTerminationPreview } = require('../util
 const { assertCnicAvailable, normalizeCnic } = require('../utils/cnic');
 const { deleteFileQuiet, relativeFilePath, absoluteFilePath } = require('../utils/employeeUploads');
 const { DOCUMENT_CATEGORIES } = require('../utils/documentUploads');
+const { nextEmploymentId, reissueEmploymentId } = require('../utils/employmentId');
 
 const employeeIncludes = [
   { model: db.Branch, attributes: ['id', 'name', 'godown_id'], include: [{ model: db.Godown, attributes: ['id', 'name'] }] },
@@ -63,7 +64,18 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     ? parseInt(body.designation_id, 10) : null;
   const address = (body.address || '').trim();
   const city = (body.city || '').trim();
-  const basic_salary = parseFloat(body.basic_salary);
+  // An employee is EITHER salary-based (fixed monthly basic_salary) OR
+  // daily-wage-based (daily_wage × paid days). Exactly one amount is required
+  // and the unused one is nulled out, so a switch between the two can never
+  // leave a stale figure behind for payroll to pick up.
+  const ALLOWED_EMPLOYMENT_TYPE = ['salary', 'daily_wage'];
+  const employment_type = (body.employment_type || 'salary').trim().toLowerCase();
+  if (!ALLOWED_EMPLOYMENT_TYPE.includes(employment_type)) {
+    throw err(400, 'Employment type must be salary or daily_wage');
+  }
+  const isDailyWage = employment_type === 'daily_wage';
+  const basic_salary = isDailyWage ? null : parseFloat(body.basic_salary);
+  const daily_wage = isDailyWage ? parseFloat(body.daily_wage) : null;
   const branch_id = body.branch_id ? parseInt(body.branch_id, 10) : null;
   const hire_date = body.hire_date || null;
 
@@ -85,7 +97,11 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     if (!designationRow) throw err(400, 'Invalid designation');
     designationName = designationRow.name;
   }
-  if (!(basic_salary >= 0) || Number.isNaN(basic_salary)) {
+  if (isDailyWage) {
+    if (!(daily_wage >= 0) || Number.isNaN(daily_wage)) {
+      throw err(400, 'Daily wage is required for a daily-wage employee');
+    }
+  } else if (!(basic_salary >= 0) || Number.isNaN(basic_salary)) {
     throw err(400, 'Salary is required');
   }
   if (!branch_id) throw err(400, 'Location / branch is required');
@@ -157,6 +173,20 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
   const overtimeRate = body.overtime_rate !== undefined && body.overtime_rate !== ''
     ? Math.max(0, parseFloat(body.overtime_rate) || 0) : null;
 
+  // Truck-loading commission defaults. The two bases are independent and both
+  // may be on — they stack at calculation time. An amount is only meaningful
+  // when its checkbox is ticked, so the other one is nulled out rather than
+  // left behind to reappear if the box is ticked again later.
+  const commissionDefault = (enabledRaw, amountRaw, label) => {
+    const enabled = enabledRaw === true || enabledRaw === 'true' || enabledRaw === 1 || enabledRaw === '1';
+    if (!enabled) return { enabled: false, amount: null };
+    const amount = parseFloat(amountRaw);
+    if (!(amount >= 0) || Number.isNaN(amount)) throw err(400, `${label} amount is required when that commission is enabled`);
+    return { enabled: true, amount };
+  };
+  const truckCommission = commissionDefault(body.commission_per_truck_enabled, body.commission_per_truck, 'Commission per truck');
+  const tonCommission = commissionDefault(body.commission_per_ton_enabled, body.commission_per_ton, 'Commission per ton');
+
   return {
     name,
     father_name: father_name || null,
@@ -168,7 +198,13 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
     phone,
     address: address || null,
     city: city || null,
+    employment_type,
     basic_salary,
+    daily_wage,
+    commission_per_truck_enabled: truckCommission.enabled,
+    commission_per_truck: truckCommission.amount,
+    commission_per_ton_enabled: tonCommission.enabled,
+    commission_per_ton: tonCommission.amount,
     hire_date: hire_date || new Date(),
     branch_id,
     status,
@@ -201,22 +237,8 @@ async function validateEmployeePayload(shopId, body, { isCreate }) {
   };
 }
 
-async function nextEmploymentId(shopId, transaction) {
-  const count = await db.Employee.count({ where: { shop_id: shopId }, transaction });
-  let seq = count + 1;
-  let code;
-  do {
-    code = `EMP-${shopId}-${String(seq).padStart(4, '0')}`;
-    // eslint-disable-next-line no-await-in-loop
-    const exists = await db.Employee.findOne({
-      where: { shop_id: shopId, employment_id: code },
-      transaction,
-    });
-    if (!exists) return code;
-    seq += 1;
-  } while (seq < count + 1000);
-  return `EMP-${shopId}-${Date.now()}`;
-}
+// Allocation lives in utils/employmentId.js — see the contract documented
+// there (abbreviation prefix, single shop-wide sequence).
 
 exports.list = async (req, res) => {
   try {
@@ -267,17 +289,27 @@ exports.get = async (req, res) => {
   }
 };
 
+// ── GET /employees/next-employment-id?abbr=KHW ──────────────────────────────
+// Read-only preview for the employee form. `abbr` follows whichever mine
+// abbreviation the form has selected, so the shown ID updates as the user
+// changes it. The value persisted on create is always recomputed server-side
+// inside that transaction — this is never trusted back from the client.
 exports.nextEmploymentId = async (req, res) => {
   try {
     const shopId = requireShopId(req, res);
     if (!shopId) return;
-    const employment_id = await nextEmploymentId(shopId);
+    const employment_id = await nextEmploymentId(shopId, req.query.abbr);
     return res.json({ employment_id });
   } catch (error) {
     console.error('nextEmploymentId error:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 };
+
+// No separate endpoint lists the available abbreviations: the employee form
+// already holds this shop's mines (useShopApi's `branches`, whose payload
+// carries location_abbr), so the dropdown is derived from that rather than
+// costing a second request for data the page has.
 
 exports.create = async (req, res) => {
   const transaction = await db.sequelize.transaction();
@@ -286,7 +318,11 @@ exports.create = async (req, res) => {
     if (!shopId) { await transaction.rollback(); return; }
 
     const data = await validateEmployeePayload(shopId, req.body, { isCreate: true });
-    const employment_id = await nextEmploymentId(shopId, transaction);
+    // Assigned once, here, and never re-issued afterwards — `update` below
+    // deliberately leaves employment_id alone, so transferring an employee to
+    // a different mine keeps their ID stable (confirmed with the user). An ID
+    // already printed on a payslip must keep matching the record.
+    const employment_id = await nextEmploymentId(shopId, req.body.employment_abbr, transaction);
 
     const employee = await db.Employee.create({
       shop_id: shopId,
@@ -338,7 +374,17 @@ exports.update = async (req, res) => {
       phone: req.body.phone !== undefined ? req.body.phone : employee.phone,
       address: req.body.address !== undefined ? req.body.address : employee.address,
       city: req.body.city !== undefined ? req.body.city : employee.city,
+      employment_type: req.body.employment_type !== undefined ? req.body.employment_type : employee.employment_type,
       basic_salary: req.body.basic_salary !== undefined ? req.body.basic_salary : employee.basic_salary,
+      daily_wage: req.body.daily_wage !== undefined ? req.body.daily_wage : employee.daily_wage,
+      commission_per_truck_enabled: req.body.commission_per_truck_enabled !== undefined
+        ? req.body.commission_per_truck_enabled : employee.commission_per_truck_enabled,
+      commission_per_truck: req.body.commission_per_truck !== undefined
+        ? req.body.commission_per_truck : employee.commission_per_truck,
+      commission_per_ton_enabled: req.body.commission_per_ton_enabled !== undefined
+        ? req.body.commission_per_ton_enabled : employee.commission_per_ton_enabled,
+      commission_per_ton: req.body.commission_per_ton !== undefined
+        ? req.body.commission_per_ton : employee.commission_per_ton,
       branch_id: req.body.branch_id !== undefined ? req.body.branch_id : employee.branch_id,
       hire_date: req.body.hire_date !== undefined ? req.body.hire_date : employee.hire_date,
       cnic: req.body.cnic !== undefined ? req.body.cnic : employee.cnic,
@@ -346,18 +392,43 @@ exports.update = async (req, res) => {
 
     const assign = [
       'name', 'father_name', 'gender', 'designation_id', 'designation', 'phone', 'address', 'city',
-      'basic_salary', 'hire_date', 'branch_id', 'status',
+      // employment_type/basic_salary/daily_wage move together: the validator
+      // nulls whichever amount the chosen type doesn't use, and assigning that
+      // null here is what stops a switched-over employee from keeping a stale
+      // salary (or wage) that payroll would otherwise still find.
+      'employment_type', 'basic_salary', 'daily_wage', 'hire_date', 'branch_id', 'status',
+      'commission_per_truck_enabled', 'commission_per_truck',
+      'commission_per_ton_enabled', 'commission_per_ton',
       ...PROFILE_FIELDS,
     ];
+    const priorStatus = employee.status;
     assign.forEach((f) => {
       if (data[f] !== undefined) employee[f] = data[f];
     });
+    // Same suspended_at stamping as patchStatus — the status can also be
+    // changed through a plain edit, and the date has to follow it either way.
+    if (employee.status === 'suspended' && priorStatus !== 'suspended') {
+      employee.suspended_at = new Date();
+    } else if (employee.status === 'active' && priorStatus !== 'active') {
+      employee.suspended_at = null;
+    }
     if (req.body.cnic !== undefined) {
       employee.cnic = data.cnic;
       employee.cnic_normalized = data.cnic_normalized;
     }
     if (req.body.termination_notes !== undefined) {
       employee.termination_notes = req.body.termination_notes;
+    }
+
+    // Re-issuing the ID's location prefix is the ONE thing here that is an
+    // explicit, deliberate action rather than a side effect: it is never
+    // triggered by a mine transfer on its own (confirmed with the user), only
+    // by the abbreviation field actually being sent. The sequence number is
+    // carried across unchanged, so this can't disturb the shop-wide ordering.
+    if (req.body.employment_abbr !== undefined) {
+      employee.employment_id = await reissueEmploymentId(
+        shopId, employee.employment_id, req.body.employment_abbr,
+      );
     }
 
     await employee.save();
@@ -392,6 +463,15 @@ exports.patchStatus = async (req, res) => {
       return res.status(400).json({ message: 'Cannot change status of a terminated employee' });
     }
 
+    // Mirrors terminated_at: stamped on the transition INTO suspended (not on
+    // every save, so re-suspending an already-suspended employee keeps the
+    // original date), and cleared on the way back to active so a returning
+    // employee doesn't keep showing a suspension date in exports.
+    if (status === 'suspended' && employee.status !== 'suspended') {
+      employee.suspended_at = new Date();
+    } else if (status === 'active') {
+      employee.suspended_at = null;
+    }
     employee.status = status;
     await employee.save();
 

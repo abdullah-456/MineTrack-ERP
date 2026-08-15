@@ -117,12 +117,17 @@ export default function FinancialReportFilters({
 export function buildReportFilterList({
   t, from, to, asOf, branchId, branches, mode = 'period',
   entityLabel, entityValue, entityOptions,
+  // Financial statements print their period as a subtitle under the document
+  // title (see buildStatementSubtitle), which is where a reader of a published
+  // statement expects it. Those pages pass dates:false so the same dates aren't
+  // repeated a second time in the filter line.
+  dates = true,
 }) {
   const list = [];
-  if (mode === 'period') {
+  if (dates && mode === 'period') {
     if (from) list.push({ label: t('from') || 'From', value: from });
     if (to) list.push({ label: t('to') || 'To', value: to });
-  } else if (asOf) {
+  } else if (dates && asOf) {
     list.push({ label: t('asOf') || 'As of', value: asOf });
   }
   if (branchId) {
@@ -134,4 +139,24 @@ export function buildReportFilterList({
     list.push({ label: entityLabel, value: opt?.name || entityValue });
   }
   return list;
+}
+
+const longDate = (iso) => {
+  if (!iso) return '';
+  const d = new Date(`${iso}T00:00:00`);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
+/**
+ * The period line that sits directly under a statement's title, e.g.
+ * "As at 30 June 2026" or "For the period 1 January 2026 to 30 June 2026".
+ * A published balance sheet is meaningless without it — it's part of the
+ * statement's identity, not a filter footnote.
+ */
+export function buildStatementSubtitle({ mode = 'period', from, to, asOf }) {
+  if (mode === 'point') return asOf ? `As at ${longDate(asOf)}` : '';
+  if (from && to) return `For the period ${longDate(from)} to ${longDate(to)}`;
+  if (to) return `Up to ${longDate(to)}`;
+  return '';
 }

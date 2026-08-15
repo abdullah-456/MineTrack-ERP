@@ -161,6 +161,11 @@ export default function GeneralLedger() {
             filters={reportFilterList}
             filename="general-ledger.pdf"
             groupKey="voucher_number"
+            // Seven columns, one of which is a free-text narration that routinely
+            // runs to a couple of hundred characters. On portrait A4 that leaves
+            // the description barely 40mm and shreds it into a tall stack of
+            // fragments; landscape gives the ledger the width it actually needs.
+            orientation="landscape"
           />
         }
       />

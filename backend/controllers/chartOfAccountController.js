@@ -21,6 +21,7 @@ exports.create = async (req, res) => {
   const {
     account_name, account_type, parent_account_id, account_code,
     bank_name, account_number, opening_balance, funding_source, source_account_id,
+    is_contra,
   } = req.body;
   if (!account_name?.trim()) return res.status(400).json({ message: 'account_name is required' });
   if (!ACCOUNT_TYPES.includes(account_type)) {
@@ -83,6 +84,7 @@ exports.create = async (req, res) => {
         parent,
         accountCode: code,
         createdBy: req.user.id,
+        isContra: is_contra,
       }, transaction);
     }
 
@@ -119,7 +121,10 @@ exports.update = async (req, res) => {
       return res.status(404).json({ message: 'Account not found or not editable' });
     }
 
-    const { account_name, account_type, parent_account_id, is_active, bank_name, account_number } = req.body;
+    const {
+      account_name, account_type, parent_account_id, is_active, bank_name, account_number,
+      is_contra,
+    } = req.body;
     const posted = await hasPostings(account.id, transaction);
     const linkedFund = await db.BankAccount.findOne({
       where: { shop_id: shopId, chart_of_account_id: account.id },
@@ -181,6 +186,9 @@ exports.update = async (req, res) => {
     }
 
     if (is_active !== undefined) account.is_active = !!is_active;
+    // Presentation-only: changing it re-labels the account on statements and
+    // never alters a posted figure, so it stays editable after postings exist.
+    if (is_contra !== undefined) account.is_contra = !!is_contra;
 
     await account.save({ transaction });
     await transaction.commit();

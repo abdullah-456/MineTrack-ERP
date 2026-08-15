@@ -6,9 +6,39 @@ import { formatPKR } from '../../hooks/useShopApi';
 import api from '../../api/axios';
 import { downloadEmployeeClearance } from '../../utils/employeeClearancePdf';
 import { getCompany } from '../../utils/reportExport';
+import { formatSalaryMonth } from '../../utils/attendanceStatus';
+import { buildClearanceWalkthrough } from '../../utils/clearanceWalkthrough';
 import {
   PrintStyles, CompanyHeader, DocClose, SignatureRow, INK, INK_SOFT,
 } from '../../components/print/PrintKit';
+
+// Small-caps section heading, matching the weight/spacing every other section
+// label on this certificate already uses (EMPLOYEE DETAILS, CLEARANCE
+// CHECKLIST, ...) so the new walkthrough sections read as part of the same
+// document rather than a bolted-on addition.
+function SectionTitle({ children }) {
+  return (
+    <div style={{ fontSize: 11, fontWeight: 800, color: INK_SOFT, letterSpacing: 1, margin: '0 0 4px' }}>
+      {String(children).toUpperCase()}
+    </div>
+  );
+}
+
+// One line of the walkthrough. `hideIfZero` is for the optional add-ons
+// (allowances, bonus, commission...) that most employees never had — showing
+// every possible line for every certificate would bury the ones that actually
+// matter; `total` marks a subtotal/total row with PrintKit's existing
+// `tr.total` styling (bold, tinted) so a reader's eye finds the running total
+// without having to read every line item first.
+function Row({ label, val, fmt, total = false, hideIfZero = false }) {
+  if (hideIfZero && !(Math.abs(val) > 0.005)) return null;
+  return (
+    <tr className={total ? 'total' : undefined}>
+      <td style={{ color: total ? INK : INK_SOFT, width: '55%' }}>{label}</td>
+      <td className="num" style={{ fontWeight: 700 }}>{fmt(val)}</td>
+    </tr>
+  );
+}
 
 export default function EmployeeClearancePrint() {
   const { id } = useParams();
@@ -66,6 +96,11 @@ export default function EmployeeClearancePrint() {
   const fmt = (n) => formatPKR(n, lang);
   const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB') : '—');
   const certNo = `ECC-${employee.id}-${new Date(data.issued_at).toISOString().slice(0, 10).replace(/-/g, '')}`;
+  // Every figure a reader would otherwise have to subtract out for themselves
+  // (why does Accrued not equal Paid? what made up that gap?) computed once
+  // here — see clearanceWalkthrough.js for why it's shared with the PDF
+  // download instead of recalculated independently there.
+  const w = buildClearanceWalkthrough(data);
 
   const CLEARANCE_LABELS = {
     salary_payable: t('clearanceSalaryPayable') || 'Outstanding salary payable to employee',
@@ -134,27 +169,61 @@ export default function EmployeeClearancePrint() {
           </tbody>
         </table>
 
-        <div style={{ fontSize: 11, fontWeight: 800, color: INK_SOFT, letterSpacing: 1, margin: '0 0 4px' }}>
-          {(t('financialSummary') || 'FINANCIAL SUMMARY').toUpperCase()}
-        </div>
+        {/* Every total below is walked through step by step rather than shown
+            as a bare figure — Total Salary Accrued and Total Salary Paid used
+            to sit right next to each other with nothing explaining the gap
+            between them. Each "cutting" (tax, absence, advance recovery) now
+            has its own line, in the order it's actually subtracted, so a
+            reader gets from gross to net without doing arithmetic themselves. */}
+        <SectionTitle>{t('salaryCalculation') || 'Salary Calculation'}</SectionTitle>
         <table className="doc" style={{ marginBottom: 12 }}>
           <tbody>
-            {[
-              [t('totalSalaryAccrued') || 'Total Salary Accrued', summary.total_salary_accrued],
-              [t('totalPaid') || 'Total Salary Paid', summary.total_paid],
-              [t('currentPayable') || 'Current Payable', summary.current_payable],
-              [t('loanGivenLabel') || 'Total Loans Given', summary.loan_given],
-              [t('receivable') || 'Loan Receivable', summary.loan_receivable],
-              [t('advanceGiven') || 'Total Advances Given', summary.advance_given],
-              [t('pendingAdvance') || 'Uncleared Advances', summary.advance_pending],
-            ].map(([label, val]) => (
-              <tr key={label}>
-                <td style={{ color: INK_SOFT, width: '55%' }}>{label}</td>
-                <td className="num" style={{ fontWeight: 700 }}>{fmt(val)}</td>
-              </tr>
-            ))}
+            <Row label={t('basicSalaryWage') || 'Basic Salary / Wage Pay'} val={w.salary.basic} fmt={fmt} />
+            <Row label={`+ ${t('allowances') || 'Allowances'}`} val={w.salary.allowances} fmt={fmt} hideIfZero />
+            <Row label={`+ ${t('tempAllowance') || 'Temporary Allowance'}`} val={w.salary.tempAllowance} fmt={fmt} hideIfZero />
+            <Row label={`+ ${t('bonus') || 'Bonus'}`} val={w.salary.bonus} fmt={fmt} hideIfZero />
+            <Row label={`+ ${t('commission') || 'Commission'}`} val={w.salary.commission} fmt={fmt} hideIfZero />
+            <Row label={`+ ${t('overtimeRate') || 'Overtime'}`} val={w.salary.overtime} fmt={fmt} hideIfZero />
+            <Row total label={`= ${t('totalSalaryAccrued') || 'Total Salary Accrued (Gross)'}`} val={w.salary.grossAccrued} fmt={fmt} />
+            <Row label={`− ${t('taxDeductions') || 'Tax Deductions'}`} val={w.salary.taxDeduction} fmt={fmt} hideIfZero />
+            <Row label={`− ${t('attendanceCuttingLabel') || 'Attendance / Absence Deductions'}`} val={w.salary.attendanceDeduction} fmt={fmt} hideIfZero />
+            <Row label={`− ${t('advanceCuttingLabel') || 'Advance Deductions (Recovered via Salary)'}`} val={w.salary.advanceDeduction} fmt={fmt} hideIfZero />
+            <Row total label={`= ${t('netPaidViaPayroll') || 'Net Salary Paid via Monthly Payroll'}`} val={w.salary.netPaidViaPayroll} fmt={fmt} />
+            {w.settlement.hasActivity && (
+              <>
+                <Row label={`+ ${t('settlementPaymentLabel') || 'Final Payment to Employee (at Termination)'}`} val={w.settlement.paymentToEmployee} fmt={fmt} hideIfZero />
+                <Row label={`− ${t('settlementRecoveredLabel') || 'Amount Recovered from Employee (at Termination)'}`} val={w.settlement.recoveredFromEmployee} fmt={fmt} hideIfZero />
+                <Row total label={`= ${t('totalPaid') || 'Total Salary Paid (All-In)'}`} val={w.totalPaidAllIn} fmt={fmt} />
+              </>
+            )}
           </tbody>
         </table>
+
+        {(w.loans.given > 0 || w.loans.repaid > 0) && (
+          <>
+            <SectionTitle>{t('loansSectionTitle') || 'Loans'}</SectionTitle>
+            <table className="doc" style={{ marginBottom: 12 }}>
+              <tbody>
+                <Row label={t('loanGivenLabel') || 'Total Loans Given'} val={w.loans.given} fmt={fmt} />
+                <Row label={`− ${t('loansRepaidLabel') || 'Loans Repaid'}`} val={w.loans.repaid} fmt={fmt} hideIfZero />
+                <Row total label={`= ${t('receivable') || 'Outstanding Loan Balance (Receivable)'}`} val={w.loans.outstanding} fmt={fmt} />
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {w.advances.given > 0 && (
+          <>
+            <SectionTitle>{t('advancesSectionTitle') || 'Advances'}</SectionTitle>
+            <table className="doc" style={{ marginBottom: 12 }}>
+              <tbody>
+                <Row label={t('advanceGiven') || 'Total Advances Given'} val={w.advances.given} fmt={fmt} />
+                <Row label={`− ${t('advancesClearedLabel') || 'Advances Cleared'}`} val={w.advances.cleared} fmt={fmt} hideIfZero />
+                <Row total label={`= ${t('pendingAdvance') || 'Uncleared Advances'}`} val={w.advances.outstanding} fmt={fmt} />
+              </tbody>
+            </table>
+          </>
+        )}
 
         <div style={{
           padding: '10px 12px',
@@ -218,7 +287,7 @@ export default function EmployeeClearancePrint() {
                   <tr key={adv.id}>
                     <td>{fmtDate(adv.date)}</td>
                     <td className="num" style={{ fontWeight: 700 }}>{fmt(adv.amount)}</td>
-                    <td>{adv.for_month || '—'}</td>
+                    <td>{formatSalaryMonth(adv.for_month) || '—'}</td>
                     <td>{adv.notes || '—'}</td>
                   </tr>
                 ))}
@@ -246,7 +315,7 @@ export default function EmployeeClearancePrint() {
               <tbody>
                 {data.payroll_history.map(p => (
                   <tr key={p.month}>
-                    <td>{p.month}</td>
+                    <td>{formatSalaryMonth(p.month)}</td>
                     <td className="num">{fmt(p.basic_salary)}</td>
                     <td className="num">{fmt(p.bonus)}</td>
                     <td className="num">{fmt(p.deductions)}</td>

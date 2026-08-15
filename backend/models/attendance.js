@@ -42,8 +42,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TIME,
       allowNull: true
     },
+    // 'half_day' and 'short_leave' are native Postgres enum values added by
+    // 20260902000000-attendance-half-day-short-leave.js — changing this list
+    // alone is not enough, the database type has to know them too.
     status: {
-      type: DataTypes.ENUM('present', 'absent', 'leave'),
+      type: DataTypes.ENUM('present', 'absent', 'leave', 'half_day', 'short_leave'),
       defaultValue: 'present'
     },
     shift: {

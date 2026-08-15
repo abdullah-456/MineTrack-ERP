@@ -10,10 +10,20 @@ const MINE_FIELDS = [
 ];
 
 const BRANCH_ATTRIBUTES = [
-  'id', 'name', 'address', 'is_default', 'status', 'godown_id',
+  'id', 'name', 'location_abbr', 'address', 'is_default', 'status', 'godown_id',
   'mine_code', 'company', 'mineral_id', 'province', 'district', 'gps_coordinates',
   'lease_number', 'lease_start_date', 'lease_expiry_date', 'area', 'manager_id', 'remarks',
 ];
+
+// Normalised to uppercase and stripped of anything that would make an
+// employment ID ambiguous — the '-' separator especially, since
+// employeeController splits the trailing sequence number off on it.
+const ABBR_MAX = 10;
+function normalizeLocationAbbr(raw) {
+  if (raw === undefined) return undefined;
+  const cleaned = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, ABBR_MAX);
+  return cleaned || null;
+}
 
 const BRANCH_INCLUDES = [
   { model: db.Godown, attributes: ['id', 'name', 'code'] },
@@ -145,7 +155,7 @@ exports.createBranch = async (req, res) => {
     const shopId = requireShopId(req, res);
     if (!shopId) { await t.rollback(); return; }
 
-    const { name, address, is_default, godown_id, status, manager_id, mineral_id } = req.body;
+    const { name, location_abbr, address, is_default, godown_id, status, manager_id, mineral_id } = req.body;
     if (!name) {
       await t.rollback();
       return res.status(400).json({ message: 'Mine name is required' });
@@ -169,6 +179,7 @@ exports.createBranch = async (req, res) => {
       manager_id: manager_id ? parseInt(manager_id, 10) : null,
       mineral_id: mineral_id ? parseInt(mineral_id, 10) : null,
       name,
+      location_abbr: normalizeLocationAbbr(location_abbr) ?? null,
       address: address || null,
       is_default: !!is_default,
       status: mineStatus,
@@ -222,6 +233,10 @@ exports.updateBranch = async (req, res) => {
     }
 
     if (name !== undefined) branch.name = name;
+    // Changing this only affects employment IDs issued from here on — an ID
+    // already assigned is frozen (see employeeController), so past employees
+    // keep whatever abbreviation was current when they were created.
+    if (req.body.location_abbr !== undefined) branch.location_abbr = normalizeLocationAbbr(req.body.location_abbr);
     if (address !== undefined) branch.address = address;
     if (is_default !== undefined) branch.is_default = !!is_default;
     if (status !== undefined) branch.status = status;

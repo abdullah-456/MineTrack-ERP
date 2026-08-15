@@ -14,6 +14,7 @@ import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import { useHighlightRow } from '../../hooks/useHighlightRow';
 import { getCompany } from '../../utils/reportExport';
+import { SALARY_DAYS_PER_MONTH } from '../../utils/attendanceStatus';
 
 export default function Payroll() {
   const { t, lang } = useTheme();
@@ -45,10 +46,16 @@ export default function Payroll() {
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [advanceForSelectedMonth, setAdvanceForSelectedMonth] = useState(0);
   const [salaryForm, setSalaryForm] = useState({
-    month: currentMonth, bonus: '', temp_allowance: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
+    month: currentMonth, bonus: '', temp_allowance: '', temp_allowance_label: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
     deduct_for_absence: false, count_leave_as_absence: false, add_overtime: false,
+    // 'none' | 'pay' | 'defer' — see the commission panel below for what each means.
+    commission_action: 'none',
   });
   const [attendanceSummary, setAttendanceSummary] = useState(null);
+  // Truck-loading commission available for this employee/month, from the same
+  // backend function the actual payroll run uses — the checkbox below only
+  // appears when there is something to add.
+  const [commission, setCommission] = useState(null);
   const [paidMonths, setPaidMonths] = useState(new Set()); // months already given for modalEmp
   const [monthError, setMonthError] = useState(''); // only set right after an invalid pick attempt
 
@@ -92,11 +99,26 @@ export default function Payroll() {
     }
   }, [shopParams]);
 
+  // A user without truck_loading:read gets a 403 here — treated as "no
+  // commission to offer" rather than an error, so the modal still works for
+  // roles that don't touch that module.
+  const fetchCommission = useCallback(async (employeeId, month) => {
+    try {
+      const { data } = await api.get('/truck-loading/commission', { params: { ...shopParams(), employee_id: employeeId, month } });
+      setCommission(data);
+    } catch {
+      setCommission(null);
+    }
+  }, [shopParams]);
+
   const openGiveSalary = async (emp) => {
     setModalEmp(emp);
+    setCommission(null);
     setSalaryForm({
-      month: currentMonth, bonus: '', temp_allowance: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
-      deduct_for_absence: false, count_leave_as_absence: false,
+      month: currentMonth, bonus: '', temp_allowance: '', temp_allowance_label: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
+      deduct_for_absence: false, count_leave_as_absence: false, add_overtime: false,
+    // 'none' | 'pay' | 'defer' — see the commission panel below for what each means.
+    commission_action: 'none',
     });
     setPaidMonths(new Set());
     setMonthError('');
@@ -113,6 +135,7 @@ export default function Payroll() {
         .reduce((s, t2) => s + parseFloat(t2.amount || 0), 0);
       setAdvanceForSelectedMonth(pending);
       fetchAttendanceSummary(emp.id, nextMonth);
+      fetchCommission(emp.id, nextMonth);
     } catch (e) {
       error(e.response?.data?.message || t('toastErrorGeneric'));
       setAdvanceForSelectedMonth(0);
@@ -131,12 +154,13 @@ export default function Payroll() {
         .reduce((s, t2) => s + parseFloat(t2.amount || 0), 0);
       setAdvanceForSelectedMonth(pending);
       fetchAttendanceSummary(modalEmp.id, month);
+      fetchCommission(modalEmp.id, month);
     } catch {
       setAdvanceForSelectedMonth(0);
     } finally {
       setLedgerLoading(false);
     }
-  }, [modalEmp, shopParams, fetchAttendanceSummary]);
+  }, [modalEmp, shopParams, fetchAttendanceSummary, fetchCommission]);
 
   // Blocks re-selecting a month whose salary was already given — the native
   // `min` bound on the input already greys these out for the common
@@ -163,10 +187,24 @@ export default function Payroll() {
     }
   };
 
-  const basicSalary = parseFloat(modalEmp?.basic_salary || 0);
+  // Base pay mirrors runGiveSalary: a daily-wage employee's is
+  // rate × paid days from the attendance summary, a salaried employee's is
+  // their fixed basic salary.
+  const isDailyWage = modalEmp?.employment_type === 'daily_wage';
+  const dailyWageRate = parseFloat(modalEmp?.daily_wage || 0);
+  const wageDaysPaid = attendanceSummary?.paid_days || 0;
+  const basicSalary = isDailyWage
+    ? Math.round(wageDaysPaid * dailyWageRate * 100) / 100
+    : parseFloat(modalEmp?.basic_salary || 0);
   const allowancesTotal = (modalEmp?.allowances || []).reduce((s, a) => s + (parseFloat(a?.amount) || 0), 0);
   const bonusVal = parseFloat(salaryForm.bonus) || 0;
   const tempAllowanceVal = parseFloat(salaryForm.temp_allowance) || 0;
+  // Total is CURRENT month's fresh commission plus anything postponed from an
+  // earlier month and still unpaid — see utils/commissionHelpers.js on the
+  // backend. Only actually added to gross pay when the user picks "pay now";
+  // "defer" and "none" both leave commissionVal at 0 for this run.
+  const commissionAvailable = parseFloat(commission?.total_amount || 0);
+  const commissionVal = salaryForm.commission_action === 'pay' ? commissionAvailable : 0;
   // Mirrors deduct_for_absence exactly, but adds instead of subtracts — see
   // runGiveSalary's add_overtime flag.
   const overtimeHoursVal = attendanceSummary?.overtime_hours || 0;
@@ -174,20 +212,20 @@ export default function Payroll() {
   const overtimeAmountVal = salaryForm.add_overtime
     ? Math.round(overtimeHoursVal * overtimeRateVal * 100) / 100
     : 0;
-  const grossSalary = basicSalary + allowancesTotal + tempAllowanceVal + bonusVal + overtimeAmountVal;
+  const grossSalary = basicSalary + allowancesTotal + tempAllowanceVal + bonusVal + overtimeAmountVal + commissionVal;
   const taxPercentVal = Math.min(100, Math.max(0, parseFloat(salaryForm.tax_deduction_percent) || 0));
   const taxDeductionVal = Math.round((grossSalary * taxPercentVal / 100) * 100) / 100;
 
-  // Mirrors employeeLedgerController.giveSalary exactly — real days in the
-  // selected month, not a fixed divisor — so this preview never disagrees with
-  // what actually gets saved.
-  const [previewYear, previewMon] = salaryForm.month.split('-').map(Number);
-  const daysInSelectedMonth = new Date(previewYear, previewMon, 0).getDate();
+  // Mirrors employeeLedgerController.runGiveSalary exactly — a FIXED 26-day
+  // divisor (SALARY_DAYS_PER_MONTH), not the real length of the selected month
+  // — so this preview never disagrees with what actually gets saved. Skipped
+  // for daily-wage employees there too: their base pay already excludes
+  // unworked days, so deducting again would penalize the same day twice.
   const absentDaysVal = attendanceSummary?.absent_days || 0;
   const leaveDaysVal = attendanceSummary?.leave_days || 0;
   const deductDaysVal = absentDaysVal + (salaryForm.count_leave_as_absence ? leaveDaysVal : 0);
-  const attendanceDeductionVal = salaryForm.deduct_for_absence
-    ? Math.round((basicSalary / daysInSelectedMonth) * deductDaysVal * 100) / 100
+  const attendanceDeductionVal = salaryForm.deduct_for_absence && !isDailyWage
+    ? Math.round((basicSalary / SALARY_DAYS_PER_MONTH) * deductDaysVal * 100) / 100
     : 0;
 
   const netPayPreview = Math.round((grossSalary - taxDeductionVal - advanceForSelectedMonth - attendanceDeductionVal) * 100) / 100;
@@ -210,6 +248,7 @@ export default function Payroll() {
         month: salaryForm.month,
         bonus: bonusVal,
         temp_allowance: tempAllowanceVal,
+        temp_allowance_label: salaryForm.temp_allowance_label,
         tax_deduction_percent: taxPercentVal,
         method: salaryForm.method,
         bank_account_id: salaryForm.bank_account_id,
@@ -217,6 +256,7 @@ export default function Payroll() {
         deduct_for_absence: salaryForm.deduct_for_absence,
         count_leave_as_absence: salaryForm.count_leave_as_absence,
         add_overtime: salaryForm.add_overtime,
+        commission_action: salaryForm.commission_action,
         ...shopParams(),
       });
       success(t('salaryGiven') || 'Salary given successfully');
@@ -248,14 +288,23 @@ export default function Payroll() {
             columns={[
               { header: t('name') || 'Name', key: 'name', width: 1.6 },
               { header: t('designation') || 'Designation', render: e => e.designation || '', width: 1.3 },
-              { header: t('basicSalary') || 'Basic Salary', key: 'basic_salary', money: true, width: 1.2 },
+              { header: t('payType') || 'Pay Type', render: e => (e.employment_type === 'daily_wage' ? (t('dailyWage') || 'Daily Wage') : (t('salary') || 'Salary')), width: 1 },
+              {
+                header: t('salaryOrWage') || 'Salary / Wage',
+                key: 'pay_amount',
+                money: true,
+                width: 1.2,
+                render: e => (e.employment_type === 'daily_wage' ? e.daily_wage : e.basic_salary),
+              },
               { header: t('currentPayable') || 'Current Payable', key: 'current_payable', money: true, width: 1.3 },
               { header: t('status') || 'Status', key: 'status', width: 0.9 },
             ]}
             rows={employees}
             totals={{
               __label: t('total') || 'Total',
-              basic_salary: employees.reduce((s, e) => s + parseFloat(e.basic_salary || 0), 0),
+              pay_amount: employees.reduce((s, e) => s + parseFloat(
+                (e.employment_type === 'daily_wage' ? e.daily_wage : e.basic_salary) || 0,
+              ), 0),
               current_payable: employees.reduce((s, e) => s + parseFloat(e.current_payable || 0), 0),
             }}
             filename="payroll-report.pdf"
@@ -279,7 +328,7 @@ export default function Payroll() {
               <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
                 <th className="text-start p-4">{t('name')}</th>
                 <th className="text-start p-4">{t('designation')}</th>
-                <th className="text-start p-4">{t('basicSalary')}</th>
+                <th className="text-start p-4">{t('salaryOrWage') || 'Salary / Wage'}</th>
                 <th className="text-start p-4">{t('currentPayable') || 'Current Payable'}</th>
                 <th className="text-start p-4">{t('status')}</th>
                 <th className="text-end p-4">{t('actions')}</th>
@@ -302,7 +351,7 @@ export default function Payroll() {
                     if (latestPayslips[emp.id]) {
                       window.open(`/employees/${emp.id}/slip/${latestPayslips[emp.id].transaction_id}?auto_print=1`, '_blank');
                     } else {
-                      openModal(emp);
+                      openGiveSalary(emp);
                     }
                   }}
                 >
@@ -311,7 +360,14 @@ export default function Payroll() {
                     {emp.phone && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{emp.phone}</div>}
                   </td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.designation || '—'}</td>
-                  <td className="p-4 font-semibold text-cyan-400">{formatPKR(emp.basic_salary, lang)}</td>
+                  <td className="p-4 font-semibold text-cyan-400">
+                    {emp.employment_type === 'daily_wage' ? (
+                      <>
+                        {formatPKR(emp.daily_wage, lang)}
+                        <div className="text-[10px] font-normal" style={{ color: 'var(--text-muted)' }}>{t('perDay') || 'per day'}</div>
+                      </>
+                    ) : formatPKR(emp.basic_salary, lang)}
+                  </td>
                   <td className="p-4 font-semibold" style={{ color: parseFloat(emp.current_payable) < 0 ? '#f87171' : 'var(--text-secondary)' }}>
                     {formatPKR(emp.current_payable, lang)}
                   </td>
@@ -386,6 +442,20 @@ export default function Payroll() {
                 <input className="input" type="number" step="0.01" min="0" value={salaryForm.temp_allowance} onChange={e => setSalaryForm(f => ({ ...f, temp_allowance: e.target.value }))} />
               </div>
             </div>
+            {/* Optional name for THIS run's temp allowance. Only offered once
+                there's an amount to name — the fixed "Temporary Allowance"
+                heading stays everywhere, this just appears beside it. */}
+            {tempAllowanceVal > 0 && (
+              <div>
+                <FormLabel>{t('tempAllowanceLabel') || 'Temporary Allowance Label (Optional)'}</FormLabel>
+                <input
+                  className="input" type="text" maxLength={60}
+                  placeholder={t('tempAllowanceLabelHint') || 'e.g. Eid Bonus, Travel Reimbursement'}
+                  value={salaryForm.temp_allowance_label}
+                  onChange={e => setSalaryForm(f => ({ ...f, temp_allowance_label: e.target.value }))}
+                />
+              </div>
+            )}
             <div>
               <FormLabel>{t('taxDeductionPercent') || 'Tax Deduction %'}</FormLabel>
               <div className="relative">
@@ -408,29 +478,113 @@ export default function Payroll() {
               />
             </div>
 
-            {attendanceSummary && (attendanceSummary.absent_days > 0 || attendanceSummary.leave_days > 0 || attendanceSummary.present_days > 0) && (
+            {attendanceSummary && (attendanceSummary.marked_days > 0) && (
               <div className="rounded-lg p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                   {attendanceSummary.present_days} {t('present') || 'present'} · {attendanceSummary.absent_days} {t('absent') || 'absent'} · {attendanceSummary.leave_days} {t('leave') || 'leave'}
+                  {' · '}{attendanceSummary.half_day_days || 0} {t('halfDay') || 'half day'} · {attendanceSummary.short_leave_days || 0} {t('shortLeave') || 'short leave'}
                   {' '}({formatMonthLabel(salaryForm.month)})
                 </p>
-                <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
-                  <input
-                    type="checkbox"
-                    checked={salaryForm.deduct_for_absence}
-                    onChange={e => setSalaryForm(f => ({ ...f, deduct_for_absence: e.target.checked }))}
-                  />
-                  {absenceDeductionLabel}
-                </label>
-                {salaryForm.deduct_for_absence && (
-                  <label className="flex items-center gap-2 text-sm ps-6 cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                {/* The absence deduction doesn't apply to daily-wage employees:
+                    their base pay above is already only the days they worked. */}
+                {isDailyWage ? (
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {t('wageNoAbsenceDeduction') || 'Wage pay already excludes unworked days — no absence deduction applies.'}
+                  </p>
+                ) : (
+                  <>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                      <input
+                        type="checkbox"
+                        checked={salaryForm.deduct_for_absence}
+                        onChange={e => setSalaryForm(f => ({ ...f, deduct_for_absence: e.target.checked }))}
+                      />
+                      {absenceDeductionLabel}
+                    </label>
+                    {salaryForm.deduct_for_absence && (
+                      <label className="flex items-center gap-2 text-sm ps-6 cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                        <input
+                          type="checkbox"
+                          checked={salaryForm.count_leave_as_absence}
+                          onChange={e => setSalaryForm(f => ({ ...f, count_leave_as_absence: e.target.checked }))}
+                        />
+                        {t('countLeaveAsAbsence') || 'Also deduct for leave days'}
+                      </label>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Only shown when there is actually something to add this month. */}
+            {commissionAvailable > 0 && (
+              <div className="rounded-lg p-3 space-y-2.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                {/* This month's fresh figure and anything postponed from an
+                    earlier month are itemized separately here, then offered
+                    as ONE combined total — the whole point of postponing is
+                    that it isn't forgotten, so both must be visible together
+                    the moment there's a decision to make about either. */}
+                <div className="space-y-1 text-sm">
+                  {commission?.current?.amount > 0 && (
+                    <div className="flex justify-between" style={{ color: 'var(--text-secondary)' }}>
+                      <span>{t('commissionThisMonth') || 'This month'}</span>
+                      <span>{formatPKR(commission.current.amount, lang)}</span>
+                    </div>
+                  )}
+                  {(commission?.carried || []).map(c => (
+                    <div key={c.month} className="flex justify-between" style={{ color: 'var(--text-secondary)' }}>
+                      <span>{(t('commissionCarried') || 'Carried from {month}').replace('{month}', formatMonthLabel(c.month))}</span>
+                      <span>{formatPKR(c.amount, lang)}</span>
+                    </div>
+                  ))}
+                  {/* Only worth a separate "Total" line when there's more than
+                      one figure being combined — with nothing carried, "This
+                      month" already IS the total. */}
+                  {commission?.carried?.length > 0 && (
+                    <div className="flex justify-between font-semibold pt-1" style={{ borderTop: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
+                      <span>{t('commissionTotalAvailable') || 'Total commission available'}</span>
+                      <span>{formatPKR(commissionAvailable, lang)}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
                     <input
-                      type="checkbox"
-                      checked={salaryForm.count_leave_as_absence}
-                      onChange={e => setSalaryForm(f => ({ ...f, count_leave_as_absence: e.target.checked }))}
+                      type="radio"
+                      name="commission_action"
+                      checked={salaryForm.commission_action === 'pay'}
+                      onChange={() => setSalaryForm(f => ({ ...f, commission_action: 'pay' }))}
                     />
-                    {t('countLeaveAsAbsence') || 'Also deduct for leave days'}
+                    {t('payCommissionNow') || 'Pay commission now'} — {formatPKR(commissionAvailable, lang)}
                   </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                    <input
+                      type="radio"
+                      name="commission_action"
+                      checked={salaryForm.commission_action === 'defer'}
+                      onChange={() => setSalaryForm(f => ({ ...f, commission_action: 'defer' }))}
+                    />
+                    {t('deferCommission') || 'Postpone to next payroll'}
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                    <input
+                      type="radio"
+                      name="commission_action"
+                      checked={salaryForm.commission_action === 'none'}
+                      onChange={() => setSalaryForm(f => ({ ...f, commission_action: 'none' }))}
+                    />
+                    {t('dontIncludeCommission') || "Don't include this run"}
+                  </label>
+                </div>
+
+                {salaryForm.commission_action === 'defer' && (
+                  <p className="text-xs ps-6" style={{ color: 'var(--text-muted)' }}>
+                    {t('commissionDeferredHint') || 'Not paid this run — carried forward and combined with next month\'s commission, whenever it\'s paid.'}
+                  </p>
+                )}
+                {salaryForm.commission_action === 'pay' && commission?.current?.note && (
+                  <p className="text-xs ps-6" style={{ color: 'var(--text-muted)' }}>{commission.current.note}</p>
                 )}
               </div>
             )}
@@ -461,7 +615,12 @@ export default function Payroll() {
               ) : (
                 <>
                   <div className="flex justify-between" style={{ color: 'var(--text-secondary)' }}>
-                    <span>{t('basicSalary') || 'Basic Salary'}</span><span>{formatPKR(basicSalary, lang)}</span>
+                    <span>
+                      {isDailyWage
+                        ? `${t('wagePay') || 'Wage Pay'} (${wageDaysPaid} ${t('daysShort') || 'd'} × ${formatPKR(dailyWageRate, lang)})`
+                        : (t('basicSalary') || 'Basic Salary')}
+                    </span>
+                    <span>{formatPKR(basicSalary, lang)}</span>
                   </div>
                   {allowancesTotal > 0 && (
                     <div className="flex justify-between text-emerald-400">
@@ -470,7 +629,11 @@ export default function Payroll() {
                   )}
                   {tempAllowanceVal > 0 && (
                     <div className="flex justify-between text-emerald-400">
-                      <span>+ {t('tempAllowance') || 'Temporary Allowance'}</span><span>+{formatPKR(tempAllowanceVal, lang)}</span>
+                      <span>
+                        + {t('tempAllowance') || 'Temporary Allowance'}
+                        {salaryForm.temp_allowance_label.trim() && ` (${salaryForm.temp_allowance_label.trim()})`}
+                      </span>
+                      <span>+{formatPKR(tempAllowanceVal, lang)}</span>
                     </div>
                   )}
                   {bonusVal > 0 && (
@@ -481,6 +644,11 @@ export default function Payroll() {
                   {overtimeAmountVal > 0 && (
                     <div className="flex justify-between text-emerald-400">
                       <span>+ {t('overtimeRate') || 'Overtime'} ({overtimeHoursVal}h)</span><span>+{formatPKR(overtimeAmountVal, lang)}</span>
+                    </div>
+                  )}
+                  {commissionVal > 0 && (
+                    <div className="flex justify-between text-emerald-400">
+                      <span>+ {t('commission') || 'Commission'}</span><span>+{formatPKR(commissionVal, lang)}</span>
                     </div>
                   )}
                   {taxDeductionVal > 0 && (

@@ -13,7 +13,7 @@ import { PAKISTAN_PROVINCES, districtsForProvince } from '../../utils/pakistanRe
 import { MINE_STATUSES } from '../../utils/mineStatus';
 
 const EMPTY = {
-  name: '', address: '', is_default: false, godown_id: '',
+  name: '', location_abbr: '', address: '', is_default: false, godown_id: '',
   company: '', mineral_id: '', province: '', district: '', gps_coordinates: '',
   lease_number: '', lease_start_date: '', lease_expiry_date: '', area: '',
   status: 'active', manager_id: '', remarks: '',
@@ -70,7 +70,7 @@ export default function MineFormPage() {
         const { data } = await api.get(`/branches/${id}`, { params: shopParams() });
         const m = data.branch;
         setForm({
-          name: m.name, address: m.address || '', is_default: !!m.is_default,
+          name: m.name, location_abbr: m.location_abbr || '', address: m.address || '', is_default: !!m.is_default,
           godown_id: m.godown_id ? String(m.godown_id) : '',
           company: m.company || '', mineral_id: m.mineral_id ? String(m.mineral_id) : '',
           province: m.province || '', district: m.district || '', gps_coordinates: m.gps_coordinates || '',
@@ -160,6 +160,26 @@ export default function MineFormPage() {
           <div>
             <FormLabel required>{t('mineName')}</FormLabel>
             <input className="input" required value={form.name} onChange={setF('name')} />
+          </div>
+          <div>
+            <FormLabel>{t('locationAbbr') || 'Location Abbreviation'}</FormLabel>
+            {/* Uppercased and stripped of separators as you type, matching what
+                the server stores — the abbreviation becomes the visible prefix
+                of an employment ID (EMP-KHW-0007), and a '-' in it would break
+                where that ID's sequence number starts. */}
+            <input
+              className="input font-mono uppercase"
+              maxLength={10}
+              placeholder={t('locationAbbrPlaceholder') || 'e.g. KHW'}
+              value={form.location_abbr}
+              onChange={e => setForm(f => ({
+                ...f,
+                location_abbr: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+              }))}
+            />
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              {t('locationAbbrHint') || 'Used in employment IDs for staff at this mine — e.g. EMP-KHW-0007. Leave blank to keep the default numbering.'}
+            </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>

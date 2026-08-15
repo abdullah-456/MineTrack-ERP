@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Plus, Trash2, UserCheck } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
@@ -26,6 +26,16 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Splits an issued employment ID into its visible prefix and its sequence
+// number — 'EMP-KHW-0007' → { prefix: 'KHW', seq: '0007' }. Mirrors
+// parseEmploymentId in backend/utils/employmentId.js; anything that doesn't
+// match returns null and is left alone rather than rewritten.
+const EMPLOYMENT_ID_RE = /^EMP-(.+)-(\d+)$/;
+function parseEmploymentId(employmentId) {
+  const m = EMPLOYMENT_ID_RE.exec(String(employmentId || ''));
+  return m ? { prefix: m[1], seq: m[2] } : null;
+}
+
 function calcAge(dob) {
   if (!dob) return '';
   const d = new Date(dob);
@@ -50,11 +60,27 @@ function emptyForm(branches) {
     dependants: [],
     remarks: '',
     employment_id: '',
+    // Which mine location abbreviation the employment ID is issued under.
+    // Pre-selected from the chosen mine but overridable; blank means the ID
+    // falls back to the shop-id form it has always used.
+    employment_abbr: '',
     hire_date: todayStr(),
     designation_id: '',
     shift: '',
     overtime_rate: '',
+    // Exactly one of basic_salary / daily_wage applies, chosen by
+    // employment_type — the form swaps which input is shown and only the
+    // relevant amount is sent.
+    employment_type: 'salary',
     basic_salary: '',
+    daily_wage: '',
+    // Truck-loading commission defaults. Both bases can be on at once — they
+    // stack. These pre-fill the employee's row on a Truck Commission log; that
+    // row can still override either one for a given mine/month.
+    commission_per_truck_enabled: false,
+    commission_per_truck: '',
+    commission_per_ton_enabled: false,
+    commission_per_ton: '',
     allowances: [],
     location_type: 'branch',
     branch_id: branches?.[0]?.id || '',
@@ -101,11 +127,17 @@ export default function EmployeeFormPage() {
   const load = useCallback(async () => {
     if (isEdit && !shopReady) return;
     if (!isEdit) {
+      // The default mine's abbreviation seeds both the dropdown and the
+      // previewed ID, so the common case needs no interaction at all.
+      const base = emptyForm(branches);
+      const abbr = branches.find(b => String(b.id) === String(base.branch_id))?.location_abbr || '';
       try {
-        const { data } = await api.get('/employees/next-employment-id', { params: shopParams() });
-        setForm(() => ({ ...emptyForm(branches), employment_id: data.employment_id || '' }));
+        const { data } = await api.get('/employees/next-employment-id', {
+          params: { ...shopParams(), abbr },
+        });
+        setForm(() => ({ ...base, employment_abbr: abbr, employment_id: data.employment_id || '' }));
       } catch {
-        setForm(emptyForm(branches));
+        setForm({ ...base, employment_abbr: abbr });
       }
       return;
     }
@@ -144,11 +176,25 @@ export default function EmployeeFormPage() {
         dependants: Array.isArray(e.dependants) ? e.dependants : [],
         remarks: e.remarks || '',
         employment_id: e.employment_id || '',
+        // Seeded from the ID this employee already has, so the dropdown opens
+        // showing their current prefix and saving without touching it is a
+        // no-op. A prefix that isn't one of this shop's abbreviations (the
+        // shop-number form every older ID uses) reads as blank.
+        employment_abbr: (() => {
+          const prefix = parseEmploymentId(e.employment_id)?.prefix || '';
+          return branches.some(b => b.location_abbr === prefix) ? prefix : '';
+        })(),
         hire_date: e.hire_date ? String(e.hire_date).slice(0, 10) : todayStr(),
         designation_id: e.designation_id ? String(e.designation_id) : '',
         shift: e.shift || '',
         overtime_rate: e.overtime_rate != null ? String(e.overtime_rate) : '',
+        employment_type: e.employment_type === 'daily_wage' ? 'daily_wage' : 'salary',
         basic_salary: e.basic_salary != null ? String(e.basic_salary) : '',
+        daily_wage: e.daily_wage != null ? String(e.daily_wage) : '',
+        commission_per_truck_enabled: !!e.commission_per_truck_enabled,
+        commission_per_truck: e.commission_per_truck != null ? String(e.commission_per_truck) : '',
+        commission_per_ton_enabled: !!e.commission_per_ton_enabled,
+        commission_per_ton: e.commission_per_ton != null ? String(e.commission_per_ton) : '',
         allowances: Array.isArray(e.allowances) ? e.allowances : [],
         location_type: branch?.godown_id ? 'godown' : 'branch',
         branch_id: e.branch_id || '',
@@ -166,6 +212,49 @@ export default function EmployeeFormPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Every distinct abbreviation defined across this shop's mines. The dropdown
+  // offers all of them — not just the selected mine's — so an employee can be
+  // issued an ID under a different location when that's what actually applies.
+  // Derived from `branches`, which the page already holds, rather than a
+  // second request.
+  const abbrOptions = useMemo(() => {
+    const seen = new Map();
+    branches.forEach(b => {
+      if (b.location_abbr && !seen.has(b.location_abbr)) seen.set(b.location_abbr, b.name);
+    });
+    return [...seen.entries()].map(([abbr, mineName]) => ({ abbr, mineName }));
+  }, [branches]);
+
+  // Re-previews the ID whenever the chosen abbreviation changes.
+  //
+  // The two modes differ in what the number means. On create the number isn't
+  // allocated yet, so only the server can say what it will be. On edit the
+  // employee already owns their number and keeps it — re-issuing swaps the
+  // prefix and nothing else — so the preview is a local string swap and must
+  // NOT ask for the next number, which would show a number belonging to
+  // somebody who doesn't exist yet.
+  useEffect(() => {
+    if (!shopReady) return undefined;
+
+    if (isEdit) {
+      setForm(f => {
+        const parsed = parseEmploymentId(f.employment_id);
+        if (!parsed) return f; // unparseable/legacy — left exactly as it is
+        const prefix = f.employment_abbr || String(shopId ?? parsed.prefix);
+        return { ...f, employment_id: `EMP-${prefix}-${parsed.seq}` };
+      });
+      return undefined;
+    }
+
+    let cancelled = false;
+    api.get('/employees/next-employment-id', { params: { ...shopParams(), abbr: form.employment_abbr } })
+      .then(({ data }) => {
+        if (!cancelled) setForm(f => ({ ...f, employment_id: data.employment_id || '' }));
+      })
+      .catch(() => { /* preview only — create recomputes it server-side anyway */ });
+    return () => { cancelled = true; };
+  }, [form.employment_abbr, isEdit, shopReady, shopId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onDobChange = (val) => {
     setForm(f => ({ ...f, date_of_birth: val, age: calcAge(val) || f.age }));
   };
@@ -181,7 +270,19 @@ export default function EmployeeFormPage() {
     if (isHr) {
       if (!form.hire_date) return t('dateOfJoining') || 'Date of Joining';
       if (!form.designation_id) return t('designation') || 'Designation';
-      if (form.basic_salary === '' || Number.isNaN(parseFloat(form.basic_salary))) return t('salary') || 'Salary';
+      if (form.employment_type === 'daily_wage') {
+        if (form.daily_wage === '' || Number.isNaN(parseFloat(form.daily_wage))) return t('dailyWage') || 'Daily Wage';
+      } else if (form.basic_salary === '' || Number.isNaN(parseFloat(form.basic_salary))) {
+        return t('salary') || 'Salary';
+      }
+      if (form.commission_per_truck_enabled
+        && (form.commission_per_truck === '' || Number.isNaN(parseFloat(form.commission_per_truck)))) {
+        return t('commissionPerTruck') || 'Commission per Truck';
+      }
+      if (form.commission_per_ton_enabled
+        && (form.commission_per_ton === '' || Number.isNaN(parseFloat(form.commission_per_ton)))) {
+        return t('commissionPerTon') || 'Commission per Ton';
+      }
       if (!form.branch_id) return t('branchGodownLocation');
     }
     return null;
@@ -196,9 +297,21 @@ export default function EmployeeFormPage() {
     }
     setSaving(true);
     try {
+      const isDailyWage = form.employment_type === 'daily_wage';
       const payload = {
         ...form,
-        basic_salary: parseFloat(form.basic_salary),
+        // Only the amount that matches the chosen pay type is sent; the server
+        // nulls the other one out, so switching an employee's type can't leave
+        // a stale figure behind for payroll to pick up.
+        employment_type: form.employment_type,
+        basic_salary: isDailyWage ? null : parseFloat(form.basic_salary),
+        daily_wage: isDailyWage ? parseFloat(form.daily_wage) : null,
+        // Same rule as the pay type above — an amount only travels with its
+        // checkbox, so an unticked box can't leave a stale rate behind.
+        commission_per_truck_enabled: form.commission_per_truck_enabled,
+        commission_per_truck: form.commission_per_truck_enabled ? parseFloat(form.commission_per_truck) : null,
+        commission_per_ton_enabled: form.commission_per_ton_enabled,
+        commission_per_ton: form.commission_per_ton_enabled ? parseFloat(form.commission_per_ton) : null,
         branch_id: form.branch_id ? parseInt(form.branch_id, 10) : undefined,
         designation_id: form.designation_id ? parseInt(form.designation_id, 10) : undefined,
         age: form.age !== '' ? parseInt(form.age, 10) : null,
@@ -434,7 +547,27 @@ export default function EmployeeFormPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <FormLabel>{t('employmentId') || 'Employment ID'}</FormLabel>
-                <input className="input" readOnly value={form.employment_id || (t('autoGeneratedOnSave'))} />
+                <input className="input font-mono" readOnly value={form.employment_id || (t('autoGeneratedOnSave'))} />
+              </div>
+              {/* Available on an existing employee too — only the prefix is
+                  re-issued, their sequence number is carried across unchanged. */}
+              <div>
+                <FormLabel>{t('idLocationAbbr') || 'ID Location Abbreviation'}</FormLabel>
+                <select
+                  className="input font-mono"
+                  value={form.employment_abbr}
+                  onChange={e => setForm(f => ({ ...f, employment_abbr: e.target.value }))}
+                >
+                  <option value="">{t('useShopNumbering') || '— none (use shop numbering)'}</option>
+                  {abbrOptions.map(o => (
+                    <option key={o.abbr} value={o.abbr}>{o.abbr} — {o.mineName}</option>
+                  ))}
+                </select>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                  {isEdit
+                    ? (t('idLocationAbbrEditHint') || 'Changing this re-issues the prefix only — the number stays the same. Anything already printed with the old ID will no longer match.')
+                    : (t('idLocationAbbrHint') || 'Pre-selected from the mine chosen below. The number keeps counting across the whole shop whichever prefix is used.')}
+                </p>
               </div>
               <div>
                 <FormLabel required>{t('dateOfJoining') || 'Date of Joining'}</FormLabel>
@@ -452,12 +585,77 @@ export default function EmployeeFormPage() {
                 </select>
               </div>
               <div>
-                <FormLabel required>{t('salary') || 'Salary'}</FormLabel>
-                <input className="input" type="number" min="0" step="0.01" required value={form.basic_salary} onChange={setF('basic_salary')} />
+                <FormLabel required>{t('payType') || 'Pay Type'}</FormLabel>
+                <select className="input" value={form.employment_type} onChange={setF('employment_type')}>
+                  <option value="salary">{t('payTypeSalary') || 'Fixed Monthly Salary'}</option>
+                  <option value="daily_wage">{t('payTypeDailyWage') || 'Daily Wage'}</option>
+                </select>
               </div>
+              {form.employment_type === 'daily_wage' ? (
+                <div>
+                  <FormLabel required>{t('dailyWage') || 'Daily Wage'}</FormLabel>
+                  <input className="input" type="number" min="0" step="0.01" required value={form.daily_wage} onChange={setF('daily_wage')} />
+                  <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                    {t('dailyWageHint') || 'Monthly pay = this rate × days paid, counted from marked attendance.'}
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <FormLabel required>{t('salary') || 'Salary'}</FormLabel>
+                  <input className="input" type="number" min="0" step="0.01" required value={form.basic_salary} onChange={setF('basic_salary')} />
+                </div>
+              )}
               <div>
                 <FormLabel>{t('overtimeRate')}</FormLabel>
                 <input className="input" type="number" min="0" step="0.01" placeholder={t('overtimeRateHint') || 'Rate per hour'} value={form.overtime_rate} onChange={setF('overtime_rate')} />
+              </div>
+
+              {/* Truck-loading commission. Two independent bases that stack —
+                  an employee with both ticked earns trucks × rate PLUS
+                  tons × rate. These are defaults: the Truck Commission page
+                  pre-fills from them and can still override either one for a
+                  particular mine and month. */}
+              <div className="sm:col-span-2 space-y-2">
+                <FormLabel>{t('truckCommission') || 'Truck Loading Commission'}</FormLabel>
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {t('commissionDefaultsHint') || 'Defaults for this employee — the Truck Commission page can still change either one for a specific mine and month.'}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-lg p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                      <input
+                        type="checkbox"
+                        checked={form.commission_per_truck_enabled}
+                        onChange={e => setForm(f => ({ ...f, commission_per_truck_enabled: e.target.checked }))}
+                      />
+                      {t('commissionPerTruck') || 'Commission per Truck'}
+                    </label>
+                    <input
+                      className="input" type="number" min="0" step="0.01"
+                      placeholder={t('amountPerTruck') || 'Amount per truck'}
+                      disabled={!form.commission_per_truck_enabled}
+                      value={form.commission_per_truck}
+                      onChange={setF('commission_per_truck')}
+                    />
+                  </div>
+                  <div className="rounded-lg p-3 space-y-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                      <input
+                        type="checkbox"
+                        checked={form.commission_per_ton_enabled}
+                        onChange={e => setForm(f => ({ ...f, commission_per_ton_enabled: e.target.checked }))}
+                      />
+                      {t('commissionPerTon') || 'Commission per Ton'}
+                    </label>
+                    <input
+                      className="input" type="number" min="0" step="0.01"
+                      placeholder={t('amountPerTon') || 'Amount per ton'}
+                      disabled={!form.commission_per_ton_enabled}
+                      value={form.commission_per_ton}
+                      onChange={setF('commission_per_ton')}
+                    />
+                  </div>
+                </div>
               </div>
               <div className="sm:col-span-2 space-y-2">
                 <FormLabel>{t('allowances') || 'Allowances'}</FormLabel>
@@ -486,7 +684,10 @@ export default function EmployeeFormPage() {
                     <Plus className="w-4 h-4" />{t('addAllowance') || 'Add Allowance'}
                   </button>
                 </div>
-                {form.allowances.length > 0 && (
+                {/* Only meaningful for a fixed salary — a daily-wage employee's
+                    base pay isn't known until the month's attendance is in, so
+                    there is no fixed total to preview here. */}
+                {form.allowances.length > 0 && form.employment_type !== 'daily_wage' && (
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {t('totalSalary') || 'Total Salary (Basic + Allowances)'}: {(
                       (parseFloat(form.basic_salary) || 0) + form.allowances.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0)
@@ -508,6 +709,13 @@ export default function EmployeeFormPage() {
                     location_type: loc.location_type,
                     branch_id: loc.branch_id,
                     godown_id: loc.godown_id,
+                    // Picking a mine re-selects its abbreviation, so the
+                    // employment ID follows the location without extra clicks.
+                    // Only on create — an existing employee's ID is frozen, so
+                    // a transfer must not disturb it.
+                    ...(isEdit ? {} : {
+                      employment_abbr: branches.find(b => String(b.id) === String(loc.branch_id))?.location_abbr || '',
+                    }),
                   }))}
                 />
               </div>

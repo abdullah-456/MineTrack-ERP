@@ -1,13 +1,14 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Landmark, Loader2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
-import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
+import FinancialReportFilters, { buildReportFilterList, buildStatementSubtitle } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
 import { useFiscalYear } from '../../context/FiscalYearContext';
+import { contraLabel, isContraRow } from '../../utils/reportExport';
 
 function monthStart() {
   const d = new Date();
@@ -22,9 +23,17 @@ const LABEL_KEYS = {
   opening: 'openingBalance',
   capital: 'capitalContributed',
   drawings: 'drawings',
+  opening_balance_equity: 'openingBalancesRecorded',
   net_profit: 'netProfitForPeriod',
   closing: 'closingBalance',
 };
+
+// t(undefined) doesn't fail — it falls back to "humanize the key", which turns
+// a missing mapping into the literal word "Undefined" on the page. The backend
+// summary can carry keys this map doesn't know about yet (it grew one — see
+// opening_balance_equity above), so resolve defensively: only call t() when a
+// mapping actually exists, otherwise use the label the backend already sent.
+const summaryLabel = (t, row) => (LABEL_KEYS[row.key] ? t(LABEL_KEYS[row.key]) || row.label : row.label);
 
 export default function EquityStatement() {
   const { t, lang } = useTheme();
@@ -59,7 +68,12 @@ export default function EquityStatement() {
       if (branchId) params.branch_id = branchId;
       const { data } = await api.get('/reports/equity-statement', { params });
       setSummary(data.summary || []);
-      setDetail(data.detail || []);
+      // Contra equity accounts (Drawings, Treasury Stock) are deductions by
+      // design — labelled "Less: …" so their figures can print positive without
+      // misleading anyone. Same treatment the balance sheet gives them.
+      setDetail((data.detail || []).map(r => (
+        isContraRow(r) ? { ...r, account_name: contraLabel(r.account_name) } : r
+      )));
       setTotals({
         opening_balance: data.opening_balance || 0,
         capital_contributed: data.capital_contributed || 0,
@@ -76,27 +90,65 @@ export default function EquityStatement() {
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
-  const flatRows = useMemo(() => [
-    ...summary.map(row => ({
-      account_name: t(LABEL_KEYS[row.key]) || row.label,
-      amount: row.amount,
-      __total: row.key === 'closing' || row.key === 'opening',
-    })),
-    ...(detail.length ? [
-      { account_name: '—', amount: null, __section: true },
-      ...detail.map(r => ({
-        account_code: r.account_code,
-        account_name: r.account_name,
-        amount: r.closing,
-      })),
-    ] : []),
-  ], [summary, detail, t]);
+  const reportFilters = buildReportFilterList({ t, from, to, branchId, branches, mode: 'period', dates: false });
+  const reportSubtitle = buildStatementSubtitle({ mode: 'period', from, to });
 
-  const reportColumns = [
-    { header: t('account') || 'Account', key: 'account_name', width: 2.8 },
-    { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.2 },
-  ];
-  const reportFilters = buildReportFilterList({ t, from, to, branchId, branches, mode: 'period' });
+  // Exported as a two-table document rather than one flat list. The movement
+  // statement and the per-account detail have genuinely different shapes — the
+  // detail carries opening/movement/closing — and squashing both into a single
+  // Account|Amount table (which is what this used to do) silently dropped two
+  // of the detail's three figures.
+  const getReport = useCallback(() => {
+    const movementRows = summary.map(row => ({
+      account_name: summaryLabel(t, row),
+      amount: row.amount,
+      __level: row.key === 'opening' || row.key === 'closing' ? 0 : 1,
+      __grand: row.key === 'closing',
+      // Net profit for the period is a bottom-line RESULT — the exact figure
+      // the P&L statement shows as its own grand total — not an account's
+      // balance. It must print the same way here: signed when negative
+      // ("-Rs. 119,604"), not bracketed as if the balance itself were abnormal.
+      __signed: row.key === 'net_profit',
+    }));
+
+    const tables = [{
+      heading: t('equityMovement') || 'Movement in Equity',
+      columns: [
+        { header: t('description') || 'Description', key: 'account_name', width: 3.4, excelWidth: 52 },
+        { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.3, excelWidth: 20 },
+      ],
+      rows: movementRows,
+    }];
+
+    if (detail.length) {
+      tables.push({
+        heading: t('equityAccounts') || 'Equity Accounts Detail',
+        columns: [
+          { header: t('accountCode') || 'Code', key: 'account_code', width: 0.9, excelWidth: 12 },
+          { header: t('account') || 'Account', key: 'account_name', width: 2.4, excelWidth: 38 },
+          { header: t('openingBalance') || 'Opening', key: 'opening', money: true, width: 1.2, excelWidth: 18 },
+          { header: t('movement') || 'Movement', key: 'movement', money: true, width: 1.2, excelWidth: 18 },
+          { header: t('closingBalance') || 'Closing', key: 'closing', money: true, width: 1.2, excelWidth: 18 },
+        ],
+        rows: detail,
+        totals: {
+          __label: t('total') || 'Total',
+          opening: detail.reduce((s, r) => s + (parseFloat(r.opening) || 0), 0),
+          movement: detail.reduce((s, r) => s + (parseFloat(r.movement) || 0), 0),
+          closing: detail.reduce((s, r) => s + (parseFloat(r.closing) || 0), 0),
+        },
+      });
+    }
+
+    return {
+      kind: 'document',
+      title: t('equityStatement') || 'Statement of Changes in Equity',
+      subtitle: reportSubtitle,
+      filters: reportFilters,
+      tables,
+      filename: 'equity-statement.pdf',
+    };
+  }, [summary, detail, t, reportSubtitle, reportFilters]);
 
   return (
     <div className="space-y-6">
@@ -106,14 +158,7 @@ export default function EquityStatement() {
         title={t('equityStatement') || 'Statement of Changes in Equity'}
         subtitle={t('equityStatementSub') || 'How owner\'s equity moved during the period — opening, contributions, profit, closing'}
         action={
-          <ReportActions
-            title={t('equityStatement') || 'Statement of Changes in Equity'}
-            columns={reportColumns}
-            rows={flatRows.filter(r => !r.__section)}
-            totals={{ __label: t('closingBalance') || 'Closing Balance', amount: totals.closing_balance }}
-            filters={reportFilters}
-            filename="equity-statement.pdf"
-          />
+          <ReportActions getReport={getReport} />
         }
       />
 
@@ -160,7 +205,7 @@ export default function EquityStatement() {
                 {summary.map(row => (
                   <tr key={row.key} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                     <td className="p-4 ps-6 font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {t(LABEL_KEYS[row.key]) || row.label}
+                      {summaryLabel(t, row)}
                     </td>
                     <td className={`p-4 text-end w-48 font-bold ${row.amount < 0 ? 'text-red-400' : row.key === 'closing' || row.key === 'opening' ? 'text-violet-400' : 'text-emerald-400'}`}>
                       {formatPKR(row.amount, lang)}

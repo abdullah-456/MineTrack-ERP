@@ -51,6 +51,15 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(40),
       allowNull: true
     },
+    // Short abbreviation of the mine's LOCATION, entered by the user — not the
+    // same thing as mine_code above, which is an auto-generated record id.
+    // Used as the visible prefix of employment IDs (EMP-KHW-0007); a mine
+    // without one falls back to the shop id, which is what every existing
+    // employment ID already uses.
+    location_abbr: {
+      type: DataTypes.STRING(10),
+      allowNull: true
+    },
     company: {
       type: DataTypes.STRING(160),
       allowNull: true

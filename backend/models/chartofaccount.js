@@ -45,6 +45,16 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: true
     },
+    // A contra account's balance is opposite to its type's natural balance BY
+    // DESIGN — Accumulated Depreciation is an asset that always sits in credit.
+    // Statements print these as a positive figure under a "Less:" label, and
+    // reserve the negative presentation for balances that are abnormal rather
+    // than merely contrary. The sign alone can't tell those apart.
+    is_contra: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
     created_by: {
       type: DataTypes.INTEGER,
       allowNull: true

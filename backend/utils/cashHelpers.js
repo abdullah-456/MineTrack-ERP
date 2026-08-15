@@ -299,12 +299,15 @@ async function assertCashAvailable(shopId, amount, transaction) {
 }
 
 // ── assertBankAvailable ────────────────────────────────────────────────────────
-// Throws a 400-flavoured error if debiting `amount` from a bank account row
-// would push its balance below zero.
-function assertBankAvailable(bankAccount, amount) {
-  const balance = parseFloat(bankAccount?.current_balance || 0);
-  if (balance - parseFloat(amount) < 0) {
-    const err = new Error(`Insufficient bank balance. Available: ${balance.toFixed(2)}`);
+// Throws a 400-flavoured error if debiting `amount` from a balance of `balance`
+// would push it below zero. Takes the number directly (rather than a
+// BankAccount row) so the caller decides where the number comes from — see the
+// comment on debitBankAccount below for why that now has to be the ledger, not
+// the row's own cached column.
+function assertBankAvailable(balance, amount) {
+  const bal = parseFloat(balance || 0);
+  if (bal - parseFloat(amount) < 0) {
+    const err = new Error(`Insufficient bank balance. Available: ${bal.toFixed(2)}`);
     err.statusCode = 400;
     throw err;
   }
@@ -335,6 +338,24 @@ async function findTargetBankAccount(shopId, transaction, bankAccountId) {
   return bankAcc;
 }
 
+// Every debit/credit below used to adjust bankAcc.current_balance RELATIVE to
+// whatever the column already held (`current_balance ± amount`). That trusts
+// the cache to already be correct, which is exactly the assumption that fails
+// silently: any write path that ever posts a GL entry against this account
+// without going through these functions — a manual journal entry, a future
+// bug, anything — leaves current_balance wrong from that point on with no
+// error and no way to notice, and every later ± adjustment just compounds the
+// same wrong number forever (a real instance of this made
+// computeTotalBank() and BankAccount.current_balance disagree by Rs 707,000
+// for one shop, discovered only because fundAccounts.test.js checks the two
+// against each other).
+//
+// The fix: re-derive the balance from the ledger — the actual source of
+// truth — immediately before applying this transaction's own delta, instead
+// of trusting the column. This is cheap (one indexed SUM per payment) and
+// makes every write self-healing: whatever the column said before, it comes
+// out correct afterward, and the overdraft guard checks the real balance
+// rather than a number that might already be stale.
 async function debitBankAccount(shopId, amount, transaction, bankAccountId = null) {
   const bankAcc = await findTargetBankAccount(shopId, transaction, bankAccountId);
   if (!bankAcc) {
@@ -347,9 +368,10 @@ async function debitBankAccount(shopId, amount, transaction, bankAccountId = nul
     err.statusCode = 400;
     throw err;
   }
-  assertBankAvailable(bankAcc, amount);
+  const ledgerBalance = await computeAccountBalance(shopId, bankAcc.chart_of_account_id, { transaction });
+  assertBankAvailable(ledgerBalance, amount);
   await bankAcc.update({
-    current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) - parseFloat(amount)) * 100) / 100,
+    current_balance: round2(ledgerBalance - parseFloat(amount)),
   }, { transaction });
   return bankAcc;
 }
@@ -369,9 +391,10 @@ async function debitCashPayment(shopId, amount, transaction, bankAccountId = nul
       err.statusCode = 400;
       throw err;
     }
-    assertBankAvailable(cashAcc, amount);
+    const ledgerBalance = await computeAccountBalance(shopId, cashAcc.chart_of_account_id, { transaction });
+    assertBankAvailable(ledgerBalance, amount);
     await cashAcc.update({
-      current_balance: Math.round((parseFloat(cashAcc.current_balance || 0) - parseFloat(amount)) * 100) / 100,
+      current_balance: round2(ledgerBalance - parseFloat(amount)),
     }, { transaction });
     return cashAcc;
   }
@@ -401,8 +424,9 @@ async function creditBankAccount(shopId, amount, transaction, bankAccountId = nu
     err.statusCode = 400;
     throw err;
   }
+  const ledgerBalance = await computeAccountBalance(shopId, bankAcc.chart_of_account_id, { transaction });
   await bankAcc.update({
-    current_balance: Math.round((parseFloat(bankAcc.current_balance || 0) + parseFloat(amount)) * 100) / 100,
+    current_balance: round2(ledgerBalance + parseFloat(amount)),
   }, { transaction });
   return bankAcc;
 }
@@ -419,8 +443,9 @@ async function creditCashPayment(shopId, amount, transaction, bankAccountId) {
     err.statusCode = 400;
     throw err;
   }
+  const ledgerBalance = await computeAccountBalance(shopId, cashAcc.chart_of_account_id, { transaction });
   await cashAcc.update({
-    current_balance: Math.round((parseFloat(cashAcc.current_balance || 0) + parseFloat(amount)) * 100) / 100,
+    current_balance: round2(ledgerBalance + parseFloat(amount)),
   }, { transaction });
   return cashAcc;
 }

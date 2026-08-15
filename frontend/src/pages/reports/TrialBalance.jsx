@@ -6,7 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
-import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
+import FinancialReportFilters, { buildReportFilterList, buildStatementSubtitle } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
 import { useFiscalYear } from '../../context/FiscalYearContext';
 
@@ -71,18 +71,24 @@ export default function TrialBalance() {
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
   const reportColumns = [
-    { header: t('accountCode') || 'Code', key: 'account_code', width: 1.1 },
-    { header: t('account') || 'Account', key: 'account_name', width: 2.2 },
-    { header: t('accountType') || 'Type', key: 'account_type', width: 1 },
-    { header: t('debit') || 'Debit', key: 'debit', money: true, width: 1.2 },
-    { header: t('credit') || 'Credit', key: 'credit', money: true, width: 1.2 },
+    { header: t('accountCode') || 'Code', key: 'account_code', width: 1, excelWidth: 14 },
+    { header: t('account') || 'Account', key: 'account_name', width: 2.6, excelWidth: 40 },
+    { header: t('accountType') || 'Type', key: 'account_type', width: 1, excelWidth: 14 },
+    { header: t('debit') || 'Debit', key: 'debit', money: true, width: 1.2, excelWidth: 18 },
+    { header: t('credit') || 'Credit', key: 'credit', money: true, width: 1.2, excelWidth: 18 },
   ];
   const reportTotals = {
     __label: t('total') || 'Total',
     debit: totals.total_debit,
     credit: totals.total_credit,
   };
-  const reportFilters = buildReportFilterList({ t, asOf, branchId, branches, mode: 'point' });
+  const reportFilters = buildReportFilterList({ t, asOf, branchId, branches, mode: 'point', dates: false });
+  const reportSubtitle = buildStatementSubtitle({ mode: 'point', asOf });
+  // A trial balance that doesn't balance is the one thing a reader must not
+  // miss, so it goes on the printed page too — not just the on-screen banner.
+  const reportNote = totals.is_balanced
+    ? null
+    : (t('trialBalanceWarning') || 'Warning: total debits and credits do not match. Review recent vouchers.');
 
   return (
     <div className="space-y-6">
@@ -94,9 +100,11 @@ export default function TrialBalance() {
         action={
           <ReportActions
             title={t('trialBalance') || 'Trial Balance'}
+            subtitle={reportSubtitle}
             columns={reportColumns}
             rows={rows}
             totals={reportTotals}
+            note={reportNote}
             filters={reportFilters}
             filename="trial-balance.pdf"
           />

@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
-import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
+import FinancialReportFilters, { buildReportFilterList, buildStatementSubtitle } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
 import { useFiscalYear } from '../../context/FiscalYearContext';
 
@@ -103,25 +103,41 @@ export default function CashFlowStatement() {
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
-  const flatRows = useMemo(() => [
-    { account_name: t('operatingActivities') || 'Operating Activities', amount: null, __section: true },
-    { account_name: t('netProfit') || 'Net profit', amount: operating.net_profit },
-    ...operating.adjustments.map(r => ({ account_name: r.label, amount: r.cash_effect })),
-    { account_name: t('netCashFromSection') || 'Net from operating', amount: operating.total, __total: true },
-    { account_name: t('investingActivities') || 'Investing Activities', amount: null, __section: true },
-    ...investing.lines.map(r => ({ account_name: r.label, amount: r.cash_effect })),
-    { account_name: t('netCashFromSection') || 'Net from investing', amount: investing.total, __total: true },
-    { account_name: t('financingActivities') || 'Financing Activities', amount: null, __section: true },
-    ...financing.lines.map(r => ({ account_name: r.label, amount: r.cash_effect })),
-    { account_name: t('netCashFromSection') || 'Net from financing', amount: financing.total, __total: true },
-    { account_name: t('netCashChange') || 'Net change in cash', amount: summary.net_cash_change, __total: true },
+  // Structured for export. The three activity sections each get a heading, an
+  // indented body and a ruled subtotal; the net change is the grand total, and
+  // opening/closing cash follow it as the reconciliation a cash flow statement
+  // is required to show.
+  const statementRows = useMemo(() => [
+    { __section: true, account_name: t('operatingActivities') || 'Operating Activities' },
+    // Same figure the P&L statement shows as its own grand total, folded in here
+    // as the starting point for the indirect method. A period loss must print
+    // signed ("-Rs. …"), not bracketed as if it were an abnormal account
+    // balance — see isResultRow() in reportExport.js.
+    { __level: 1, account_name: t('netProfit') || 'Net profit', amount: operating.net_profit, __signed: true },
+    ...operating.adjustments.map(r => ({ __level: 1, account_name: r.label, amount: r.cash_effect })),
+    { __total: true, __level: 1, account_name: t('netCashFromSection') || 'Net cash from operating', amount: operating.total },
+    { __spacer: true },
+    { __section: true, account_name: t('investingActivities') || 'Investing Activities' },
+    ...investing.lines.map(r => ({ __level: 1, account_name: r.label, amount: r.cash_effect })),
+    ...(investing.lines.length ? [] : [{ __level: 1, account_name: t('noEntries') || 'No entries' }]),
+    { __total: true, __level: 1, account_name: t('netCashFromSection') || 'Net cash from investing', amount: investing.total },
+    { __spacer: true },
+    { __section: true, account_name: t('financingActivities') || 'Financing Activities' },
+    ...financing.lines.map(r => ({ __level: 1, account_name: r.label, amount: r.cash_effect })),
+    ...(financing.lines.length ? [] : [{ __level: 1, account_name: t('noEntries') || 'No entries' }]),
+    { __total: true, __level: 1, account_name: t('netCashFromSection') || 'Net cash from financing', amount: financing.total },
+    { __spacer: true },
+    { __grand: true, account_name: t('netCashChange') || 'Net Change in Cash', amount: summary.net_cash_change },
+    { __level: 1, account_name: t('openingCash') || 'Cash at beginning of period', amount: summary.opening_cash },
+    { __total: true, __level: 1, account_name: t('closingCash') || 'Cash at end of period', amount: summary.closing_cash },
   ], [operating, investing, financing, summary, t]);
 
   const reportColumns = [
-    { header: t('description') || 'Description', key: 'account_name', width: 2.8 },
-    { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.2 },
+    { header: t('description') || 'Description', key: 'account_name', width: 3.4, excelWidth: 52 },
+    { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.3, excelWidth: 20 },
   ];
-  const reportFilters = buildReportFilterList({ t, from, to, branchId, branches, mode: 'period' });
+  const reportFilters = buildReportFilterList({ t, from, to, branchId, branches, mode: 'period', dates: false });
+  const reportSubtitle = buildStatementSubtitle({ mode: 'period', from, to });
 
   return (
     <div className="space-y-6">
@@ -133,9 +149,9 @@ export default function CashFlowStatement() {
         action={
           <ReportActions
             title={t('cashFlowStatement') || 'Cash Flow Statement'}
+            subtitle={reportSubtitle}
             columns={reportColumns}
-            rows={flatRows.filter(r => !r.__section && r.amount != null)}
-            totals={{ __label: t('netCashChange') || 'Net Change in Cash', amount: summary.net_cash_change }}
+            rows={statementRows}
             filters={reportFilters}
             filename="cash-flow-statement.pdf"
           />

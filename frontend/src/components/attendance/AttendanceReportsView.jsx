@@ -5,7 +5,7 @@ import ReportActions from '../ui/ReportActions';
 import EmployeeMultiSelect from './EmployeeMultiSelect';
 import DailyReportTable from './DailyReportTable';
 import AttendanceGridTable from './AttendanceGridTable';
-import { STATUS_META, enumerateDates } from '../../utils/attendanceStatus';
+import { STATUS_META, STATUS_ORDER, enumerateDates } from '../../utils/attendanceStatus';
 import { exportReportXlsx } from '../../utils/xlsxExport';
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -44,9 +44,7 @@ function buildDailyReportModel(report, t, filters) {
     },
   ];
   const meta = [
-    `${t('present') || 'Present'}: ${report.totals.present}`,
-    `${t('absent') || 'Absent'}: ${report.totals.absent}`,
-    `${t('leave') || 'Leave'}: ${report.totals.leave}`,
+    ...STATUS_ORDER.map(s => `${t(STATUS_META[s].labelKey) || STATUS_META[s].fallback}: ${report.totals[s] || 0}`),
     `${t('unmarked') || 'Unmarked'}: ${report.totals.unmarked}`,
   ];
   return {
@@ -56,6 +54,9 @@ function buildDailyReportModel(report, t, filters) {
     filters,
     columns,
     rows: report.employees,
+    // Headcount summary rendered as a single line UNDER the table rather than
+    // squeezed into one column's totals cell, where it would wrap badly.
+    note: `${t('totalEmployees') || 'Total Employees'}: ${report.totals.total_employees} — ${meta.join(', ')}`,
     filename: `daily-attendance-${report.date}.pdf`,
   };
 }
@@ -85,8 +86,18 @@ function buildGridReportModel(report, t, filters, titleKey, titleFallback, filen
     { header: t('totalPresentDays') || 'Present', key: 'present_days', align: 'center', width: 0.8, excelWidth: 10, render: (r) => r.summary.present_days },
     { header: t('totalAbsentDays') || 'Absent', key: 'absent_days', align: 'center', width: 0.8, excelWidth: 10, render: (r) => r.summary.absent_days },
     { header: t('totalLeaveDays') || 'Leave', key: 'leave_days', align: 'center', width: 0.8, excelWidth: 10, render: (r) => r.summary.leave_days },
+    { header: t('halfDay') || 'Half Day', key: 'half_day_days', align: 'center', width: 0.8, excelWidth: 10, render: (r) => r.summary.half_day_days ?? 0 },
+    { header: t('shortLeave') || 'Short Leave', key: 'short_leave_days', align: 'center', width: 0.9, excelWidth: 12, render: (r) => r.summary.short_leave_days ?? 0 },
     { header: t('attendancePercentage') || '%', key: 'percentage', align: 'center', width: 0.8, excelWidth: 8, render: (r) => `${r.summary.percentage}%` },
   ];
+
+  // Roster-wide totals as a note line under the table, for the same reason as
+  // the daily report's: a multi-status summary does not fit in a table cell.
+  // Summary keys are the status name + '_days' (present_days, half_day_days …).
+  const totals = report.employees.reduce((acc, e) => {
+    STATUS_ORDER.forEach(s => { acc[s] = (acc[s] || 0) + (e.summary[`${s}_days`] ?? 0); });
+    return acc;
+  }, {});
 
   return {
     kind: 'list',
@@ -95,6 +106,9 @@ function buildGridReportModel(report, t, filters, titleKey, titleFallback, filen
     filters,
     columns,
     rows: report.employees,
+    note: `${t('totalEmployees') || 'Total Employees'}: ${report.employees.length} — ${STATUS_ORDER
+      .map(s => `${t(STATUS_META[s].labelKey) || STATUS_META[s].fallback}: ${totals[s] || 0}`)
+      .join(', ')}`,
     filename: `${filenamePrefix}-${report.from}-to-${report.to}.pdf`,
   };
 }
@@ -270,7 +284,7 @@ export default function AttendanceReportsView({ shopParams, branchId, branches, 
       {report && (
         <>
           <div className="flex justify-end">
-            <ReportActions getReport={getReport} onExcel={handleExcel} />
+            <ReportActions getReport={getReport} onExcel={handleExcel} columnPicker />
           </div>
           {report.reportType === 'daily' ? (
             <DailyReportTable report={report} t={t} />

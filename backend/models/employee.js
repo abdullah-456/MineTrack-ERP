@@ -129,9 +129,53 @@ module.exports = (sequelize, DataTypes) => {
     },
     remarks: { type: DataTypes.TEXT, allowNull: true },
     hr_remarks: { type: DataTypes.TEXT, allowNull: true },
+    // An employee is EITHER salary-based (fixed monthly basic_salary) OR
+    // daily-wage-based (daily_wage × paid days that month). Exactly one of the
+    // two amounts is required — enforced in employeeController validation, not
+    // at the DB level, so a row written before this column existed can still be
+    // updated for unrelated reasons without being rejected.
+    // Deliberately a plain STRING rather than a native DB enum (unlike
+    // `status` below): a native Postgres enum needs an ALTER TYPE migration
+    // before a new value can even be inserted, which is exactly the trap the
+    // attendance status enum hit. Allowed values are validated in
+    // employeeController instead.
+    employment_type: {
+      type: DataTypes.STRING(20),
+      defaultValue: 'salary',
+      allowNull: false,
+    },
     basic_salary: {
       type: DataTypes.DECIMAL(15, 2),
+      allowNull: true,
+    },
+    daily_wage: {
+      type: DataTypes.DECIMAL(15, 2),
+      allowNull: true,
+    },
+    // Truck-loading commission defaults. Two independent bases that stack when
+    // both are on: trucks × commission_per_truck + tons × commission_per_ton.
+    //
+    // These are DEFAULTS, not a hard gate — they pre-fill the employee's row
+    // when they're ticked on a Truck Commission log, and that row can still
+    // switch either type on or off for that mine/month. What ends up on the row
+    // is what gets paid; nothing here is read back at payroll time.
+    commission_per_truck_enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
       allowNull: false,
+    },
+    commission_per_truck: {
+      type: DataTypes.DECIMAL(15, 2),
+      allowNull: true,
+    },
+    commission_per_ton_enabled: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+    commission_per_ton: {
+      type: DataTypes.DECIMAL(15, 2),
+      allowNull: true,
     },
     // Recurring named top-ups on basic_salary — [{ name, amount }] — folded
     // into gross pay every month by employeeLedgerController.runGiveSalary.
@@ -157,6 +201,13 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: 0.00,
     },
     terminated_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    // The other end of the lifecycle that terminated_at already covered —
+    // stamped when the employee is suspended, cleared when they go back to
+    // active, so an export can show when a suspension actually took effect.
+    suspended_at: {
       type: DataTypes.DATE,
       allowNull: true,
     },

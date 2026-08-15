@@ -1,24 +1,33 @@
-import { UserCheck, UserX, CalendarOff, HelpCircle, Users } from 'lucide-react';
-import { STATUS_META } from '../../utils/attendanceStatus';
+import { UserCheck, UserX, CalendarOff, HelpCircle, Users, Clock, Timer } from 'lucide-react';
+import { STATUS_META, STATUS_ORDER } from '../../utils/attendanceStatus';
 
 const TOTAL_TONE = { bg: 'rgba(99,102,241,0.10)', border: 'rgba(99,102,241,0.25)', fg: 'rgb(99,102,241)' };
 const UNMARKED_TONE = { bg: 'rgba(148,163,184,0.15)', border: 'rgba(148,163,184,0.3)', fg: 'rgb(100,116,139)' };
-const TONE_BY_STATUS = {
-  present: { bg: 'rgba(16,185,129,0.10)', border: 'rgba(16,185,129,0.25)', fg: 'rgb(16,185,129)' },
-  absent:  { bg: 'rgba(239,68,68,0.10)',  border: 'rgba(239,68,68,0.25)',  fg: 'rgb(239,68,68)' },
-  leave:   { bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.25)', fg: 'rgb(245,158,11)' },
+const ICON_BY_STATUS = {
+  present: UserCheck, absent: UserX, leave: CalendarOff, half_day: Clock, short_leave: Timer,
 };
 
-// Daily Attendance Report: totals + a Present/Absent/Leave list for one date.
+// A pill's tint is derived from the status's own `cell` colour rather than
+// hand-written per status, so adding a status to STATUS_META is enough — there
+// is no second colour table here to forget to update.
+function toneFor(status) {
+  const rgb = STATUS_META[status].cell.replace(/^rgb\(|\)$/g, '');
+  return { bg: `rgba(${rgb},0.10)`, border: `rgba(${rgb},0.25)`, fg: STATUS_META[status].cell };
+}
+
+// Daily Attendance Report: totals + a per-status list for one date.
 export default function DailyReportTable({ report, t }) {
   if (!report) return null;
   const { totals, employees } = report;
 
   const pills = [
     { label: t('totalEmployees') || 'Total Employees', value: totals.total_employees, icon: Users, tone: TOTAL_TONE },
-    { label: t('present') || 'Present', value: totals.present, icon: UserCheck, tone: TONE_BY_STATUS.present },
-    { label: t('absent') || 'Absent', value: totals.absent, icon: UserX, tone: TONE_BY_STATUS.absent },
-    { label: t('leave') || 'Leave', value: totals.leave, icon: CalendarOff, tone: TONE_BY_STATUS.leave },
+    ...STATUS_ORDER.map(s => ({
+      label: t(STATUS_META[s].labelKey) || STATUS_META[s].fallback,
+      value: totals[s] || 0,
+      icon: ICON_BY_STATUS[s] || HelpCircle,
+      tone: toneFor(s),
+    })),
     { label: t('unmarked') || 'Unmarked', value: totals.unmarked, icon: HelpCircle, tone: UNMARKED_TONE },
   ];
 

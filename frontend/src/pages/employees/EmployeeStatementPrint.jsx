@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { formatPKR } from '../../hooks/useShopApi';
 import api from '../../api/axios';
 import { getCompany } from '../../utils/reportExport';
+import { formatSalaryMonth } from '../../utils/attendanceStatus';
 import {
   PrintStyles, PrintActionBar, CompanyHeader, DocClose, INK, INK_SOFT,
 } from '../../components/print/PrintKit';
@@ -127,7 +128,7 @@ export default function EmployeeStatementPrint() {
                   <td>
                     {TXN_LABELS[txn.type] || txn.type}
                     {txn.type === 'advance_given' && txn.for_month && (
-                      <span style={{ color: INK_SOFT }}> · {txn.for_month} · {txn.cleared ? (t('cleared') || 'Cleared') : (t('pending') || 'Pending')}</span>
+                      <span style={{ color: INK_SOFT }}> · {formatSalaryMonth(txn.for_month)} · {txn.cleared ? (t('cleared') || 'Cleared') : (t('pending') || 'Pending')}</span>
                     )}
                   </td>
                   {/* Debit column */}

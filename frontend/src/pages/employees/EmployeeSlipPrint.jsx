@@ -6,6 +6,7 @@ import { formatPKR, useShopApi } from '../../hooks/useShopApi';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
 import { getCompany } from '../../utils/reportExport';
+import { formatSalaryMonth } from '../../utils/attendanceStatus';
 import {
   PrintStyles, CompanyHeader, AmountWords, DocClose, INK, INK_SOFT,
 } from '../../components/print/PrintKit';
@@ -123,7 +124,7 @@ export default function EmployeeSlipPrint() {
               <tr><td style={{ color: INK_SOFT }}>{t('method') || 'Method'}</td><td style={{ fontWeight: 700, textTransform: 'uppercase' }}>{txn.method}</td></tr>
             )}
             {txn.for_month && (
-              <tr><td style={{ color: INK_SOFT }}>{t('forMonth') || 'For Salary Month'}</td><td style={{ fontWeight: 700 }}>{txn.for_month}</td></tr>
+              <tr><td style={{ color: INK_SOFT }}>{t('forMonth') || 'For Salary Month'}</td><td style={{ fontWeight: 700 }}>{formatSalaryMonth(txn.for_month)}</td></tr>
             )}
             {txn.notes && (
               <tr><td style={{ color: INK_SOFT }}>{t('description') || 'Description'}</td><td>{txn.notes}</td></tr>
@@ -135,8 +136,17 @@ export default function EmployeeSlipPrint() {
         {payroll ? (
           <table className="doc">
             <tbody>
-              <tr><td style={{ color: INK_SOFT }}>{t('month') || 'Month'}</td><td className="num" style={{ fontWeight: 700 }}>{payroll.month}</td></tr>
-              <tr><td style={{ color: INK_SOFT }}>{t('basicSalary') || 'Basic Salary'}</td><td className="num">{fmt(payroll.basic_salary)}</td></tr>
+              <tr><td style={{ color: INK_SOFT }}>{t('month') || 'Month'}</td><td className="num" style={{ fontWeight: 700 }}>{formatSalaryMonth(payroll.month)}</td></tr>
+              {/* Reads off the payroll row's own employment_type snapshot — the
+                  employee may have changed pay type since this run. */}
+              <tr>
+                <td style={{ color: INK_SOFT }}>
+                  {payroll.employment_type === 'daily_wage'
+                    ? `${t('wagePay') || 'Wage Pay'} (${payroll.wage_days_paid} ${t('daysAbbrev') || 'd'} × ${fmt(payroll.daily_wage_rate)})`
+                    : (t('basicSalary') || 'Basic Salary')}
+                </td>
+                <td className="num">{fmt(payroll.basic_salary)}</td>
+              </tr>
               {payroll.allowances_total > 0 && (
                 <tr>
                   <td style={{ color: INK_SOFT }}>{t('allowances') || 'Allowances'}</td>
@@ -145,8 +155,22 @@ export default function EmployeeSlipPrint() {
               )}
               {payroll.temp_allowance > 0 && (
                 <tr>
-                  <td style={{ color: INK_SOFT }}>{t('tempAllowance') || 'Temporary Allowance'}</td>
+                  {/* The fixed heading stays; the run's own optional label
+                      (e.g. "Eid Bonus") shows next to it when one was set. */}
+                  <td style={{ color: INK_SOFT }}>
+                    {t('tempAllowance') || 'Temporary Allowance'}
+                    {payroll.temp_allowance_label && ` (${payroll.temp_allowance_label})`}
+                  </td>
                   <td className="num" style={{ color: '#047857' }}>+{fmt(payroll.temp_allowance)}</td>
+                </tr>
+              )}
+              {payroll.commission > 0 && (
+                <tr>
+                  <td style={{ color: INK_SOFT }}>
+                    {t('commission') || 'Commission'}
+                    {payroll.commission_note && ` (${payroll.commission_note})`}
+                  </td>
+                  <td className="num" style={{ color: '#047857' }}>+{fmt(payroll.commission)}</td>
                 </tr>
               )}
               <tr>

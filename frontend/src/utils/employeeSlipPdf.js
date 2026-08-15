@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import api from '../api/axios';
 import { getCompany } from './reportExport';
 import { amountInWords } from './amountInWords';
+import { formatSalaryMonth } from './attendanceStatus';
 import { SOFTWARE_CREDIT } from '../config/branding';
 
 // Downloadable employee transaction/pay slip — same letterhead & print-safe
@@ -75,7 +76,7 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
   if (employee.designation) row('Designation', employee.designation);
   row('Date', new Date(txn.date).toLocaleDateString('en-GB'));
   if (txn.method) row('Method', String(txn.method).toUpperCase());
-  if (txn.for_month) row('For Salary Month', txn.for_month);
+  if (txn.for_month) row('For Salary Month', formatSalaryMonth(txn.for_month));
   if (txn.notes) row('Notes', txn.notes);
 
   y += 2; doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.3); doc.line(margin, y, right, y); y += 7;
@@ -87,10 +88,24 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
     const taxDeduction = payroll.tax_deduction
       ?? Math.max(0, (payroll.deductions || 0) - advanceDeduction - attendanceDeduction);
     const taxPercent = payroll.tax_deduction_percent || 0;
-    row('Month', payroll.month);
-    row('Basic Salary', fmt(payroll.basic_salary));
+    row('Month', formatSalaryMonth(payroll.month));
+    // Base-pay label comes from the payroll row's own employment_type snapshot,
+    // not the employee's current type — a past slip must keep saying what it
+    // said even if the employee has since moved between salary and daily wage.
+    if (payroll.employment_type === 'daily_wage') {
+      row(`Wage Pay (${payroll.wage_days_paid}d x ${fmt(payroll.daily_wage_rate)})`, fmt(payroll.basic_salary));
+    } else {
+      row('Basic Salary', fmt(payroll.basic_salary));
+    }
     if (payroll.allowances_total > 0) row('Allowances', `+${fmt(payroll.allowances_total)}`);
-    if (payroll.temp_allowance > 0) row('Temporary Allowance', `+${fmt(payroll.temp_allowance)}`);
+    if (payroll.temp_allowance > 0) {
+      // Fixed heading, plus this run's own optional label when one was set.
+      const label = payroll.temp_allowance_label
+        ? `Temporary Allowance (${payroll.temp_allowance_label})`
+        : 'Temporary Allowance';
+      row(label, `+${fmt(payroll.temp_allowance)}`);
+    }
+    if (payroll.commission > 0) row('Commission', `+${fmt(payroll.commission)}`);
     row('Advance', advanceDeduction > 0 ? `-${fmt(advanceDeduction)}` : '-');
     row('Bonus', payroll.bonus > 0 ? `+${fmt(payroll.bonus)}` : '-');
     row(taxPercent > 0 ? `Tax Deductions (${taxPercent}%)` : 'Tax Deductions', taxDeduction > 0 ? `-${fmt(taxDeduction)}` : '-');

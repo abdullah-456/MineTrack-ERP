@@ -90,6 +90,7 @@ const shopNavGroups = [
       { to: '/admin/pits', icon: CircleDot, labelKey: 'pits', module: 'branches', action: 'read' },
       { to: '/admin/benches', icon: Layers, labelKey: 'benches', module: 'branches', action: 'read' },
       { to: '/admin/production', icon: Factory, labelKey: 'production', module: 'branches', action: 'read' },
+      { to: '/admin/truck-loading', icon: Truck, labelKey: 'truckLoading', module: 'truck_loading', action: 'read' },
       { to: '/admin/minerals', icon: Gem, labelKey: 'minerals', module: 'branches', action: 'read' },
       { to: '/vehicles', icon: Truck, labelKey: 'vehicles', module: 'vehicles', action: 'read' },
     ]

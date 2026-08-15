@@ -83,21 +83,47 @@ export default function Employees() {
     );
   }
 
+  const dateCell = (v) => (v ? new Date(v).toLocaleDateString('en-PK') : '');
   const reportColumns = [
     { header: t('employmentId') || 'Emp ID', render: e => e.employment_id || '', width: 1.1 },
     { header: t('name') || 'Name', key: 'name', width: 1.6 },
     { header: t('designation') || 'Designation', render: e => e.designation || '', width: 1.3 },
     { header: t('location') || 'Location', render: e => formatLocationName(e), width: 1.4 },
-    { header: t('basicSalary') || 'Salary', key: 'basic_salary', money: true, width: 1.1 },
-    { header: t('hireDate') || 'Hire Date', render: e => (e.hire_date ? new Date(e.hire_date).toLocaleDateString('en-PK') : ''), width: 1.1 },
+    { header: t('payType') || 'Pay Type', render: e => (e.employment_type === 'daily_wage' ? (t('dailyWage') || 'Daily Wage') : (t('salary') || 'Salary')), width: 1 },
+    // One column for "what this employee is paid", since only one of the two
+    // amounts is ever set — two mostly-empty columns would read worse.
+    {
+      header: t('salaryOrWage') || 'Salary / Wage',
+      key: 'pay_amount',
+      money: true,
+      width: 1.1,
+      render: e => (e.employment_type === 'daily_wage' ? e.daily_wage : e.basic_salary),
+    },
+    { header: t('hireDate') || 'Hire Date', render: e => dateCell(e.hire_date), width: 1.1 },
+    // Both ends of the lifecycle, so an export can show WHEN a status took
+    // effect and not just what it currently is.
+    { header: t('suspendedOn') || 'Suspended On', render: e => dateCell(e.suspended_at), width: 1.1 },
+    { header: t('terminatedOn') || 'Terminated On', render: e => dateCell(e.terminated_at), width: 1.1 },
     { header: t('currentPayable') || 'Payable', key: 'current_payable', money: true, width: 1.1 },
     { header: t('status') || 'Status', key: 'status', width: 0.9 },
   ];
   const reportTotals = {
     __label: t('total') || 'Total',
-    basic_salary: reportRows.reduce((s, e) => s + parseFloat(e.basic_salary || 0), 0),
+    pay_amount: reportRows.reduce((s, e) => s + parseFloat(
+      (e.employment_type === 'daily_wage' ? e.daily_wage : e.basic_salary) || 0,
+    ), 0),
     current_payable: reportRows.reduce((s, e) => s + parseFloat(e.current_payable || 0), 0),
   };
+  // Headcount summary as a line UNDER the table, not squeezed into a totals
+  // cell — a narrow column wraps this into an unreadable stack.
+  const statusCounts = reportRows.reduce((acc, e) => {
+    acc[e.status] = (acc[e.status] || 0) + 1;
+    return acc;
+  }, {});
+  const reportNote = `${t('totalEmployees') || 'Total Employees'}: ${reportRows.length} — `
+    + ['active', 'suspended', 'terminated']
+      .map(s => `${t(s) || s}: ${statusCounts[s] || 0}`)
+      .join(', ');
 
   const canUpdate = can('employees', 'update');
 
@@ -131,8 +157,10 @@ export default function Employees() {
               columns={reportColumns}
               rows={reportRows}
               totals={reportTotals}
+              note={reportNote}
               filters={activeFilterList(reportFilters, reportSelects)}
               filename="employees-report.pdf"
+              columnPicker
             />
             <button type="button" onClick={() => navigate('/employees/create')} className="btn-primary flex items-center gap-2">
               <Plus className="w-4 h-4" />{t('addEmployee')}
@@ -172,7 +200,7 @@ export default function Employees() {
                 <th className="text-start p-4">{t('name')}</th>
                 <th className="text-start p-4">{t('designation')}</th>
                 <th className="text-start p-4">{t('location') || 'Location'}</th>
-                <th className="text-start p-4">{t('basicSalary')}</th>
+                <th className="text-start p-4">{t('salaryOrWage') || 'Salary / Wage'}</th>
                 <th className="text-start p-4">{t('hireDate')}</th>
                 <th className="text-start p-4">{t('currentPayable') || 'Current Payable'}</th>
                 <th className="text-start p-4">{t('status')}</th>
@@ -199,9 +227,28 @@ export default function Employees() {
                   </td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{emp.designation || '—'}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{formatLocationName(emp)}</td>
-                  <td className="p-4 font-semibold text-cyan-400">{formatPKR(emp.basic_salary, lang)}</td>
+                  <td className="p-4 font-semibold text-cyan-400">
+                    {emp.employment_type === 'daily_wage' ? (
+                      <>
+                        {formatPKR(emp.daily_wage, lang)}
+                        <div className="text-[10px] font-normal" style={{ color: 'var(--text-muted)' }}>{t('perDay') || 'per day'}</div>
+                      </>
+                    ) : formatPKR(emp.basic_salary, lang)}
+                  </td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>
                     {emp.hire_date ? new Date(emp.hire_date).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK') : '—'}
+                    {/* Shows WHEN the current non-active status took effect, the
+                        other end of the lifecycle hire_date already covered. */}
+                    {emp.status === 'suspended' && emp.suspended_at && (
+                      <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        {t('suspendedOn') || 'Suspended'}: {new Date(emp.suspended_at).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK')}
+                      </div>
+                    )}
+                    {emp.status === 'terminated' && emp.terminated_at && (
+                      <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                        {t('terminatedOn') || 'Terminated'}: {new Date(emp.terminated_at).toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK')}
+                      </div>
+                    )}
                   </td>
                   <td className="p-4 font-semibold" style={{ color: parseFloat(emp.current_payable) < 0 ? '#f87171' : 'var(--text-secondary)' }}>
                     {formatPKR(emp.current_payable, lang)}

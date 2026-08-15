@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
-import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
+import FinancialReportFilters, { buildReportFilterList, buildStatementSubtitle } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
 import { useFiscalYear } from '../../context/FiscalYearContext';
 
@@ -94,21 +94,31 @@ export default function ProfitAndLoss() {
 
   useEffect(() => { fetchReport(); }, [fetchReport]);
 
-  const flatRows = useMemo(() => [
-    { __section: true, account_name: t('income') || 'Income', amount: null },
-    ...income,
-    { __total: true, account_name: t('totalIncome') || 'Total Income', amount: summary.total_income },
-    { __section: true, account_name: t('expenses') || 'Expenses', amount: null },
-    ...expenses,
-    { __total: true, account_name: t('totalExpenses') || 'Total Expenses', amount: summary.total_expenses },
-    { __total: true, account_name: t('netProfit') || 'Net Profit', amount: summary.net_profit },
+  // Structured for export: section headings, indented line items, a ruled
+  // subtotal per section, and net profit as the grand total. These tags used to
+  // be built and then stripped out before export because the engine ignored
+  // them — it now renders each, so the exported statement matches the screen.
+  const statementRows = useMemo(() => [
+    { __section: true, account_name: t('income') || 'Income' },
+    ...income.map(r => ({ ...r, __level: 1 })),
+    ...(income.length ? [] : [{ account_name: t('noEntries') || 'No entries', __level: 1 }]),
+    { __total: true, __level: 1, account_name: t('totalIncome') || 'Total Income', amount: summary.total_income },
+    { __spacer: true },
+    { __section: true, account_name: t('expenses') || 'Expenses' },
+    ...expenses.map(r => ({ ...r, __level: 1 })),
+    ...(expenses.length ? [] : [{ account_name: t('noEntries') || 'No entries', __level: 1 }]),
+    { __total: true, __level: 1, account_name: t('totalExpenses') || 'Total Expenses', amount: summary.total_expenses },
+    { __spacer: true },
+    { __grand: true, account_name: t('netProfit') || 'Net Profit', amount: summary.net_profit },
   ], [income, expenses, summary, t]);
 
   const reportColumns = [
-    { header: t('account') || 'Account', key: 'account_name', width: 2.8 },
-    { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.2 },
+    { header: t('accountCode') || 'Code', key: 'account_code', width: 0.8, excelWidth: 12 },
+    { header: t('account') || 'Account', key: 'account_name', width: 3.2, excelWidth: 46 },
+    { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.3, excelWidth: 20 },
   ];
-  const reportFilters = buildReportFilterList({ t, from, to, branchId, branches, mode: 'period' });
+  const reportFilters = buildReportFilterList({ t, from, to, branchId, branches, mode: 'period', dates: false });
+  const reportSubtitle = buildStatementSubtitle({ mode: 'period', from, to });
 
   return (
     <div className="space-y-6">
@@ -120,9 +130,9 @@ export default function ProfitAndLoss() {
         action={
           <ReportActions
             title={t('plStatement') || 'P&L Statement'}
+            subtitle={reportSubtitle}
             columns={reportColumns}
-            rows={flatRows.filter(r => !r.__section)}
-            totals={{ __label: t('netProfit') || 'Net Profit', amount: summary.net_profit }}
+            rows={statementRows}
             filters={reportFilters}
             filename="profit-and-loss.pdf"
           />

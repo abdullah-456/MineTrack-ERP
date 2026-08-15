@@ -19,6 +19,7 @@ const {
   previousFiscalYearStart,
   computeEndDate,
   nextFiscalYearStart,
+  fiscalYearLabelFromStart,
 } = require('../utils/fiscalYear');
 
 let dbAvailable = false;
@@ -106,24 +107,80 @@ describe('stepping between fiscal years', () => {
 });
 
 // ── Against the configured database ─────────────────────────────────────────
+//
+// These tests used to pick "any shop with fiscal years" out of the live dev
+// database (db.FiscalYear.findOne({ order: [['start_date', 'ASC']] }) — the
+// globally earliest fiscal year row, whichever shop that happened to belong
+// to) and walk backward from whatever it found. That worked until it didn't:
+// the 5-year default backdating floor (backdateFloor() in utils/fiscalYear.js)
+// is computed relative to REAL wall-clock "today", so as actual time passed,
+// the picked shop's earliest year eventually became too old to safely walk
+// two years further back from — and separately, once the shared dev database
+// accumulated a fiscal year that happened to already cover a test's target
+// date, ensureFiscalYearCoveringDate correctly returned that existing year
+// immediately instead of ever reaching the floor-check code the test meant to
+// exercise. Neither was a product bug: the floor was doing its job, and
+// returning an existing covering year without re-validating it against a
+// books_start_date set AFTER it already existed is correct — retroactively
+// invalidating a fiscal year that may already carry postings would be
+// actively dangerous. The tests' assumption (their picked shop's data would
+// always still be young enough / never already cover the target) was what
+// broke as real time and the shared database moved on regardless of them.
+//
+// Fixed by building each test's own throwaway shop and fiscal year, anchored
+// a small, fixed distance from whatever "today" is AT TEST RUN TIME rather
+// than relying on the shared database's accumulated state. That removes both
+// failure modes at once: there is no pre-existing data to accidentally cover
+// a target date, and every date used stays a safe margin inside the 5-year
+// floor no matter how much real time has passed since these tests were
+// written or how long they keep running into the future.
 
-async function anyShopWithYears(transaction) {
-  const fy = await db.FiscalYear.findOne({ order: [['start_date', 'ASC']], transaction });
-  return fy ? fy.shop_id : null;
+let shopSeq = 0;
+
+// A throwaway shop of its own, mirroring employmentId.test.js's makeShop —
+// only this test's own assertions ever touch it, so it can't collide with
+// real shop data or with any other test file's fixtures.
+async function makeIsolatedShop(transaction, { booksStartDate = null } = {}) {
+  shopSeq += 1;
+  const tag = `${Date.now()}_${shopSeq}_${Math.random().toString(36).slice(2, 7)}`;
+  const shop = await db.Shop.create({
+    name: `__backdating_test_${tag}`,
+    books_start_date: booksStartDate,
+  }, { transaction });
+  // role_id 2 ('admin') is a seeded, shared system row — safe to reference,
+  // never created or deleted by any test.
+  const user = await db.User.create({
+    name: 'Backdating Test User',
+    email: `__backdating_${tag}@test.local`,
+    password_hash: 'not-a-real-hash',
+    role_id: 2,
+    shop_id: shop.id,
+  }, { transaction });
+  return { shopId: shop.id, userId: user.id };
+}
+
+// Seeds exactly one fiscal year, anchored `yearsAgo` years before whatever
+// "today" is when the suite actually runs — never a hardcoded calendar date —
+// so the tests that walk further back from it stay comfortably inside the
+// 5-year default floor regardless of when this file is executed.
+async function seedFiscalYear(shopId, yearsAgo, transaction) {
+  const start = `${new Date().getUTCFullYear() - yearsAgo}-07-01`;
+  const fy = await db.FiscalYear.create({
+    shop_id: shopId,
+    label: fiscalYearLabelFromStart(start),
+    start_date: start,
+    end_date: computeEndDate(start, 6, 30),
+    status: 'open',
+  }, { transaction });
+  return fy;
 }
 
 describe('back-dating opens the years it needs', () => {
   maybe('a date in the previous year opens that year', async () => {
     const t = await db.sequelize.transaction();
     try {
-      const shopId = await anyShopWithYears(t);
-      if (!shopId) {
-        console.warn('  skipped: no fiscal years');
-        return;
-      }
-      const earliest = await db.FiscalYear.findOne({
-        where: { shop_id: shopId }, order: [['start_date', 'ASC']], transaction: t,
-      });
+      const { shopId } = await makeIsolatedShop(t);
+      const earliest = await seedFiscalYear(shopId, 1, t);
       // A day inside the year immediately before the shop's first one.
       const target = previousFiscalYearStart(earliest.start_date);
 
@@ -139,14 +196,8 @@ describe('back-dating opens the years it needs', () => {
   maybe('predecessors are contiguous — no gap, no overlap', async () => {
     const t = await db.sequelize.transaction();
     try {
-      const shopId = await anyShopWithYears(t);
-      if (!shopId) {
-        console.warn('  skipped: no fiscal years');
-        return;
-      }
-      const earliest = await db.FiscalYear.findOne({
-        where: { shop_id: shopId }, order: [['start_date', 'ASC']], transaction: t,
-      });
+      const { shopId } = await makeIsolatedShop(t);
+      const earliest = await seedFiscalYear(shopId, 1, t);
       // Two years back, so the walk has to create more than one.
       const target = previousFiscalYearStart(previousFiscalYearStart(earliest.start_date));
       await ensureFiscalYearCoveringDate(shopId, target, t);
@@ -165,11 +216,8 @@ describe('back-dating opens the years it needs', () => {
   maybe('a date past the backdating floor is refused and creates nothing', async () => {
     const t = await db.sequelize.transaction();
     try {
-      const shopId = await anyShopWithYears(t);
-      if (!shopId) {
-        console.warn('  skipped: no fiscal years');
-        return;
-      }
+      const { shopId } = await makeIsolatedShop(t);
+      await seedFiscalYear(shopId, 1, t);
       const before = await db.FiscalYear.count({ where: { shop_id: shopId }, transaction: t });
       await expect(ensureFiscalYearCoveringDate(shopId, '2010-01-01', t))
         .rejects.toThrow(/books start date|years back/i);
@@ -183,12 +231,13 @@ describe('back-dating opens the years it needs', () => {
   maybe('an explicit books start date overrides the default floor', async () => {
     const t = await db.sequelize.transaction();
     try {
-      const shopId = await anyShopWithYears(t);
-      if (!shopId) {
-        console.warn('  skipped: no fiscal years');
-        return;
-      }
-      await db.Shop.update({ books_start_date: '2024-07-01' }, { where: { id: shopId }, transaction: t });
+      // No fiscal year seeded covering the target date on purpose: the point
+      // of this test is that the FLOOR rejects the date, which only happens
+      // when ensureFiscalYearCoveringDate has to walk backward for it in the
+      // first place — an already-covering year would return early instead
+      // and never reach the floor check at all.
+      const { shopId } = await makeIsolatedShop(t, { booksStartDate: '2024-07-01' });
+      await seedFiscalYear(shopId, 1, t);
       await expect(ensureFiscalYearCoveringDate(shopId, '2024-01-01', t))
         .rejects.toThrow(/books start date \(2024-07-01\)/i);
     } finally {
@@ -201,19 +250,8 @@ describe('a back-dated posting lands in the right year', () => {
   maybe('the voucher carries the typed day and the matching fiscal year', async () => {
     const t = await db.sequelize.transaction();
     try {
-      const shopId = await anyShopWithYears(t);
-      if (!shopId) {
-        console.warn('  skipped: no fiscal years');
-        return;
-      }
-      const user = await db.User.findOne({ where: { shop_id: shopId }, attributes: ['id'], raw: true, transaction: t });
-      if (!user) {
-        console.warn('  skipped: shop has no users');
-        return;
-      }
-      const earliest = await db.FiscalYear.findOne({
-        where: { shop_id: shopId }, order: [['start_date', 'ASC']], transaction: t,
-      });
+      const { shopId, userId } = await makeIsolatedShop(t);
+      const earliest = await seedFiscalYear(shopId, 1, t);
       // Mid-way through the year before the shop's first — squarely back-dated.
       const target = previousFiscalYearStart(earliest.start_date);
 
@@ -222,7 +260,7 @@ describe('a back-dated posting lands in the right year', () => {
         type: 'journal',
         date: target,
         narration: 'backdating check',
-        createdBy: user.id,
+        createdBy: userId,
         lines: [{ accountCode: '05-CASH', debit: 1 }, { accountCode: '01-OBE', credit: 1 }],
       }, t);
 
@@ -245,14 +283,8 @@ describe('a back-dated posting lands in the right year', () => {
   maybe('posting into a closed year is still refused', async () => {
     const t = await db.sequelize.transaction();
     try {
-      const shopId = await anyShopWithYears(t);
-      if (!shopId) {
-        console.warn('  skipped: no fiscal years');
-        return;
-      }
-      const fy = await db.FiscalYear.findOne({
-        where: { shop_id: shopId }, order: [['start_date', 'ASC']], transaction: t,
-      });
+      const { shopId } = await makeIsolatedShop(t);
+      const fy = await seedFiscalYear(shopId, 1, t);
       await db.FiscalYear.update({ status: 'closed' }, { where: { id: fy.id }, transaction: t });
 
       const { assertWritableDate } = require('../utils/fiscalYear');
