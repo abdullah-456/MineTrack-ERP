@@ -97,6 +97,12 @@ import PurchaseWorkflowOrders from './pages/purchases/PurchaseWorkflowOrders';
 import PurchaseWorkflowOrderFormPage from './pages/purchases/PurchaseWorkflowOrderFormPage';
 import PurchaseWorkflowOrderViewPage from './pages/purchases/PurchaseWorkflowOrderViewPage';
 import PurchaseWorkflowOrderPrintPage from './pages/purchases/PurchaseWorkflowOrderPrintPage';
+import WorkshopItems from './pages/workshops/WorkshopItems';
+import WorkshopStockLedger from './pages/workshops/WorkshopStockLedger';
+import WorkshopJobs from './pages/workshops/WorkshopJobs';
+import WorkshopJobFormPage from './pages/workshops/WorkshopJobFormPage';
+import WorkshopJobViewPage from './pages/workshops/WorkshopJobViewPage';
+import WorkshopJobPrintPage from './pages/workshops/WorkshopJobPrintPage';
 import FiscalYears from './pages/admin/FiscalYears';
 
 const queryClient = new QueryClient({
@@ -169,6 +175,7 @@ function App() {
             <Route path="/purchase-requisition/:id" element={<ProtectedRoute><PurchaseRequisitionPrintPage /></ProtectedRoute>} />
             <Route path="/departmental-approval/:id" element={<ProtectedRoute><DepartmentalApprovalPrintPage /></ProtectedRoute>} />
             <Route path="/purchase-workflow-order/:id" element={<ProtectedRoute><PurchaseWorkflowOrderPrintPage /></ProtectedRoute>} />
+            <Route path="/workshop-job/:id" element={<ProtectedRoute><WorkshopJobPrintPage /></ProtectedRoute>} />
             <Route path="/vouchers/:voucherId" element={<ProtectedRoute><VoucherPrintPage /></ProtectedRoute>} />
             <Route path="/ledger-voucher" element={<ProtectedRoute><LedgerVoucherPrint /></ProtectedRoute>} />
             <Route path="/suppliers/:id/statement" element={<ProtectedRoute><SupplierStatementPrint /></ProtectedRoute>} />
@@ -295,6 +302,21 @@ function App() {
                 element={<ProtectedRoute module="purchases" action="create"><PurchaseWorkflowOrderFormPage /></ProtectedRoute>} />
               <Route path="/purchase-workflow/orders/:id"
                 element={<ProtectedRoute module="purchases" action="read"><PurchaseWorkflowOrderViewPage /></ProtectedRoute>} />
+
+              {/* Workshops */}
+              <Route path="/workshops/items"
+                element={<ProtectedRoute module="workshops" action="read"><WorkshopItems /></ProtectedRoute>} />
+              <Route path="/workshops/items/:id/ledger"
+                element={<ProtectedRoute module="workshops" action="read"><WorkshopStockLedger /></ProtectedRoute>} />
+              <Route path="/workshops/jobs"
+                element={<ProtectedRoute module="workshops" action="read"><WorkshopJobs /></ProtectedRoute>} />
+              <Route path="/workshops/jobs/create"
+                element={<ProtectedRoute module="workshops" action="create"><WorkshopJobFormPage /></ProtectedRoute>} />
+              <Route path="/workshops/jobs/:id/edit"
+                element={<ProtectedRoute module="workshops" action="update"><WorkshopJobFormPage /></ProtectedRoute>} />
+              <Route path="/workshops/jobs/:id"
+                element={<ProtectedRoute module="workshops" action="read"><WorkshopJobViewPage /></ProtectedRoute>} />
+
               <Route path="/suppliers"
                 element={<ProtectedRoute module="suppliers" action="read"><Suppliers /></ProtectedRoute>} />
               <Route path="/suppliers/:id"

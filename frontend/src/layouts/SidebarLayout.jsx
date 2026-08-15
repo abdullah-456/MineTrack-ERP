@@ -9,7 +9,7 @@ import {
   TrendingUp, CreditCard, UserCheck, BookOpen, FileBarChart2, Landmark,
   ShieldCheck, ChevronDown, ChevronRight, LogOut, Menu,
   Zap, Search, ChevronLeft, Sun, Moon, Globe, Check,
-  Store, Pickaxe, CircleDot, Layers, Factory, Gem, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar, CalendarCheck, CalendarOff, PartyPopper, Truck, FileText } from 'lucide-react';
+  Store, Pickaxe, CircleDot, Layers, Factory, Gem, Crown, RotateCcw, Receipt, KeyRound, ShieldAlert, Ticket, Warehouse, ClipboardList, Calendar, CalendarCheck, CalendarOff, PartyPopper, Truck, FileText, Wrench } from 'lucide-react';
 
 // ── Nav structure for regular shop users (uses translation keys) ─
 const shopNavGroups = [
@@ -93,6 +93,13 @@ const shopNavGroups = [
       { to: '/admin/truck-loading', icon: Truck, labelKey: 'truckLoading', module: 'truck_loading', action: 'read' },
       { to: '/admin/minerals', icon: Gem, labelKey: 'minerals', module: 'branches', action: 'read' },
       { to: '/vehicles', icon: Truck, labelKey: 'vehicles', module: 'vehicles', action: 'read' },
+    ]
+  },
+  {
+    labelKey: 'navWorkshops',
+    items: [
+      { to: '/workshops/items', icon: Package, labelKey: 'workshopItems', module: 'workshops', action: 'read' },
+      { to: '/workshops/jobs', icon: Wrench, labelKey: 'workshopJobs', module: 'workshops', action: 'read' },
     ]
   },
   {
