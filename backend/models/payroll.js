@@ -91,6 +91,17 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(60),
       allowNull: true
     },
+    // One-off deduction entered just for this payroll run (Give Salary form).
+    temp_deduction: {
+      type: DataTypes.DECIMAL(15, 2),
+      defaultValue: 0.00
+    },
+    // Optional free-text label/reason for THIS run's temp deduction ("Late Fine",
+    // "Uniform", "Damage").
+    temp_deduction_label: {
+      type: DataTypes.STRING(60),
+      allowNull: true
+    },
     // Truck-loading commission folded into gross pay this run (see
     // truckLoadingController.calculateCommissionForMonth). Snapshotted like
     // every other figure here — editing a mine's rate next month must not

@@ -113,7 +113,13 @@ function buildDoc({ employee, transaction: txn, payroll }, company = {}) {
       const label = company.attendance_deduction_label || 'Absence Deduction';
       const days = (payroll.absent_days || 0) + (payroll.leave_days || 0);
       row(`${label} (${days}d)`, `-${fmt(attendanceDeduction)}`);
-    } else {
+    }
+    if (payroll.temp_deduction > 0) {
+      const label = payroll.temp_deduction_label
+        ? `Temporary Deduction (${payroll.temp_deduction_label})`
+        : 'Temporary Deduction';
+      row(label, `-${fmt(payroll.temp_deduction)}`);
+    } else if (!attendanceDeduction) {
       row('Others', '-');
     }
     y += 1; doc.setDrawColor(17, 24, 39); doc.setLineWidth(0.5); doc.line(margin, y, right, y); y += 7;

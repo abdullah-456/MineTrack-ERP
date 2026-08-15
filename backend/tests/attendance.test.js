@@ -959,3 +959,45 @@ describe('temporary allowance label', () => {
     }
   });
 });
+
+describe('temporary deduction label', () => {
+  maybe('is stored alongside the amount, trimmed and capped at 60 characters', async () => {
+    const t = await db.sequelize.transaction();
+    try {
+      const setup = await makeIsolatedEmployee(t);
+      if (!setup) { console.warn('  skipped: no shop to attach a test employee to'); return; }
+      const { shopId, userId, employee } = setup;
+
+      const result = await runGiveSalary(shopId, userId, employee.id, {
+        month: lastMonth(), bonus: 0, tax_deduction_percent: 0, method: 'cash',
+        temp_deduction: 1500, temp_deduction_label: `  ${'D'.repeat(80)}  `,
+      }, t);
+
+      expect(parseFloat(result.payroll.temp_deduction)).toBeCloseTo(1500, 2);
+      expect(result.payroll.temp_deduction_label).toHaveLength(60);
+      expect(parseFloat(result.payroll.deductions)).toBeCloseTo(1500, 2);
+      expect(parseFloat(result.payroll.net_pay)).toBeCloseTo(parseFloat(employee.basic_salary) - 1500, 2);
+    } finally {
+      await t.rollback();
+    }
+  });
+
+  maybe('is dropped when the deduction amount is zero', async () => {
+    const t = await db.sequelize.transaction();
+    try {
+      const setup = await makeIsolatedEmployee(t);
+      if (!setup) { console.warn('  skipped: no shop to attach a test employee to'); return; }
+      const { shopId, userId, employee } = setup;
+
+      const result = await runGiveSalary(shopId, userId, employee.id, {
+        month: lastMonth(), bonus: 0, tax_deduction_percent: 0, method: 'cash',
+        temp_deduction: 0, temp_deduction_label: 'Late Fine',
+      }, t);
+
+      expect(result.payroll.temp_deduction_label).toBeNull();
+      expect(parseFloat(result.payroll.temp_deduction)).toBe(0);
+    } finally {
+      await t.rollback();
+    }
+  });
+});

@@ -13,6 +13,7 @@ const { SALARY_DAYS_PER_MONTH } = require('../utils/attendanceStatus');
 // is STRING(60) and an over-long value would be a database error, not a
 // validation message.
 const TEMP_ALLOWANCE_LABEL_MAX = 60;
+const TEMP_DEDUCTION_LABEL_MAX = 60;
 
 function currentMonthStr() {
   return new Date().toISOString().slice(0, 7);
@@ -520,6 +521,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
 
   const {
     month, bonus, temp_allowance, temp_allowance_label, tax_deduction_percent,
+    temp_deduction, temp_deduction_label,
     method, bank_account_id, date,
     deduct_for_absence, count_leave_as_absence, add_overtime,
     // 'none' (default) leaves commission alone entirely — untouched, exactly
@@ -567,6 +569,12 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   const tempAllowanceLabel = tempAllowanceAmt > 0
     ? (String(temp_allowance_label || '').trim().slice(0, TEMP_ALLOWANCE_LABEL_MAX) || null)
     : null;
+
+  const tempDeductionAmt = Math.max(0, parseFloat(temp_deduction) || 0);
+  const tempDeductionLabel = tempDeductionAmt > 0
+    ? (String(temp_deduction_label || '').trim().slice(0, TEMP_DEDUCTION_LABEL_MAX) || null)
+    : null;
+
   const taxPercent = Math.min(100, Math.max(0, parseFloat(tax_deduction_percent) || 0));
 
   // ── Base pay ───────────────────────────────────────────────────────────────
@@ -686,7 +694,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     attendanceDeduction = Math.round(dailyRate * deductDays * 100) / 100;
   }
 
-  const totalDeductions = Math.round((taxDeduction + advanceDeduction + attendanceDeduction) * 100) / 100;
+  const totalDeductions = Math.round((taxDeduction + advanceDeduction + attendanceDeduction + tempDeductionAmt) * 100) / 100;
   const netPay = Math.round((grossSalary - totalDeductions) * 100) / 100;
   if (netPay < 0) {
     const e = new Error('Deductions and advances exceed this month’s salary');
@@ -712,6 +720,8 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     deductions: totalDeductions,
     advance_deduction: advanceDeduction,
     attendance_deduction: attendanceDeduction,
+    temp_deduction: tempDeductionAmt,
+    temp_deduction_label: tempDeductionLabel,
     absent_days: absentDays,
     leave_days: leaveDays,
     tax_deduction_percent: taxPercent,
@@ -753,7 +763,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     await db.EmployeeTransaction.create({
       shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'deduction',
       amount: totalDeductions, method: null, created_by: userId,
-      notes: `Salary ${month} deductions${taxDeduction > 0 ? ` (tax ${taxPercent}%)` : ''}${advanceDeduction > 0 ? ` (incl. advance ${advanceDeduction.toFixed(2)})` : ''}${attendanceDeduction > 0 ? ` (absent ${absentDays}d${count_leave_as_absence && leaveDays > 0 ? ` + leave ${leaveDays}d` : ''} = ${attendanceDeduction.toFixed(2)})` : ''}`,
+      notes: `Salary ${month} deductions${taxDeduction > 0 ? ` (tax ${taxPercent}%)` : ''}${advanceDeduction > 0 ? ` (incl. advance ${advanceDeduction.toFixed(2)})` : ''}${attendanceDeduction > 0 ? ` (absent ${absentDays}d${count_leave_as_absence && leaveDays > 0 ? ` + leave ${leaveDays}d` : ''} = ${attendanceDeduction.toFixed(2)})` : ''}${tempDeductionAmt > 0 ? ` (temp deduction ${tempDeductionAmt.toFixed(2)}${tempDeductionLabel ? ` — ${tempDeductionLabel}` : ''})` : ''}`,
     }, { transaction });
   }
 
@@ -784,12 +794,8 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
     }, { transaction });
   }
 
-  // Dr Salaries Expense (net of tax AND attendance deductions — neither was
-  // ever really earned this month, so neither belongs in the expense; advance
-  // clearing is different, it's recovering an existing asset, not reducing the
-  // expense) = Cr advance recovery + Cr Cash/Bank paid out. Balances exactly
-  // since netPay = netExpense - advanceDeduction (validated by netPay>=0 above).
-  const netExpense = Math.max(0, Math.round((grossSalary - taxDeduction - attendanceDeduction) * 100) / 100);
+  // Dr Salaries Expense (net of tax, attendance, and temp deductions) = Cr advance recovery + Cr Cash/Bank paid out.
+  const netExpense = Math.max(0, Math.round((grossSalary - taxDeduction - attendanceDeduction - tempDeductionAmt) * 100) / 100);
   if (netExpense > 0) {
     await postVoucher(shopId, {
       type: 'journal',
@@ -798,7 +804,7 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
       // EmployeeTransaction rows above (which DO carry txnDate) and the
       // general ledger disagreed on which day the same salary run happened.
       date: txnDate,
-      narration: `Salary paid to employee ${employee.name} for month ${month} (${isDailyWage ? `Wage Pay: ${basicSalary} (${wageDaysPaid}d × ${dailyWageRate})` : `Basic: ${basicSalary}`}, Allowances: ${allowancesTotal}, Temp Allowance: ${tempAllowanceAmt}${tempAllowanceLabel ? ` (${tempAllowanceLabel})` : ''}, Bonus: ${bonusAmt}${commissionAmount > 0 ? `, Commission: ${commissionAmount}` : ''}, Deductions: ${totalDeductions}, Net Pay: ${netPay})`,
+      narration: `Salary paid to employee ${employee.name} for month ${month} (${isDailyWage ? `Wage Pay: ${basicSalary} (${wageDaysPaid}d × ${dailyWageRate})` : `Basic: ${basicSalary}`}, Allowances: ${allowancesTotal}, Temp Allowance: ${tempAllowanceAmt}${tempAllowanceLabel ? ` (${tempAllowanceLabel})` : ''}, Bonus: ${bonusAmt}${commissionAmount > 0 ? `, Commission: ${commissionAmount}` : ''}, Deductions: ${totalDeductions}${tempDeductionAmt > 0 ? `, Temp Deduction: ${tempDeductionAmt}${tempDeductionLabel ? ` (${tempDeductionLabel})` : ''}` : ''}, Net Pay: ${netPay})`,
       createdBy: userId,
       branchId: employee.branch_id,
       lines: [
@@ -987,6 +993,8 @@ exports.getTransactionSlip = async (req, res) => {
         deductions: parseFloat(txn.Payroll.deductions || 0),
         advance_deduction: parseFloat(txn.Payroll.advance_deduction || 0),
         attendance_deduction: parseFloat(txn.Payroll.attendance_deduction || 0),
+        temp_deduction: parseFloat(txn.Payroll.temp_deduction || 0),
+        temp_deduction_label: txn.Payroll.temp_deduction_label || null,
         absent_days: txn.Payroll.absent_days || 0,
         leave_days: txn.Payroll.leave_days || 0,
         overtime_hours: parseFloat(txn.Payroll.overtime_hours || 0),

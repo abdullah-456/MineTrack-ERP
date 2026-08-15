@@ -46,7 +46,7 @@ export default function Payroll() {
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [advanceForSelectedMonth, setAdvanceForSelectedMonth] = useState(0);
   const [salaryForm, setSalaryForm] = useState({
-    month: currentMonth, bonus: '', temp_allowance: '', temp_allowance_label: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
+    month: currentMonth, bonus: '', temp_allowance: '', temp_allowance_label: '', tax_deduction_percent: '', temp_deduction: '', temp_deduction_label: '', method: 'cash', bank_account_id: null, date: '',
     deduct_for_absence: false, count_leave_as_absence: false, add_overtime: false,
     // 'none' | 'pay' | 'defer' — see the commission panel below for what each means.
     commission_action: 'none',
@@ -115,9 +115,8 @@ export default function Payroll() {
     setModalEmp(emp);
     setCommission(null);
     setSalaryForm({
-      month: currentMonth, bonus: '', temp_allowance: '', temp_allowance_label: '', tax_deduction_percent: '', method: 'cash', bank_account_id: null, date: '',
+      month: currentMonth, bonus: '', temp_allowance: '', temp_allowance_label: '', tax_deduction_percent: '', temp_deduction: '', temp_deduction_label: '', method: 'cash', bank_account_id: null, date: '',
       deduct_for_absence: false, count_leave_as_absence: false, add_overtime: false,
-    // 'none' | 'pay' | 'defer' — see the commission panel below for what each means.
     commission_action: 'none',
     });
     setPaidMonths(new Set());
@@ -130,50 +129,38 @@ export default function Payroll() {
       const nextMonth = latestPaid ? nextMonthStr(latestPaid) : currentMonth;
       setPaidMonths(paid);
       setSalaryForm(f => ({ ...f, month: nextMonth }));
-      const pending = (data.transaction_history || [])
-        .filter(t2 => t2.type === 'advance_given' && !t2.cleared && t2.for_month === nextMonth)
-        .reduce((s, t2) => s + parseFloat(t2.amount || 0), 0);
-      setAdvanceForSelectedMonth(pending);
+      const unclearedAdv = (data.transactions || [])
+        .filter(t => t.type === 'advance_given' && !t.cleared && t.for_month === nextMonth)
+        .reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+      setAdvanceForSelectedMonth(unclearedAdv);
       fetchAttendanceSummary(emp.id, nextMonth);
       fetchCommission(emp.id, nextMonth);
-    } catch (e) {
-      error(e.response?.data?.message || t('toastErrorGeneric'));
-      setAdvanceForSelectedMonth(0);
+    } catch {
     } finally {
       setLedgerLoading(false);
     }
   };
 
-  const refreshAdvanceForMonth = useCallback(async (month) => {
-    if (!modalEmp) return;
-    setLedgerLoading(true);
-    try {
-      const { data } = await api.get(`/employees/${modalEmp.id}/ledger`, { params: shopParams() });
-      const pending = (data.transaction_history || [])
-        .filter(t2 => t2.type === 'advance_given' && !t2.cleared && t2.for_month === month)
-        .reduce((s, t2) => s + parseFloat(t2.amount || 0), 0);
-      setAdvanceForSelectedMonth(pending);
-      fetchAttendanceSummary(modalEmp.id, month);
-      fetchCommission(modalEmp.id, month);
-    } catch {
-      setAdvanceForSelectedMonth(0);
-    } finally {
-      setLedgerLoading(false);
-    }
-  }, [modalEmp, shopParams, fetchAttendanceSummary, fetchCommission]);
-
-  // Blocks re-selecting a month whose salary was already given — the native
-  // `min` bound on the input already greys these out for the common
-  // sequential case, this is the explicit safety net + user-facing message.
-  // The message only appears right after a blocked attempt (not persistently).
   const handleMonthChange = (value) => {
+    if (!value) return;
     if (paidMonths.has(value)) {
       setMonthError(`${t('salaryAlreadyGivenFor') || 'Salary for'} ${formatMonthLabel(value)} ${t('salaryAlreadyGivenSuffix') || 'is already given'}`);
       return;
     }
     setMonthError('');
     setSalaryForm(f => ({ ...f, month: value }));
-    refreshAdvanceForMonth(value);
+    fetchAttendanceSummary(modalEmp.id, value);
+    fetchCommission(modalEmp.id, value);
+    if (modalEmp) {
+      api.get(`/employees/${modalEmp.id}/ledger`, { params: shopParams() })
+        .then(({ data }) => {
+          const unclearedAdv = (data.transactions || [])
+            .filter(t => t.type === 'advance_given' && !t.cleared && t.for_month === value)
+            .reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+          setAdvanceForSelectedMonth(unclearedAdv);
+        })
+        .catch(() => {});
+    }
   };
 
   const handleDownloadSlip = async (employeeId, txnId) => {
@@ -187,9 +174,6 @@ export default function Payroll() {
     }
   };
 
-  // Base pay mirrors runGiveSalary: a daily-wage employee's is
-  // rate × paid days from the attendance summary, a salaried employee's is
-  // their fixed basic salary.
   const isDailyWage = modalEmp?.employment_type === 'daily_wage';
   const dailyWageRate = parseFloat(modalEmp?.daily_wage || 0);
   const wageDaysPaid = attendanceSummary?.paid_days || 0;
@@ -199,14 +183,9 @@ export default function Payroll() {
   const allowancesTotal = (modalEmp?.allowances || []).reduce((s, a) => s + (parseFloat(a?.amount) || 0), 0);
   const bonusVal = parseFloat(salaryForm.bonus) || 0;
   const tempAllowanceVal = parseFloat(salaryForm.temp_allowance) || 0;
-  // Total is CURRENT month's fresh commission plus anything postponed from an
-  // earlier month and still unpaid — see utils/commissionHelpers.js on the
-  // backend. Only actually added to gross pay when the user picks "pay now";
-  // "defer" and "none" both leave commissionVal at 0 for this run.
+  const tempDeductionVal = parseFloat(salaryForm.temp_deduction) || 0;
   const commissionAvailable = parseFloat(commission?.total_amount || 0);
   const commissionVal = salaryForm.commission_action === 'pay' ? commissionAvailable : 0;
-  // Mirrors deduct_for_absence exactly, but adds instead of subtracts — see
-  // runGiveSalary's add_overtime flag.
   const overtimeHoursVal = attendanceSummary?.overtime_hours || 0;
   const overtimeRateVal = parseFloat(modalEmp?.overtime_rate || 0);
   const overtimeAmountVal = salaryForm.add_overtime
@@ -216,11 +195,6 @@ export default function Payroll() {
   const taxPercentVal = Math.min(100, Math.max(0, parseFloat(salaryForm.tax_deduction_percent) || 0));
   const taxDeductionVal = Math.round((grossSalary * taxPercentVal / 100) * 100) / 100;
 
-  // Mirrors employeeLedgerController.runGiveSalary exactly — a FIXED 26-day
-  // divisor (SALARY_DAYS_PER_MONTH), not the real length of the selected month
-  // — so this preview never disagrees with what actually gets saved. Skipped
-  // for daily-wage employees there too: their base pay already excludes
-  // unworked days, so deducting again would penalize the same day twice.
   const absentDaysVal = attendanceSummary?.absent_days || 0;
   const leaveDaysVal = attendanceSummary?.leave_days || 0;
   const deductDaysVal = absentDaysVal + (salaryForm.count_leave_as_absence ? leaveDaysVal : 0);
@@ -228,7 +202,7 @@ export default function Payroll() {
     ? Math.round((basicSalary / SALARY_DAYS_PER_MONTH) * deductDaysVal * 100) / 100
     : 0;
 
-  const netPayPreview = Math.round((grossSalary - taxDeductionVal - advanceForSelectedMonth - attendanceDeductionVal) * 100) / 100;
+  const netPayPreview = Math.round((grossSalary - taxDeductionVal - advanceForSelectedMonth - attendanceDeductionVal - tempDeductionVal) * 100) / 100;
 
   const submitSalary = async (e) => {
     e.preventDefault();
@@ -237,11 +211,6 @@ export default function Payroll() {
       return;
     }
     setSaving(true);
-    // Open the tab synchronously (still inside the click gesture) so the
-    // payslip can auto-print — opening it after the await gets silently
-    // blocked as a non-user-initiated popup. Must NOT pass noopener/noreferrer
-    // here: both make window.open() return null, which would silently break
-    // this open-now-navigate-later pattern (nothing would ever print).
     const slipTab = window.open('', '_blank');
     try {
       const { data } = await api.post(`/employees/${modalEmp.id}/give-salary`, {
@@ -250,6 +219,8 @@ export default function Payroll() {
         temp_allowance: tempAllowanceVal,
         temp_allowance_label: salaryForm.temp_allowance_label,
         tax_deduction_percent: taxPercentVal,
+        temp_deduction: tempDeductionVal,
+        temp_deduction_label: salaryForm.temp_deduction_label,
         method: salaryForm.method,
         bank_account_id: salaryForm.bank_account_id,
         date: salaryForm.date || undefined,
@@ -432,40 +403,70 @@ export default function Payroll() {
                 onChange={e => setSalaryForm(f => ({ ...f, date: e.target.value }))}
               />
             </div>
+            {/* Bonus row */}
+            <div>
+              <FormLabel>{t('bonus') || 'Bonus'}</FormLabel>
+              <input className="input" type="number" step="0.01" min="0" value={salaryForm.bonus} onChange={e => setSalaryForm(f => ({ ...f, bonus: e.target.value }))} />
+            </div>
+            {/* Temporary Allowance & Temporary Deduction — side by side,
+                with their optional labels side by side below them. */}
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FormLabel>{t('bonus') || 'Bonus'}</FormLabel>
-                <input className="input" type="number" step="0.01" min="0" value={salaryForm.bonus} onChange={e => setSalaryForm(f => ({ ...f, bonus: e.target.value }))} />
-              </div>
               <div>
                 <FormLabel>{t('tempAllowance') || 'Temporary Allowance'}</FormLabel>
                 <input className="input" type="number" step="0.01" min="0" value={salaryForm.temp_allowance} onChange={e => setSalaryForm(f => ({ ...f, temp_allowance: e.target.value }))} />
               </div>
-            </div>
-            {/* Optional name for THIS run's temp allowance. Only offered once
-                there's an amount to name — the fixed "Temporary Allowance"
-                heading stays everywhere, this just appears beside it. */}
-            {tempAllowanceVal > 0 && (
               <div>
-                <FormLabel>{t('tempAllowanceLabel') || 'Temporary Allowance Label (Optional)'}</FormLabel>
+                <FormLabel>{t('tempDeduction') || 'Temporary Deduction'}</FormLabel>
                 <input
-                  className="input" type="text" maxLength={60}
-                  placeholder={t('tempAllowanceLabelHint') || 'e.g. Eid Bonus, Travel Reimbursement'}
-                  value={salaryForm.temp_allowance_label}
-                  onChange={e => setSalaryForm(f => ({ ...f, temp_allowance_label: e.target.value }))}
+                  className="input" type="number" step="0.01" min="0"
+                  value={salaryForm.temp_deduction}
+                  onChange={e => setSalaryForm(f => ({ ...f, temp_deduction: e.target.value }))}
                 />
+              </div>
+            </div>
+            {(tempAllowanceVal > 0 || tempDeductionVal > 0) && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  {tempAllowanceVal > 0 ? (
+                    <>
+                      <FormLabel>{t('tempAllowanceLabel') || 'Allowance Label (Optional)'}</FormLabel>
+                      <input
+                        className="input" type="text" maxLength={60}
+                        placeholder={t('tempAllowanceLabelHint') || 'e.g. Eid Bonus, Travel Reimbursement'}
+                        value={salaryForm.temp_allowance_label}
+                        onChange={e => setSalaryForm(f => ({ ...f, temp_allowance_label: e.target.value }))}
+                      />
+                    </>
+                  ) : <div />}
+                </div>
+                <div>
+                  {tempDeductionVal > 0 ? (
+                    <>
+                      <FormLabel>{t('tempDeductionLabel') || 'Deduction Label (Optional)'}</FormLabel>
+                      <input
+                        className="input" type="text" maxLength={60}
+                        placeholder={t('tempDeductionLabelHint') || 'e.g. Late Fine, Uniform, Damage'}
+                        value={salaryForm.temp_deduction_label}
+                        onChange={e => setSalaryForm(f => ({ ...f, temp_deduction_label: e.target.value }))}
+                      />
+                    </>
+                  ) : <div />}
+                </div>
               </div>
             )}
-            <div>
-              <FormLabel>{t('taxDeductionPercent') || 'Tax Deduction %'}</FormLabel>
-              <div className="relative">
-                <input
-                  className="input pr-8" type="number" step="0.01" min="0" max="100"
-                  value={salaryForm.tax_deduction_percent}
-                  onChange={e => setSalaryForm(f => ({ ...f, tax_deduction_percent: e.target.value }))}
-                />
-                <span className="absolute top-1/2 -translate-y-1/2 text-sm" style={{ [isRTL ? 'left' : 'right']: '12px', color: 'var(--text-muted)' }}>%</span>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FormLabel>{t('taxDeductionPercent') || 'Tax Deduction %'}</FormLabel>
+                <div className="relative">
+                  <input
+                    className="input pr-8" type="number" step="0.01" min="0" max="100"
+                    value={salaryForm.tax_deduction_percent}
+                    onChange={e => setSalaryForm(f => ({ ...f, tax_deduction_percent: e.target.value }))}
+                  />
+                  <span className="absolute top-1/2 -translate-y-1/2 text-sm" style={{ [isRTL ? 'left' : 'right']: '12px', color: 'var(--text-muted)' }}>%</span>
+                </div>
               </div>
+              <div>{/* spacer — Tax Deduction stands alone in its grid row */}</div>
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
@@ -664,6 +665,15 @@ export default function Payroll() {
                   {attendanceDeductionVal > 0 && (
                     <div className="flex justify-between text-red-400">
                       <span>- {absenceDeductionLabel} ({deductDaysVal}d)</span><span>-{formatPKR(attendanceDeductionVal, lang)}</span>
+                    </div>
+                  )}
+                  {tempDeductionVal > 0 && (
+                    <div className="flex justify-between text-red-400">
+                      <span>
+                        - {t('tempDeduction') || 'Temporary Deduction'}
+                        {salaryForm.temp_deduction_label.trim() && ` (${salaryForm.temp_deduction_label.trim()})`}
+                      </span>
+                      <span>-{formatPKR(tempDeductionVal, lang)}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-bold pt-1" style={{ borderTop: '1px solid var(--border-subtle)', color: netPayPreview < 0 ? 'rgb(239,68,68)' : 'var(--text-primary)' }}>

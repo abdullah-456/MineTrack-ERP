@@ -839,6 +839,9 @@ const translations = {
     receiveOverpayment:            'Receive Overpayment',
     receiveOverpaymentHint:        'Record recovery of salary overpayment / receivable balance from the employee.',
     overpaymentReceivedMsg:        'Overpayment received successfully',
+    tempDeduction:                 'Temporary Deduction',
+    tempDeductionLabel:            'Temporary Deduction Label (Optional)',
+    tempDeductionLabelHint:        'e.g. Late Fine, Uniform, Damage',
 
     // ── Common ───────────────────────────────────────────────
     save:     'Save',
@@ -2455,6 +2458,9 @@ const translations = {
     receiveOverpayment:            'اضافی ادائیگی کی وصولی',
     receiveOverpaymentHint:        'ملازم سے اضافی ادا شدہ رقم / واجب الوصول بیلنس کی وصولی درج کریں۔',
     overpaymentReceivedMsg:        'اضافی ادائیگی موصول ہو گئی',
+    tempDeduction:                 'عارضی کٹوتی',
+    tempDeductionLabel:            'عارضی کٹوتی کی وجہ (اختیاری)',
+    tempDeductionLabelHint:        'مثلاً دیر سے آمد کا جرمانہ، یونیفارم، نقصان',
 
     // ── Common ───────────────────────────────────────────────
     save:     'محفوظ کریں',

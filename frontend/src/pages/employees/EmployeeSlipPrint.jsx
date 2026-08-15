@@ -200,10 +200,20 @@ export default function EmployeeSlipPrint() {
                   <td className="num" style={{ color: '#b91c1c' }}>−{fmt(payroll.attendance_deduction)}</td>
                 </tr>
               )}
-              <tr>
-                <td style={{ color: INK_SOFT }}>{t('others') || 'Others'}</td>
-                <td className="num">-</td>
-              </tr>
+              {payroll.temp_deduction > 0 ? (
+                <tr>
+                  <td style={{ color: INK_SOFT }}>
+                    {t('tempDeduction') || 'Temporary Deduction'}
+                    {payroll.temp_deduction_label && ` (${payroll.temp_deduction_label})`}
+                  </td>
+                  <td className="num" style={{ color: '#b91c1c' }}>−{fmt(payroll.temp_deduction)}</td>
+                </tr>
+              ) : (
+                <tr>
+                  <td style={{ color: INK_SOFT }}>{t('others') || 'Others'}</td>
+                  <td className="num">-</td>
+                </tr>
+              )}
               <tr className="total"><td style={{ fontWeight: 800 }}>{t('netPay') || 'Net Pay'}</td><td className="num" style={{ fontWeight: 800 }}>{fmt(payroll.net_pay)}</td></tr>
             </tbody>
           </table>
