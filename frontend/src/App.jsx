@@ -35,6 +35,8 @@ import BenchFormPage from './pages/admin/BenchFormPage';
 import BenchDetailPage from './pages/admin/BenchDetailPage';
 import Minerals from './pages/admin/Minerals';
 import Vehicles from './pages/admin/Vehicles';
+import HeavyMachineryList from './pages/machinery/HeavyMachineryList';
+import HeavyMachineryLogPage from './pages/machinery/HeavyMachineryLogPage';
 import Production from './pages/admin/Production';
 import ProductionFormPage from './pages/admin/ProductionFormPage';
 import TruckLoading from './pages/admin/TruckLoading';
@@ -247,6 +249,10 @@ function App() {
                 element={<ProtectedRoute module="branches" action="read"><Minerals /></ProtectedRoute>} />
               <Route path="/vehicles"
                 element={<ProtectedRoute module="vehicles" action="read"><Vehicles /></ProtectedRoute>} />
+              <Route path="/heavy-machinery"
+                element={<ProtectedRoute module="heavy_machinery" action="read"><HeavyMachineryList /></ProtectedRoute>} />
+              <Route path="/heavy-machinery/:id/logs"
+                element={<ProtectedRoute module="heavy_machinery" action="read"><HeavyMachineryLogPage /></ProtectedRoute>} />
               <Route path="/admin/roles"
                 element={<ProtectedRoute module="roles" action="read"><Roles /></ProtectedRoute>} />
               <Route path="/admin/deletion-requests"

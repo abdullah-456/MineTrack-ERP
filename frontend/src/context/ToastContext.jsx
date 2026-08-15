@@ -59,7 +59,7 @@ function ConfirmDialog({ state, onClose }) {
   const isDanger = state.variant !== 'primary';
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4" onClick={() => onClose(false)}>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4" style={{ zIndex: 10001 }} onClick={() => onClose(false)}>
       <div
         className="w-full max-w-md rounded-2xl shadow-2xl p-6 space-y-4"
         style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-subtle)' }}
