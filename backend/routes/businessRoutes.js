@@ -165,6 +165,8 @@ router.get(   '/employees/:id/slips/:txnId', authorize('employees', 'read'), emp
 router.post(  '/employees/:id/advances', authorize('employees', 'update'), employeeLedgerController.recordAdvance);
 router.post(  '/employees/:id/loans',    authorize('employees', 'update'), employeeLedgerController.recordLoan);
 router.post(  '/employees/:id/receive-loan-payment', authorize('employees', 'update'), employeeLedgerController.receiveLoanPayment);
+router.post(  '/employees/:id/receive-advance-payment', authorize('employees', 'update'), employeeLedgerController.receiveAdvancePayment);
+router.post(  '/employees/:id/receive-overpayment', authorize('employees', 'update'), employeeLedgerController.receiveOverpayment);
 router.post(  '/employees/:id/opening-balance', authorize('employees', 'update'), employeeLedgerController.recordOpeningBalance);
 router.post(  '/employees/:id/give-salary', authorize('employees', 'update'), employeeLedgerController.giveSalary);
 

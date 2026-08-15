@@ -830,6 +830,15 @@ const translations = {
     item:                          'Item',
     remarks:                       'Remarks',
     close:                         'Close',
+    receiveLoanPayment:            'Receive Loan Payment',
+    receiveLoanPaymentHint:        'Record cash/bank actually received from the employee against their outstanding loan(s).',
+    loanPaymentReceivedMsg:        'Loan payment received successfully',
+    receiveAdvancePayment:         'Receive Advance Payment',
+    receiveAdvanceHint:            'Record cash/bank received from the employee to clear their pending salary advance.',
+    advancePaymentReceivedMsg:     'Advance payment received successfully',
+    receiveOverpayment:            'Receive Overpayment',
+    receiveOverpaymentHint:        'Record recovery of salary overpayment / receivable balance from the employee.',
+    overpaymentReceivedMsg:        'Overpayment received successfully',
 
     // ── Common ───────────────────────────────────────────────
     save:     'Save',
@@ -2437,6 +2446,15 @@ const translations = {
     item:                          'آئٹم',
     remarks:                       'نوٹس',
     close:                         'بند کریں',
+    receiveLoanPayment:            'قرض کی وصولی',
+    receiveLoanPaymentHint:        'ملازم سے اس کے بقایا قرض کی مد میں نقد یا بینک وصولی درج کریں۔',
+    loanPaymentReceivedMsg:        'قرض کی ادائیگی موصول ہو گئی',
+    receiveAdvancePayment:         'ایڈوانس کی وصولی',
+    receiveAdvanceHint:            'ملازم سے ایڈوانس رقم کی واپسی نقد یا بینک کے ذریعے درج کریں۔',
+    advancePaymentReceivedMsg:     'ایڈوانس کی ادائیگی موصول ہو گئی',
+    receiveOverpayment:            'اضافی ادائیگی کی وصولی',
+    receiveOverpaymentHint:        'ملازم سے اضافی ادا شدہ رقم / واجب الوصول بیلنس کی وصولی درج کریں۔',
+    overpaymentReceivedMsg:        'اضافی ادائیگی موصول ہو گئی',
 
     // ── Common ───────────────────────────────────────────────
     save:     'محفوظ کریں',

@@ -21,7 +21,7 @@ import { openClearancePrint } from '../../utils/employeeClearancePdf';
 // Transaction types that represent an actual physical hand-off of money —
 // these get a printable/downloadable slip. Accounting-only legs (salary_due
 // accrual, deduction, adjustment, opening_balance) have no counterpart slip.
-const SLIP_TYPES = new Set(['advance_given', 'loan_given', 'loan_repayment', 'payment_made']);
+const SLIP_TYPES = new Set(['advance_given', 'loan_given', 'loan_repayment', 'payment_made', 'receivable_collected']);
 
 export default function EmployeeLedger() {
   const { id } = useParams();
@@ -60,14 +60,16 @@ export default function EmployeeLedger() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('history');
   const [search, setSearch] = useState('');
-  const [modal, setModal] = useState(null); // advance | loan | receivable
+  const [modal, setModal] = useState(null); // advance | loan | receive_loan | receive_advance | receive_overpayment
   const [terminateOpen, setTerminateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   const [advanceForm, setAdvanceForm] = useState({ amount: '', method: 'cash', bank_account_id: null, for_month: currentMonth, date: '', notes: '' });
   const [loanForm, setLoanForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
-  const [receivableForm, setReceivableForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
+  const [receiveLoanForm, setReceiveLoanForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
+  const [receiveAdvanceForm, setReceiveAdvanceForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
+  const [receiveOverpaymentForm, setReceiveOverpaymentForm] = useState({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' });
 
   // Open a printable voucher in a new tab for a single transaction
   const openVoucher = (txn, employeeName) => {
@@ -123,9 +125,19 @@ export default function EmployeeLedger() {
     runAction(() => api.post(`/employees/${id}/loans`, { ...loanForm, amount: parseFloat(loanForm.amount), ...shopParams() }), t('loanRecorded') || 'Loan recorded');
   };
 
-  const submitReceivable = (e) => {
+  const submitReceiveLoan = (e) => {
     e.preventDefault();
-    runAction(() => api.post(`/employees/${id}/receive-loan-payment`, { ...receivableForm, amount: parseFloat(receivableForm.amount), ...shopParams() }), t('loanPaymentReceivedMsg') || 'Loan payment received');
+    runAction(() => api.post(`/employees/${id}/receive-loan-payment`, { ...receiveLoanForm, amount: parseFloat(receiveLoanForm.amount), ...shopParams() }), t('loanPaymentReceivedMsg') || 'Loan payment received');
+  };
+
+  const submitReceiveAdvance = (e) => {
+    e.preventDefault();
+    runAction(() => api.post(`/employees/${id}/receive-advance-payment`, { ...receiveAdvanceForm, amount: parseFloat(receiveAdvanceForm.amount), ...shopParams() }), t('advancePaymentReceivedMsg') || 'Advance payment received');
+  };
+
+  const submitReceiveOverpayment = (e) => {
+    e.preventDefault();
+    runAction(() => api.post(`/employees/${id}/receive-overpayment`, { ...receiveOverpaymentForm, amount: parseFloat(receiveOverpaymentForm.amount), ...shopParams() }), t('overpaymentReceivedMsg') || 'Overpayment received');
   };
 
   const changeStatus = async (status) => {
@@ -154,14 +166,18 @@ export default function EmployeeLedger() {
 
   const { employee, summary, payroll_history, transaction_history } = ledger;
 
-  const payableToEmployee = Math.max(0, summary.current_payable);
+  const payableToEmployee = Math.max(0, summary.salary_payable ?? Math.max(0, summary.current_payable));
+  const salaryReceivable = Math.max(0, summary.salary_receivable || 0);
   const loanReceivable = summary.loan_receivable || 0;
+  const advancePending = summary.advance_pending || 0;
 
   const slips = (transaction_history || []).filter(txn => SLIP_TYPES.has(txn.type));
 
   const pills = [
     { label: t('loanGivenLabel') || 'Loan Given', value: summary.loan_given || 0, icon: HandCoins, tone: 'amber' },
-    { label: t('receivable') || 'Receivable', value: loanReceivable, icon: CreditCard, tone: loanReceivable > 0 ? 'red' : 'emerald' },
+    { label: t('loanReceivable') || 'Loan Receivable', value: loanReceivable, icon: CreditCard, tone: loanReceivable > 0 ? 'red' : 'emerald' },
+    ...(advancePending > 0 ? [{ label: t('pendingAdvance') || 'Pending Advance', value: advancePending, icon: CreditCard, tone: 'red' }] : []),
+    ...(salaryReceivable > 0 ? [{ label: t('receivable') || 'Salary Overpayment', value: salaryReceivable, icon: Wallet, tone: 'red' }] : []),
     { label: t('payable') || 'Payable', value: payableToEmployee, icon: Wallet, tone: payableToEmployee > 0 ? 'red' : 'emerald' },
   ];
   const PILL_COLORS = {
@@ -191,12 +207,8 @@ export default function EmployeeLedger() {
                 <FileCheck className="w-4 h-4" />{t('clearanceCertificate') || 'Clearance Certificate'}
               </button>
             )}
-            {/* A terminated employee has no future payroll run to auto-clear a
-                new advance against (runGiveSalary refuses to run for one),
-                and issuing a fresh loan to someone no longer on staff isn't a
-                routine action either — the backend now refuses both. New
-                money to/from a terminated employee belongs on the clearance
-                certificate's settlement screen instead. */}
+            {/* If employee is terminated, no further givings are allowed (Advance and Loan buttons hidden).
+                Only receiving operations are enabled. */}
             {employee.status !== 'terminated' && (
               <>
                 <button
@@ -218,10 +230,28 @@ export default function EmployeeLedger() {
             {loanReceivable > 0 && (
               <button
                 type="button"
-                onClick={() => { setReceivableForm({ amount: '', method: 'cash', date: '', notes: '' }); setModal('receivable'); }}
+                onClick={() => { setReceiveLoanForm({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' }); setModal('receive_loan'); }}
                 className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg text-sm transition-colors flex items-center gap-2"
               >
-                <PiggyBank className="w-4 h-4" />{t('receiveLoanPayment') || 'Receive Loan Payment'}
+                <PiggyBank className="w-4 h-4" />{t('receiveLoanPayment') || 'Receive Loan'}
+              </button>
+            )}
+            {advancePending > 0 && (
+              <button
+                type="button"
+                onClick={() => { setReceiveAdvanceForm({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' }); setModal('receive_advance'); }}
+                className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white font-medium rounded-lg text-sm transition-colors flex items-center gap-2"
+              >
+                <CreditCard className="w-4 h-4" />{t('receiveAdvancePayment') || 'Receive Advance'}
+              </button>
+            )}
+            {salaryReceivable > 0 && (
+              <button
+                type="button"
+                onClick={() => { setReceiveOverpaymentForm({ amount: '', method: 'cash', bank_account_id: null, date: '', notes: '' }); setModal('receive_overpayment'); }}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg text-sm transition-colors flex items-center gap-2"
+              >
+                <Wallet className="w-4 h-4" />{t('receiveOverpayment') || 'Receive Overpayment'}
               </button>
             )}
           </div>
@@ -536,39 +566,123 @@ export default function EmployeeLedger() {
         </Modal>
       )}
 
-      {modal === 'receivable' && (
+      {modal === 'receive_loan' && (
         <Modal title={t('receiveLoanPayment') || 'Receive Loan Payment'} onClose={() => setModal(null)}>
-          <form onSubmit={submitReceivable} className="space-y-3">
+          <form onSubmit={submitReceiveLoan} className="space-y-3">
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               {t('receiveLoanPaymentHint') || 'Record cash/bank actually received from the employee against their outstanding loan(s).'}
             </p>
             <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
-              {t('receivable') || 'Receivable'}: {formatPKR(loanReceivable, lang)}
+              {t('loanReceivable') || 'Loan Receivable'}: {formatPKR(loanReceivable, lang)}
             </p>
             <div>
               <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
               <input
                 className="input" type="number" step="0.01" min="0.01" max={loanReceivable} required
-                value={receivableForm.amount}
-                onChange={e => setReceivableForm(f => ({ ...f, amount: e.target.value }))}
+                value={receiveLoanForm.amount}
+                onChange={e => setReceiveLoanForm(f => ({ ...f, amount: e.target.value }))}
               />
             </div>
             <div>
               <FormLabel>{t('date') || 'Date & Time (Optional)'}</FormLabel>
-              <input className="input" type="datetime-local" value={receivableForm.date || ''} onChange={e => setReceivableForm(f => ({ ...f, date: e.target.value }))} />
+              <input className="input" type="datetime-local" value={receiveLoanForm.date || ''} onChange={e => setReceiveLoanForm(f => ({ ...f, date: e.target.value }))} />
             </div>
             <div>
               <FormLabel required>{t('method') || 'Method'}</FormLabel>
               <PaymentAccountSelect
                 includeBod={false}
-                method={receivableForm.method}
-                bankAccountId={receivableForm.bank_account_id}
-                onChange={({ method, bank_account_id }) => setReceivableForm(f => ({ ...f, method, bank_account_id }))}
+                method={receiveLoanForm.method}
+                bankAccountId={receiveLoanForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setReceiveLoanForm(f => ({ ...f, method, bank_account_id }))}
               />
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
-              <textarea className="input min-h-[60px]" value={receivableForm.notes} onChange={e => setReceivableForm(f => ({ ...f, notes: e.target.value }))} />
+              <textarea className="input min-h-[60px]" value={receiveLoanForm.notes} onChange={e => setReceiveLoanForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">{saving && <Loader2 className="w-4 h-4 animate-spin" />}{t('save')}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'receive_advance' && (
+        <Modal title={t('receiveAdvancePayment') || 'Receive Advance Payment'} onClose={() => setModal(null)}>
+          <form onSubmit={submitReceiveAdvance} className="space-y-3">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {t('receiveAdvanceHint') || 'Record cash/bank received from the employee to clear their pending salary advance.'}
+            </p>
+            <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
+              {t('pendingAdvance') || 'Pending Advance'}: {formatPKR(advancePending, lang)}
+            </p>
+            <div>
+              <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
+              <input
+                className="input" type="number" step="0.01" min="0.01" max={advancePending} required
+                value={receiveAdvanceForm.amount}
+                onChange={e => setReceiveAdvanceForm(f => ({ ...f, amount: e.target.value }))}
+              />
+            </div>
+            <div>
+              <FormLabel>{t('date') || 'Date & Time (Optional)'}</FormLabel>
+              <input className="input" type="datetime-local" value={receiveAdvanceForm.date || ''} onChange={e => setReceiveAdvanceForm(f => ({ ...f, date: e.target.value }))} />
+            </div>
+            <div>
+              <FormLabel required>{t('method') || 'Method'}</FormLabel>
+              <PaymentAccountSelect
+                includeBod={false}
+                method={receiveAdvanceForm.method}
+                bankAccountId={receiveAdvanceForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setReceiveAdvanceForm(f => ({ ...f, method, bank_account_id }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
+              <textarea className="input min-h-[60px]" value={receiveAdvanceForm.notes} onChange={e => setReceiveAdvanceForm(f => ({ ...f, notes: e.target.value }))} />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>
+              <button type="submit" disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">{saving && <Loader2 className="w-4 h-4 animate-spin" />}{t('save')}</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'receive_overpayment' && (
+        <Modal title={t('receiveOverpayment') || 'Receive Overpayment'} onClose={() => setModal(null)}>
+          <form onSubmit={submitReceiveOverpayment} className="space-y-3">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              {t('receiveOverpaymentHint') || 'Record recovery of salary overpayment / receivable balance from the employee.'}
+            </p>
+            <p className="font-bold" style={{ color: 'var(--text-primary)' }}>
+              {t('receivable') || 'Receivable'}: {formatPKR(salaryReceivable, lang)}
+            </p>
+            <div>
+              <FormLabel required>{t('amount') || 'Amount'}</FormLabel>
+              <input
+                className="input" type="number" step="0.01" min="0.01" max={salaryReceivable} required
+                value={receiveOverpaymentForm.amount}
+                onChange={e => setReceiveOverpaymentForm(f => ({ ...f, amount: e.target.value }))}
+              />
+            </div>
+            <div>
+              <FormLabel>{t('date') || 'Date & Time (Optional)'}</FormLabel>
+              <input className="input" type="datetime-local" value={receiveOverpaymentForm.date || ''} onChange={e => setReceiveOverpaymentForm(f => ({ ...f, date: e.target.value }))} />
+            </div>
+            <div>
+              <FormLabel required>{t('method') || 'Method'}</FormLabel>
+              <PaymentAccountSelect
+                includeBod={false}
+                method={receiveOverpaymentForm.method}
+                bankAccountId={receiveOverpaymentForm.bank_account_id}
+                onChange={({ method, bank_account_id }) => setReceiveOverpaymentForm(f => ({ ...f, method, bank_account_id }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>{t('description') || 'Description'}</label>
+              <textarea className="input min-h-[60px]" value={receiveOverpaymentForm.notes} onChange={e => setReceiveOverpaymentForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setModal(null)} className="btn-secondary flex-1">{t('cancel')}</button>

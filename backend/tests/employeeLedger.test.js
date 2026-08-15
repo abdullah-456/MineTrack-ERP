@@ -48,9 +48,19 @@ const maybe = (name, fn) => test(name, async () => {
 });
 
 async function cleanupShop(shopId) {
+  const vouchers = await db.Voucher.findAll({ where: { shop_id: shopId }, attributes: ['id'] });
+  const vIds = vouchers.map(v => v.id);
+  if (vIds.length) {
+    await db.VoucherEntry.destroy({ where: { voucher_id: vIds } });
+    await db.GeneralLedger.destroy({ where: { voucher_id: vIds } });
+    await db.Voucher.destroy({ where: { id: vIds } });
+  }
+  await db.sequelize.query('DELETE FROM voucher_sequences WHERE shop_id = :shopId', { replacements: { shopId } });
   await db.EmployeeTransaction.destroy({ where: { shop_id: shopId } });
   await db.Employee.destroy({ where: { shop_id: shopId } });
   await db.Branch.destroy({ where: { shop_id: shopId } });
+  await db.User.destroy({ where: { shop_id: shopId } });
+  await db.FiscalYear.destroy({ where: { shop_id: shopId } });
   await db.Shop.destroy({ where: { id: shopId } });
 }
 
@@ -155,3 +165,129 @@ describe('a terminated employee cannot receive new advances or loans', () => {
     }
   });
 });
+
+describe('a terminated employee ledger can receive loan, advance, and overpayment recoveries', () => {
+  const { receiveLoanPayment, receiveAdvancePayment, receiveOverpayment } = require('../controllers/employeeLedgerController');
+
+  maybe('receiveLoanPayment succeeds for terminated employee with outstanding loan', async () => {
+    const shop = await db.Shop.create({
+      name: `__ledger_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    });
+    try {
+      const branch = await db.Branch.create({ shop_id: shop.id, name: '__ledger_test_branch', status: 'active' });
+      const user = await db.User.create({
+        shop_id: shop.id, name: '__test_user', email: `test_${Date.now()}@example.com`, password_hash: 'test-hash', role_id: 2,
+      });
+      const employee = await db.Employee.create({
+        shop_id: shop.id, branch_id: branch.id, name: '__terminated_emp_loan',
+        employment_type: 'salary', basic_salary: 30000, status: 'terminated', terminated_at: new Date(),
+        current_payable: -10000,
+      });
+
+      await db.EmployeeTransaction.create({
+        shop_id: shop.id, employee_id: employee.id, date: new Date(), type: 'loan_given',
+        amount: 10000, method: 'cash', created_by: user.id,
+      });
+
+      const { req, res } = fakeReqRes(employee.id, shop.id, {
+        amount: 4000, method: 'cash', notes: 'partial loan repayment',
+      });
+      req.user.id = user.id;
+
+      await receiveLoanPayment(req, res);
+
+      expect(res.statusCode).toBe(201);
+      const fresh = await db.Employee.findByPk(employee.id);
+      expect(parseFloat(fresh.current_payable)).toBe(-6000);
+
+      const repayments = await db.EmployeeTransaction.findAll({
+        where: { employee_id: employee.id, type: 'loan_repayment' },
+      });
+      expect(repayments).toHaveLength(1);
+      expect(parseFloat(repayments[0].amount)).toBe(4000);
+    } finally {
+      await cleanupShop(shop.id);
+    }
+  });
+
+  maybe('receiveAdvancePayment succeeds and clears uncleared advance for terminated employee', async () => {
+    const shop = await db.Shop.create({
+      name: `__ledger_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    });
+    try {
+      const branch = await db.Branch.create({ shop_id: shop.id, name: '__ledger_test_branch', status: 'active' });
+      const user = await db.User.create({
+        shop_id: shop.id, name: '__test_user', email: `test_${Date.now()}@example.com`, password_hash: 'test-hash', role_id: 2,
+      });
+      const employee = await db.Employee.create({
+        shop_id: shop.id, branch_id: branch.id, name: '__terminated_emp_adv',
+        employment_type: 'salary', basic_salary: 30000, status: 'terminated', terminated_at: new Date(),
+        current_payable: -5000,
+      });
+
+      const adv = await db.EmployeeTransaction.create({
+        shop_id: shop.id, employee_id: employee.id, date: new Date(), type: 'advance_given',
+        amount: 5000, method: 'cash', for_month: '2099-01', cleared: false, created_by: user.id,
+      });
+
+      const { req, res } = fakeReqRes(employee.id, shop.id, {
+        amount: 5000, method: 'cash', notes: 'advance recovery on exit',
+      });
+      req.user.id = user.id;
+
+      await receiveAdvancePayment(req, res);
+
+      expect(res.statusCode).toBe(201);
+      const fresh = await db.Employee.findByPk(employee.id);
+      expect(parseFloat(fresh.current_payable)).toBe(0);
+
+      const reloadedAdv = await db.EmployeeTransaction.findByPk(adv.id);
+      expect(reloadedAdv.cleared).toBe(true);
+
+      const collected = await db.EmployeeTransaction.findAll({
+        where: { employee_id: employee.id, type: 'receivable_collected' },
+      });
+      expect(collected).toHaveLength(1);
+      expect(parseFloat(collected[0].amount)).toBe(5000);
+    } finally {
+      await cleanupShop(shop.id);
+    }
+  });
+
+  maybe('receiveOverpayment succeeds for terminated employee with negative balance', async () => {
+    const shop = await db.Shop.create({
+      name: `__ledger_test_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    });
+    try {
+      const branch = await db.Branch.create({ shop_id: shop.id, name: '__ledger_test_branch', status: 'active' });
+      const user = await db.User.create({
+        shop_id: shop.id, name: '__test_user', email: `test_${Date.now()}@example.com`, password_hash: 'test-hash', role_id: 2,
+      });
+      const employee = await db.Employee.create({
+        shop_id: shop.id, branch_id: branch.id, name: '__terminated_emp_overpaid',
+        employment_type: 'salary', basic_salary: 30000, status: 'terminated', terminated_at: new Date(),
+        current_payable: -3000,
+      });
+
+      const { req, res } = fakeReqRes(employee.id, shop.id, {
+        amount: 3000, method: 'cash', notes: 'salary overpayment recovery',
+      });
+      req.user.id = user.id;
+
+      await receiveOverpayment(req, res);
+
+      expect(res.statusCode).toBe(201);
+      const fresh = await db.Employee.findByPk(employee.id);
+      expect(parseFloat(fresh.current_payable)).toBe(0);
+
+      const collected = await db.EmployeeTransaction.findAll({
+        where: { employee_id: employee.id, type: 'receivable_collected' },
+      });
+      expect(collected).toHaveLength(1);
+      expect(parseFloat(collected[0].amount)).toBe(3000);
+    } finally {
+      await cleanupShop(shop.id);
+    }
+  });
+});
+

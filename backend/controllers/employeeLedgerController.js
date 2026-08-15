@@ -249,6 +249,193 @@ exports.receiveLoanPayment = async (req, res) => {
   }
 };
 
+// ── POST /employees/:id/receive-advance-payment ──────────────────────────────
+// Standalone collection against outstanding UNCLEARED ADVANCES.
+// Clears uncleared advance rows in FIFO order.
+exports.receiveAdvancePayment = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) { await transaction.rollback(); return; }
+
+    const employee = await db.Employee.findOne({
+      where: { id: req.params.id, shop_id: shopId },
+      transaction, lock: transaction.LOCK.UPDATE,
+    });
+    if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
+
+    const { amount, method, bank_account_id, notes, date } = req.body;
+    const amt = parseFloat(amount);
+    if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
+    if (!['cash', 'bank'].includes(method)) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'method must be cash or bank' });
+    }
+
+    const unclearedAdvances = await db.EmployeeTransaction.findAll({
+      where: { employee_id: employee.id, type: 'advance_given', cleared: false },
+      order: [['date', 'ASC'], ['id', 'ASC']],
+      transaction, lock: transaction.LOCK.UPDATE,
+    });
+    const advancePending = Math.round(unclearedAdvances.reduce((s, a) => s + parseFloat(a.amount || 0), 0) * 100) / 100;
+
+    if (!(advancePending > 0)) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'This employee has no outstanding advance balance to collect' });
+    }
+    if (amt > advancePending) {
+      await transaction.rollback();
+      return res.status(400).json({ message: `Amount cannot exceed the pending advance balance (${advancePending.toFixed(2)})` });
+    }
+
+    let bankAcc = null;
+    if (method === 'bank') bankAcc = await creditBankAccount(shopId, amt, transaction, bank_account_id);
+
+    let remaining = amt;
+    for (const adv of unclearedAdvances) {
+      if (remaining <= 0) break;
+      const advAmt = parseFloat(adv.amount || 0);
+      if (remaining >= advAmt) {
+        await adv.update({ cleared: true }, { transaction });
+        remaining = Math.round((remaining - advAmt) * 100) / 100;
+      } else {
+        const leftover = Math.round((advAmt - remaining) * 100) / 100;
+        await adv.update({ amount: remaining, cleared: true }, { transaction });
+        await db.EmployeeTransaction.create({
+          shop_id: shopId,
+          employee_id: employee.id,
+          date: adv.date,
+          type: 'advance_given',
+          amount: leftover,
+          method: adv.method,
+          for_month: adv.for_month,
+          cleared: false,
+          notes: adv.notes ? `${adv.notes} (remaining balance)` : `Remaining advance for ${adv.for_month || 'salary'}`,
+          created_by: req.user.id,
+        }, { transaction });
+        remaining = 0;
+      }
+    }
+
+    await employee.update({
+      current_payable: Math.round((parseFloat(employee.current_payable || 0) + amt) * 100) / 100,
+    }, { transaction });
+
+    const txnDate = date ? new Date(date) : new Date();
+
+    const txn = await db.EmployeeTransaction.create({
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'receivable_collected',
+      amount: amt, method, notes: notes?.trim() || 'Advance payment received', created_by: req.user.id,
+    }, { transaction });
+
+    await postVoucher(shopId, {
+      type: 'receipt',
+      date: txnDate,
+      narration: `Advance payment received from employee ${employee.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
+      createdBy: req.user.id,
+      lines: [
+        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: amt },
+        { accountCode: '05-EMPADVLOAN', credit: amt },
+      ],
+    }, transaction);
+
+    await transaction.commit();
+    const fresh = await db.Employee.findByPk(employee.id);
+    return res.status(201).json({ transaction: txn, transaction_id: txn.id, employee: fresh });
+  } catch (error) {
+    if (!transaction.finished) await transaction.rollback();
+    console.error('receiveAdvancePayment error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+  }
+};
+
+// ── POST /employees/:id/receive-overpayment ──────────────────────────────────
+// Standalone collection against outstanding SALARY OVERPAYMENT / RECEIVABLE.
+exports.receiveOverpayment = async (req, res) => {
+  const transaction = await db.sequelize.transaction();
+  try {
+    const shopId = requireShopId(req, res);
+    if (!shopId) { await transaction.rollback(); return; }
+
+    const employee = await db.Employee.findOne({
+      where: { id: req.params.id, shop_id: shopId },
+      transaction, lock: transaction.LOCK.UPDATE,
+    });
+    if (!employee) { await transaction.rollback(); return res.status(404).json({ message: 'Employee not found' }); }
+
+    const { amount, method, bank_account_id, notes, date } = req.body;
+    const amt = parseFloat(amount);
+    if (!(amt > 0)) { await transaction.rollback(); return res.status(400).json({ message: 'amount must be greater than 0' }); }
+    if (!['cash', 'bank'].includes(method)) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'method must be cash or bank' });
+    }
+
+    const loanTotals = await db.EmployeeTransaction.findAll({
+      where: { employee_id: employee.id, type: { [Op.in]: ['loan_given', 'loan_repayment'] } },
+      attributes: ['type', [db.sequelize.fn('SUM', db.sequelize.col('amount')), 'total']],
+      group: ['type'],
+      raw: true,
+      transaction,
+    });
+    const givenTotal = parseFloat(loanTotals.find(r => r.type === 'loan_given')?.total || 0);
+    const repaidTotal = parseFloat(loanTotals.find(r => r.type === 'loan_repayment')?.total || 0);
+    const loanReceivable = Math.max(0, Math.round((givenTotal - repaidTotal) * 100) / 100);
+
+    const unclearedAdvances = await db.EmployeeTransaction.findAll({
+      where: { employee_id: employee.id, type: 'advance_given', cleared: false },
+      transaction,
+    });
+    const advancePending = Math.round(unclearedAdvances.reduce((s, a) => s + parseFloat(a.amount || 0), 0) * 100) / 100;
+
+    const currentPayable = parseFloat(employee.current_payable || 0);
+    const netSalaryPosition = Math.round((currentPayable + loanReceivable + advancePending) * 100) / 100;
+    const salaryReceivable = Math.max(0, Math.round(-netSalaryPosition * 100) / 100);
+
+    if (!(salaryReceivable > 0)) {
+      await transaction.rollback();
+      return res.status(400).json({ message: 'This employee has no outstanding salary overpayment balance to collect' });
+    }
+    if (amt > salaryReceivable) {
+      await transaction.rollback();
+      return res.status(400).json({ message: `Amount cannot exceed the receivable balance (${salaryReceivable.toFixed(2)})` });
+    }
+
+    let bankAcc = null;
+    if (method === 'bank') bankAcc = await creditBankAccount(shopId, amt, transaction, bank_account_id);
+
+    await employee.update({
+      current_payable: Math.round((parseFloat(employee.current_payable || 0) + amt) * 100) / 100,
+    }, { transaction });
+
+    const txnDate = date ? new Date(date) : new Date();
+
+    const txn = await db.EmployeeTransaction.create({
+      shop_id: shopId, employee_id: employee.id, date: txnDate, type: 'receivable_collected',
+      amount: amt, method, notes: notes?.trim() || 'Salary overpayment collected', created_by: req.user.id,
+    }, { transaction });
+
+    await postVoucher(shopId, {
+      type: 'receipt',
+      date: txnDate,
+      narration: `Salary overpayment recovered from employee ${employee.name}${notes?.trim() ? ' — Note: ' + notes.trim() : ''}`,
+      createdBy: req.user.id,
+      lines: [
+        { accountCode: method === 'bank' ? bankAccountCode(bankAcc) : '05-CASH', debit: amt },
+        { accountCode: '03-SALPAY', credit: amt },
+      ],
+    }, transaction);
+
+    await transaction.commit();
+    const fresh = await db.Employee.findByPk(employee.id);
+    return res.status(201).json({ transaction: txn, transaction_id: txn.id, employee: fresh });
+  } catch (error) {
+    if (!transaction.finished) await transaction.rollback();
+    console.error('receiveOverpayment error:', error);
+    return res.status(error.statusCode || 500).json({ message: error.message || 'Internal server error' });
+  }
+};
+
 // ── POST /employees/:id/opening-balance ──────────────────────────────────────
 // One-time migration entry, mirrors supplierLedgerController.recordOpeningBalance.
 exports.recordOpeningBalance = async (req, res) => {
@@ -709,6 +896,11 @@ exports.getLedger = async (req, res) => {
       .filter(t => t.type === 'advance_given' && !t.cleared)
       .reduce((s, t) => s + parseFloat(t.amount || 0), 0);
 
+    const currentPayable = parseFloat(employee.current_payable || 0);
+    const netSalaryPosition = Math.round((currentPayable + loanReceivable + advancePending) * 100) / 100;
+    const salaryPayable = Math.max(0, netSalaryPosition);
+    const salaryReceivable = Math.max(0, Math.round(-netSalaryPosition * 100) / 100);
+
     return res.json({
       employee: {
         id: employee.id,
@@ -723,11 +915,13 @@ exports.getLedger = async (req, res) => {
       summary: {
         total_salary_accrued: Math.round(totalSalaryAccrued * 100) / 100,
         total_paid: Math.round(totalPaid * 100) / 100,
-        current_payable: parseFloat(employee.current_payable || 0),
+        current_payable: currentPayable,
         loan_given: Math.round(loanGiven * 100) / 100,
         loan_receivable: loanReceivable,
         advance_given: Math.round(advanceGiven * 100) / 100,
         advance_pending: Math.round(advancePending * 100) / 100,
+        salary_payable: salaryPayable,
+        salary_receivable: salaryReceivable,
       },
       payroll_history: payrollHistory,
       transaction_history: history,
