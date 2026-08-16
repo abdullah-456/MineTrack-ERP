@@ -90,6 +90,8 @@ export default function PurchaseRequisitions() {
     priority === 'urgent' ? (t('priorityUrgent') || 'Urgent') : (t('priorityNormal') || 'Normal')
   );
 
+  const dateCell = (v) => (v ? new Date(v).toLocaleDateString('en-PK') : '');
+
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
@@ -104,14 +106,14 @@ export default function PurchaseRequisitions() {
               signature
               columns={[
                 { header: t('prNumber') || 'PR Number', key: 'pr_number', width: 1.2 },
-                { header: t('requisitionDate') || 'Date', key: 'requisition_date', width: 1 },
-                { header: t('requiredDate') || 'Required By', key: 'required_date', width: 1 },
+                { header: t('requisitionDate') || 'Date', render: r => dateCell(r.requisition_date), width: 1 },
+                { header: t('requiredDate') || 'Required By', render: r => dateCell(r.required_date), width: 1 },
                 { header: t('requestedBy') || 'Requested By', render: r => r.Requester?.name || '', width: 1.3 },
                 { header: t('department') || 'Department', key: 'department', width: 1 },
                 { header: t('mine') || 'Mine', render: r => r.Branch?.name || '', width: 1.2 },
-                { header: t('priority') || 'Priority', key: 'priority', width: 0.8 },
+                { header: t('priority') || 'Priority', render: r => priorityLabel(r.priority), width: 0.8 },
                 { header: t('total') || 'Total', render: r => formatPKR(r.total), width: 1, money: true },
-                { header: t('status') || 'Status', key: 'status', width: 1 },
+                { header: t('status') || 'Status', render: r => statusLabel(r.status), width: 1 },
               ]}
               rows={requisitions}
               filename="purchase-requisitions.pdf"

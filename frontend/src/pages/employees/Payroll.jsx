@@ -8,7 +8,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
-import StatusBadge from '../../components/ui/StatusBadge';
+import StatusBadge, { statusText } from '../../components/ui/StatusBadge';
 import PaymentAccountSelect from '../../components/ui/PaymentAccountSelect';
 import api from '../../api/axios';
 import { downloadEmployeeSlip } from '../../utils/employeeSlipPdf';
@@ -268,7 +268,7 @@ export default function Payroll() {
                 render: e => (e.employment_type === 'daily_wage' ? e.daily_wage : e.basic_salary),
               },
               { header: t('currentPayable') || 'Current Payable', key: 'current_payable', money: true, width: 1.3 },
-              { header: t('status') || 'Status', key: 'status', width: 0.9 },
+              { header: t('status') || 'Status', render: e => statusText(t, e.status), width: 0.9 },
             ]}
             rows={employees}
             totals={{

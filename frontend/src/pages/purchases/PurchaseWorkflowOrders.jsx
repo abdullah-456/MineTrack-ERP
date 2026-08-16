@@ -8,6 +8,7 @@ import { useFiscalYear } from '../../context/FiscalYearContext';
 import PageHeader from '../../components/ui/PageHeader';
 import ReportActions from '../../components/ui/ReportActions';
 import api from '../../api/axios';
+import { humanize } from '../../utils/textFormat';
 
 const STATUS_BADGE = {
   sent: 'badge-blue',
@@ -70,7 +71,7 @@ export default function PurchaseWorkflowOrders() {
                 { header: t('supplier') || 'Supplier', render: o => o.Supplier?.company_name || '', width: 1.4 },
                 { header: t('mine') || 'Mine', render: o => o.Branch?.name || '', width: 1.2 },
                 { header: t('total') || 'Total', render: o => formatPKR(o.total), width: 1, money: true },
-                { header: t('status') || 'Status', key: 'status', width: 1 },
+                { header: t('status') || 'Status', render: o => t(o.status) || humanize(o.status), width: 1 },
               ]}
               rows={orders}
               filename="workflow-purchase-orders.pdf"
@@ -117,7 +118,7 @@ export default function PurchaseWorkflowOrders() {
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{o.Supplier?.company_name || '—'}</td>
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{o.Branch?.name || '—'}</td>
                   <td className="p-4 font-medium">{formatPKR(o.total)}</td>
-                  <td className="p-4"><span className={`badge ${STATUS_BADGE[o.status] || 'badge-gray'}`}>{o.status?.replace(/_/g, ' ')}</span></td>
+                  <td className="p-4"><span className={`badge ${STATUS_BADGE[o.status] || 'badge-gray'}`}>{t(o.status) || humanize(o.status)}</span></td>
                   <td className="p-4">
                     <div className="flex justify-end gap-2">
                       <button type="button" onClick={() => navigate(`/purchase-workflow/orders/${o.id}`)} className="icon-btn"><Eye className="w-4 h-4" /></button>

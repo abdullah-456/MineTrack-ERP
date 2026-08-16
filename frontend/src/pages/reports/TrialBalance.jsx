@@ -9,6 +9,7 @@ import ReportActions from '../../components/ui/ReportActions';
 import FinancialReportFilters, { buildReportFilterList, buildStatementSubtitle } from '../../components/ui/FinancialReportFilters';
 import api from '../../api/axios';
 import { useFiscalYear } from '../../context/FiscalYearContext';
+import { humanize } from '../../utils/textFormat';
 
 const TYPE_COLORS = {
   asset: 'text-blue-400', liability: 'text-red-400', equity: 'text-violet-400',
@@ -73,7 +74,7 @@ export default function TrialBalance() {
   const reportColumns = [
     { header: t('accountCode') || 'Code', key: 'account_code', width: 1, excelWidth: 14 },
     { header: t('account') || 'Account', key: 'account_name', width: 2.6, excelWidth: 40 },
-    { header: t('accountType') || 'Type', key: 'account_type', width: 1, excelWidth: 14 },
+    { header: t('accountType') || 'Type', render: r => t(r.account_type) || humanize(r.account_type), width: 1, excelWidth: 14 },
     { header: t('debit') || 'Debit', key: 'debit', money: true, width: 1.2, excelWidth: 18 },
     { header: t('credit') || 'Credit', key: 'credit', money: true, width: 1.2, excelWidth: 18 },
   ];
@@ -157,7 +158,7 @@ export default function TrialBalance() {
                 <tr key={`${row.account_code}-${idx}`} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                   <td className="p-4 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>{row.account_code}</td>
                   <td className="p-4 font-medium" style={{ color: 'var(--text-primary)' }}>{row.account_name}</td>
-                  <td className={`p-4 text-xs uppercase ${TYPE_COLORS[row.account_type] || ''}`}>{row.account_type}</td>
+                  <td className={`p-4 text-xs uppercase ${TYPE_COLORS[row.account_type] || ''}`}>{t(row.account_type) || humanize(row.account_type)}</td>
                   <td className="p-4 text-end text-emerald-400">{row.debit > 0 ? formatPKR(row.debit, lang) : '—'}</td>
                   <td className="p-4 text-end text-red-400">{row.credit > 0 ? formatPKR(row.credit, lang) : '—'}</td>
                 </tr>

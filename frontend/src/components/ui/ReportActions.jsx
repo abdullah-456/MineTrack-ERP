@@ -8,6 +8,7 @@ import {
   printDetail, downloadDetailPDF, downloadDetailExcel,
 } from '../../utils/reportExport';
 import { exportReportXlsx, exportDetailXlsx } from '../../utils/xlsxExport';
+import { humanize } from '../../utils/textFormat';
 
 // Stable identity for a column across renders. Columns are frequently defined
 // with only a `render` and no `key` (see the attendance grid's day columns), so
@@ -177,7 +178,7 @@ export default function ReportActions({
                 return (
                   <label key={id} className="flex items-center gap-2 text-sm cursor-pointer py-0.5" style={{ color: 'var(--text-secondary)' }}>
                     <input type="checkbox" checked={picking.ids.includes(id)} onChange={() => toggleId(id)} />
-                    {c.header || id}
+                    {c.header || humanize(id)}
                   </label>
                 );
               })}

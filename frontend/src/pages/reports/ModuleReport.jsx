@@ -13,6 +13,7 @@ import ReportActions from '../../components/ui/ReportActions';
 import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
 import Modal from '../../components/ui/Modal';
 import api from '../../api/axios';
+import { humanize } from '../../utils/textFormat';
 
 function monthStart() {
   const d = new Date();
@@ -119,7 +120,9 @@ const MODULE_META = {
     subKey: 'accountingReportSub', sub: 'Receipts, payments, journals & voucher activity',
     icon: BookOpen, accent: 'violet', endpoint: '/reports/modules/accounting/summary', perm: 'accounting',
     entityParam: 'voucher_type', entityLabelKey: 'voucherType',
-    staticEntityOptions: VOUCHER_TYPES.map(v => ({ id: v, name: v })),
+    // Voucher type is a fixed enum, not a lookup table — labels need `t`,
+    // which isn't in scope at module level, so this resolves at use time.
+    getStaticEntityOptions: (t) => VOUCHER_TYPES.map(v => ({ id: v, name: t(`voucherType_${v}`) || humanize(v) })),
   },
   employees: {
     titleKey: 'employeesSummaryReport', title: 'Employees / HR Report',
@@ -279,14 +282,14 @@ export default function ModuleReport({ moduleKey: moduleKeyProp }) {
   useEffect(() => {
     setEntityId('');
     if (!meta) { setEntityOptions(null); return; }
-    if (meta.staticEntityOptions) { setEntityOptions(meta.staticEntityOptions); return; }
+    if (meta.getStaticEntityOptions) { setEntityOptions(meta.getStaticEntityOptions(t)); return; }
     if (!meta.optionsEndpoint) { setEntityOptions(null); return; }
     let cancelled = false;
     api.get(meta.optionsEndpoint, { params: shopParams() })
       .then(({ data: res }) => { if (!cancelled) setEntityOptions(res[meta.entityOptionsKey] || []); })
       .catch(() => { if (!cancelled) setEntityOptions([]); });
     return () => { cancelled = true; };
-  }, [meta, shopParams]);
+  }, [meta, shopParams, t]);
 
   const fetchReport = useCallback(async () => {
     if (!meta) return;

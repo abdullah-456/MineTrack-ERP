@@ -27,6 +27,19 @@ function dayKey(d) {
   return dt.toISOString().slice(0, 10);
 }
 
+// Report responses go out as JSON — a `render` function attached to a column
+// definition is silently dropped by JSON.stringify, so it can never reach the
+// frontend. Every transaction-row date shown in these reports must already be
+// a formatted string by the time the row object is built, not a raw Date/ISO
+// value formatted later by a render callback that will never survive the trip.
+function formatDateTime(d) {
+  if (!d) return null;
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return String(d).slice(0, 10);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+}
+
 /** Local calendar-day bounds (avoid UTC midnight cutting off PK morning entries). */
 function rangeDates(from, to) {
   return {
@@ -103,7 +116,7 @@ exports.salesSummary = async (req, res) => {
         include: [{ model: db.Customer, attributes: ['id', 'name'] }],
       });
       returns = returns.filter(r => {
-        const d = dayKey(r.return_date || r.created_at);
+        const d = dayKey(r.return_date || r.createdAt);
         return d && d >= from && d <= to;
       });
     }
@@ -213,39 +226,61 @@ exports.salesSummary = async (req, res) => {
 
     const returnsOut = round2(returns.reduce((s, r) => s + parseFloat(r.refund_amount || 0), 0));
 
-    // Later recoveries (ledger payments in period). Deduplicate: payments already
-    // counted in collectedAtSale are those tied to sales in this period with same day —
-    // still useful as "total cash in from customers" including settling old invoices.
+    // Only cash/card/bank/mobile_wallet refunds are money actually leaving the
+    // till/bank — store_credit (and 'none') just adjusts the customer's ledger
+    // balance, no physical cash movement, so it must not reduce cash/bank in.
+    let refundCashOut = 0;
+    let refundBankOut = 0;
+    for (const r of returns) {
+      const amt = round2(r.refund_amount);
+      if (r.refund_method === 'cash') refundCashOut += amt;
+      else if (['bank', 'card', 'mobile_wallet'].includes(r.refund_method)) refundBankOut += amt;
+    }
+    const refundCashBankOut = round2(refundCashOut + refundBankOut);
+
+    // Every at-sale payment from a registered customer is logged twice by design:
+    // once as a Payment row (feeds collectedAtSale above) and once as a
+    // CustomerTransaction 'payment_received' row tied via related_sale_id to that
+    // same sale (saleController.js). If a ledger payment's related_sale_id is one
+    // of THIS period's sales, it's the same money already counted in "Collected at
+    // sale" — counting it again under "Customer recoveries" would double it. Only
+    // ledger payments settling dues from OUTSIDE this period (an older sale, or no
+    // sale at all) are genuine new recoveries.
+    const saleIdSet = new Set(saleIds);
     let recoveryTotal = 0;
     let recoveryCash = 0;
     let recoveryBank = 0;
     const recoveryRows = recoveries.map(r => {
       const amt = round2(r.amount);
-      recoveryTotal += amt;
-      if (r.method === 'cash') recoveryCash += amt;
-      else if (['bank', 'card', 'mobile_wallet'].includes(r.method)) recoveryBank += amt;
+      const alreadyInCollectedAtSale = !!(r.related_sale_id && saleIdSet.has(r.related_sale_id));
+      if (!alreadyInCollectedAtSale) {
+        recoveryTotal += amt;
+        if (r.method === 'cash') recoveryCash += amt;
+        else if (['bank', 'card', 'mobile_wallet'].includes(r.method)) recoveryBank += amt;
+      }
       return {
         id: r.id,
-        date: r.date,
+        date: formatDateTime(r.date),
         customer_id: r.customer_id,
         customer_name: r.Customer?.name || '—',
         amount: amt,
         method: r.method,
         related_sale_id: r.related_sale_id,
+        already_in_collected_at_sale: alreadyInCollectedAtSale,
         notes: r.notes,
       };
     });
+    recoveryTotal = round2(recoveryTotal);
+    recoveryCash = round2(recoveryCash);
+    recoveryBank = round2(recoveryBank);
 
-    // "New money in" from customers in period ≈ recoveries (includes at-sale payments
-    // that create payment_received rows). For walk-in cash sales without customer,
-    // add collectedAtSale that has no customer ledger trail.
-    const salesWithoutCustomerCollected = round2(
-      sales
-        .filter(s => !s.customer_id)
-        .reduce((sum, s) => sum + (s.Payments || []).reduce((a, p) => a + parseFloat(p.amount || 0), 0), 0),
-    );
-
-    const totalIncomingsCash = round2(recoveryTotal + salesWithoutCustomerCollected);
+    // Every rupee received from a customer this period — registered or walk-in,
+    // at the counter or settling an old debt — lands in exactly one of these two
+    // buckets with no overlap: paid at the moment of billing (collectedAtSale,
+    // already includes walk-ins), or paid later against a pre-existing balance
+    // (recoveryTotal, deduplicated above).
+    const totalIncomingsCash = round2(collectedAtSale + recoveryTotal);
+    const netCashBankIn = round2(totalIncomingsCash - refundCashBankOut);
     const netSales = round2(grossSales - returnsOut);
 
     const debtors = customers
@@ -303,11 +338,11 @@ exports.salesSummary = async (req, res) => {
           hint: 'Invoice amount not paid at sale — added to customer dues',
         },
         recovery: {
-          label: 'Customer recoveries (period)',
+          label: 'Later recoveries (old dues settled)',
           amount: round2(recoveryTotal),
           cash: round2(recoveryCash),
           bank: round2(recoveryBank),
-          hint: 'All payments received from customers in this period (incl. settling older invoices)',
+          hint: 'Payments collecting a balance from before this period — excludes at-sale payments already counted in "Collected at sale" above',
         },
         outgoings: {
           label: 'Returns / refunds',
@@ -321,9 +356,23 @@ exports.salesSummary = async (req, res) => {
           hint: 'Gross sales minus returns',
         },
         cash_in_total: {
-          label: 'Total cash/bank in from customers',
+          label: 'Total cash/bank in from customers (gross)',
           amount: totalIncomingsCash,
-          hint: 'Ledger recoveries + walk-in collections without a customer account',
+          collected_at_sale: round2(collectedAtSale),
+          recovery: round2(recoveryTotal),
+          hint: 'Collected at sale + later recoveries of old dues (registered & walk-in combined) — before refunds paid out',
+        },
+        refunds_cash_bank: {
+          label: 'Cash/bank refunds paid out',
+          amount: refundCashBankOut,
+          cash: round2(refundCashOut),
+          bank: round2(refundBankOut),
+          hint: 'Returns refunded via cash/bank/card/mobile wallet — actual money that left the shop (store-credit refunds excluded, since no cash moves)',
+        },
+        net_cash_bank_in: {
+          label: 'Net cash/bank in',
+          amount: netCashBankIn,
+          hint: 'Total cash/bank in (gross) minus cash/bank refunds paid out',
         },
         receivables: {
           label: 'Receivables outstanding',
@@ -349,6 +398,8 @@ exports.salesSummary = async (req, res) => {
         receivables_outstanding: receivablesOutstanding,
         customer_advances: customerAdvances,
         cash_in_total: totalIncomingsCash,
+        refunds_cash_bank: refundCashBankOut,
+        net_cash_bank_in: netCashBankIn,
       },
       by_day: byDay,
       by_customer: byCustomer,
@@ -360,7 +411,7 @@ exports.salesSummary = async (req, res) => {
       advances: advances.slice(0, 50),
       returns: returns.map(r => ({
         id: r.id,
-        date: r.return_date || r.created_at,
+        date: formatDateTime(r.return_date || r.createdAt),
         customer_name: r.Customer?.name || '—',
         refund_amount: round2(r.refund_amount),
         refund_method: r.refund_method,
@@ -460,7 +511,7 @@ exports.purchasesSummary = async (req, res) => {
       const out = {
         id: r.id,
         grn_number: r.grn_number,
-        receipt_date: r.receipt_date,
+        receipt_date: formatDateTime(r.receipt_date),
         supplier_id: r.supplier_id,
         supplier_name: supplierName(r.Supplier),
         branch_name: r.Branch?.name || null,
@@ -484,6 +535,8 @@ exports.purchasesSummary = async (req, res) => {
     let paymentsOut = 0;
     let paymentCash = 0;
     let paymentBank = 0;
+    let paymentsForThisStock = 0;
+    let paymentsForOlderBalance = 0;
     let creditPurchases = 0;
     const paymentRows = [];
     const creditRows = [];
@@ -491,6 +544,7 @@ exports.purchasesSummary = async (req, res) => {
       if (t.type === 'payment_made') {
         const amt = round2(t.total_amount);
         paymentsOut += amt;
+        paymentsForOlderBalance = round2(paymentsForOlderBalance + amt);
         if (t.method === 'cash') paymentCash += amt;
         else if (t.method === 'bank') paymentBank += amt;
         const day = dayKey(t.date) || from;
@@ -499,7 +553,7 @@ exports.purchasesSummary = async (req, res) => {
         byDayMap.set(day, row);
         paymentRows.push({
           id: t.id,
-          date: t.date,
+          date: formatDateTime(t.date),
           supplier_id: t.supplier_id,
           supplier_name: supplierName(t.Supplier),
           amount: amt,
@@ -508,6 +562,34 @@ exports.purchasesSummary = async (req, res) => {
           open: openLink('supplier', t.supplier_id),
         });
       } else if (t.type === 'stock_received') {
+        // Paid in full/partially at the moment stock came in (paymentStatus:
+        // 'paid'/'partial' on the receive form) never creates a separate
+        // 'payment_made' row — that type is only used for a LATER standalone
+        // payment against an existing payable. Without this, cash/bank paid
+        // at receipt silently vanished from "Payments out" even though it's
+        // real money that left the shop the same moment stock arrived.
+        const paidAtReceipt = round2(Math.min(parseFloat(t.paid_amount || 0), parseFloat(t.total_amount || 0)));
+        if (paidAtReceipt > 0 && t.method !== 'supplier_credit') {
+          paymentsOut = round2(paymentsOut + paidAtReceipt);
+          paymentsForThisStock = round2(paymentsForThisStock + paidAtReceipt);
+          if (t.method === 'cash') paymentCash = round2(paymentCash + paidAtReceipt);
+          else if (t.method === 'bank') paymentBank = round2(paymentBank + paidAtReceipt);
+          const payDay = dayKey(t.date) || from;
+          const payRow = byDayMap.get(payDay) || { date: payDay, stock_in: 0, payments: 0, credit: 0 };
+          payRow.payments = round2(payRow.payments + paidAtReceipt);
+          byDayMap.set(payDay, payRow);
+          paymentRows.push({
+            id: t.id,
+            date: formatDateTime(t.date),
+            supplier_id: t.supplier_id,
+            supplier_name: supplierName(t.Supplier),
+            amount: paidAtReceipt,
+            method: t.method,
+            notes: 'Paid at time of stock receipt',
+            open: openLink('supplier', t.supplier_id),
+          });
+        }
+
         const credit = round2(
           t.method === 'supplier_credit'
             ? parseFloat(t.total_amount || 0)
@@ -521,7 +603,7 @@ exports.purchasesSummary = async (req, res) => {
           byDayMap.set(day, row);
           creditRows.push({
             id: t.id,
-            date: t.date,
+            date: formatDateTime(t.date),
             supplier_id: t.supplier_id,
             supplier_name: supplierName(t.Supplier),
             method: t.method,
@@ -563,7 +645,7 @@ exports.purchasesSummary = async (req, res) => {
       .map(t => ({
         id: t.id,
         grn_number: t.notes || `Stock #${t.id}`,
-        receipt_date: t.date,
+        receipt_date: formatDateTime(t.date),
         supplier_id: t.supplier_id,
         supplier_name: supplierName(t.Supplier),
         branch_name: null,
@@ -571,6 +653,13 @@ exports.purchasesSummary = async (req, res) => {
         open: openLink('supplier', t.supplier_id),
       }));
     const stockLedgerTotal = round2(stockLedgerRows.reduce((s, r) => s + r.total, 0));
+    // "Stock received" above only counts GRNs — formal Purchase Order fulfillment.
+    // Stock can also arrive without a PO (e.g. a new product's opening stock tied
+    // to a supplier) — still a real supplier-ledger stock_received entry, still
+    // paid for, but invisible to the GRN count. Surfaced here so "Paid for this
+    // period's stock" (ledger-wide) never looks bigger than what was "received"
+    // for a reason that isn't explained on the page.
+    const stockOutsidePO = round2(Math.max(0, stockLedgerTotal - round2(stockReceived)));
     const stockCardRows = receiptRows.length ? receiptRows : stockLedgerRows;
     const stockCardTotal = receiptRows.length ? round2(stockReceived) : stockLedgerTotal;
     const stockCardExtra = receiptRows.length
@@ -586,11 +675,12 @@ exports.purchasesSummary = async (req, res) => {
       cards: [
         {
           key: 'stock_received',
-          title: 'Stock received (billed)',
+          title: 'Stock received via Purchase Orders',
           amount: stockCardTotal,
-          hint: receiptRows.length
-            ? 'Posted goods receipt notes in this period'
-            : 'Supplier ledger stock received (no posted GRNs in range)',
+          hint: (receiptRows.length
+            ? 'Posted goods receipt notes (GRNs) in this period'
+            : 'Supplier ledger stock received (no posted GRNs in range)')
+            + (stockOutsidePO > 0.009 ? ` — plus ${moneyStr(stockOutsidePO)} received outside the PO workflow this period (see Payments below)` : ''),
           tone: 'green',
           extra: stockCardExtra,
           breakdown: {
@@ -608,7 +698,7 @@ exports.purchasesSummary = async (req, res) => {
           key: 'payments_out',
           title: 'Payments to suppliers',
           amount: round2(paymentsOut),
-          hint: 'Cash/bank paid to suppliers in this period',
+          hint: `${moneyStr(paymentsForThisStock)} for stock received this period + ${moneyStr(paymentsForOlderBalance)} settling earlier balances — can exceed "Stock received" above when older dues are paid off now`,
           tone: 'red',
           extra: `Cash ${moneyStr(paymentCash)} · Bank ${moneyStr(paymentBank)}`,
           breakdown: {
@@ -733,11 +823,15 @@ exports.purchasesSummary = async (req, res) => {
           {
             heading: 'Money flow',
             rows: [
-              { label: 'Stock received', value: moneyStr(stockReceived) },
-              { label: 'Payments out', value: moneyStr(paymentsOut) },
-              { label: 'Credit purchases', value: moneyStr(creditPurchases) },
-              { label: 'Payables (snapshot)', value: moneyStr(payablesTotal) },
-              { label: 'Supplier advances', value: moneyStr(advancesTotal) },
+              { label: 'Stock received via Purchase Orders (this period)', value: moneyStr(stockReceived) },
+              { label: 'Stock received outside Purchase Orders (this period)', value: moneyStr(stockOutsidePO) },
+              { label: 'Total stock received (this period)', value: moneyStr(round2(stockReceived + stockOutsidePO)) },
+              { label: 'Paid for this period\'s stock (either kind, above)', value: moneyStr(paymentsForThisStock) },
+              { label: 'Paid toward earlier balances (stock from a prior period)', value: moneyStr(paymentsForOlderBalance) },
+              { label: 'Total payments out (this period)', value: moneyStr(paymentsOut) },
+              { label: 'Credit purchases (new, unpaid)', value: moneyStr(creditPurchases) },
+              { label: 'Payables outstanding (all-time snapshot)', value: moneyStr(payablesTotal) },
+              { label: 'Supplier advances (all-time snapshot)', value: moneyStr(advancesTotal) },
             ],
           },
         ],
@@ -746,7 +840,7 @@ exports.purchasesSummary = async (req, res) => {
             'Goods receipts',
             [
               { header: 'GRN', key: 'grn_number' },
-              { header: 'Date', key: 'receipt_date', render: (row) => dayKey(row.receipt_date) },
+              { header: 'Date', key: 'receipt_date' },
               { header: 'Supplier', key: 'supplier_name' },
               { header: 'Amount', key: 'total', money: true, align: 'right' },
             ],
@@ -756,7 +850,7 @@ exports.purchasesSummary = async (req, res) => {
           pdfTable(
             'Supplier payments',
             [
-              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Date', key: 'date' },
               { header: 'Supplier', key: 'supplier_name' },
               { header: 'Method', key: 'method' },
               { header: 'Amount', key: 'amount', money: true, align: 'right' },
@@ -852,7 +946,7 @@ exports.inventorySummary = async (req, res) => {
 
       movementRows.push({
         id: m.id,
-        date: m.created_at,
+        date: formatDateTime(m.createdAt),
         product_id: pid,
         product_name: m.Product?.name || '—',
         sku: m.Product?.sku || null,
@@ -1037,7 +1131,7 @@ exports.inventorySummary = async (req, res) => {
           pdfTable(
             'Recent movements',
             [
-              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Date', key: 'date' },
               { header: 'Product', key: 'product_name' },
               { header: 'Type', key: 'ref_type' },
               { header: 'Qty', key: 'quantity', align: 'right' },
@@ -1099,7 +1193,7 @@ exports.customersSummary = async (req, res) => {
       const dayRow = byDayMap.get(day) || { date: day, charges: 0, recoveries: 0, returns: 0 };
       const row = {
         id: t.id,
-        date: t.date,
+        date: formatDateTime(t.date),
         type: t.type,
         customer_id: t.customer_id,
         customer_name: t.Customer?.name || '—',
@@ -1269,11 +1363,12 @@ exports.customersSummary = async (req, res) => {
         },
       ],
       pdf: {
-        title: 'Customers Summary Report',
+        title: 'Registered Customers Summary Report',
         sections: [
           {
-            heading: 'Money flow',
+            heading: 'Money flow (registered customers only)',
             rows: [
+              { label: 'Customer type covered', value: 'Registered (has a customer account) — walk-in sales are under Sales → Collected at Sale, not here' },
               { label: 'Sale charges', value: moneyStr(charges) },
               { label: 'Recoveries', value: moneyStr(recoveries) },
               { label: 'Return credits', value: moneyStr(returnCredits) },
@@ -1286,7 +1381,7 @@ exports.customersSummary = async (req, res) => {
           pdfTable(
             'Transactions',
             [
-              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Date', key: 'date' },
               { header: 'Type', key: 'type' },
               { header: 'Customer', key: 'customer_name' },
               { header: 'Amount', key: 'amount', money: true, align: 'right' },
@@ -1331,6 +1426,8 @@ exports.suppliersSummary = async (req, res) => {
 
     let stockReceived = 0;
     let paymentsOut = 0;
+    let paymentsForThisStock = 0;
+    let paymentsForOlderBalance = 0;
     const txnRows = [];
     const supplierDetailCols = [
       { header: 'Date', key: 'date' },
@@ -1345,7 +1442,7 @@ exports.suppliersSummary = async (req, res) => {
         stockReceived += amt;
         txnRows.push({
           id: t.id,
-          date: t.date,
+          date: formatDateTime(t.date),
           type: t.type,
           supplier_id: t.supplier_id,
           supplier_name: supplierName(t.Supplier),
@@ -1353,11 +1450,35 @@ exports.suppliersSummary = async (req, res) => {
           method: t.method,
           open: openLink('supplier', t.supplier_id),
         });
+
+        // Paid in full/partially the moment stock arrived (paymentStatus
+        // 'paid'/'partial' on the receive form) never gets its own
+        // 'payment_made' row — that type only covers a LATER standalone
+        // payment against an existing payable. Without this, cash/bank paid
+        // at receipt silently vanished from "Payments out" even though the
+        // matching "Payables" snapshot correctly shows Rs. 0 for it.
+        const paidAtReceipt = round2(Math.min(parseFloat(t.paid_amount || 0), parseFloat(t.total_amount || 0)));
+        if (paidAtReceipt > 0 && t.method !== 'supplier_credit') {
+          paymentsOut += paidAtReceipt;
+          paymentsForThisStock = round2(paymentsForThisStock + paidAtReceipt);
+          txnRows.push({
+            id: t.id,
+            date: formatDateTime(t.date),
+            type: 'payment_made',
+            supplier_id: t.supplier_id,
+            supplier_name: supplierName(t.Supplier),
+            amount: paidAtReceipt,
+            method: t.method,
+            notes: 'Paid at time of stock receipt',
+            open: openLink('supplier', t.supplier_id),
+          });
+        }
       } else if (t.type === 'payment_made') {
         paymentsOut += amt;
+        paymentsForOlderBalance = round2(paymentsForOlderBalance + amt);
         txnRows.push({
           id: t.id,
-          date: t.date,
+          date: formatDateTime(t.date),
           type: t.type,
           supplier_id: t.supplier_id,
           supplier_name: supplierName(t.Supplier),
@@ -1419,7 +1540,7 @@ exports.suppliersSummary = async (req, res) => {
           key: 'payments_out',
           title: 'Payments made',
           amount: round2(paymentsOut),
-          hint: 'Cash/bank paid to suppliers',
+          hint: `${moneyStr(paymentsForThisStock)} for stock received this period + ${moneyStr(paymentsForOlderBalance)} settling earlier balances — can exceed "Stock received" above when older dues are paid off now`,
           tone: 'red',
           extra: null,
           breakdown: {
@@ -1492,10 +1613,12 @@ exports.suppliersSummary = async (req, res) => {
           {
             heading: 'Ledger summary',
             rows: [
-              { label: 'Stock received', value: moneyStr(stockReceived) },
-              { label: 'Payments out', value: moneyStr(paymentsOut) },
-              { label: 'Payables', value: moneyStr(payablesTotal) },
-              { label: 'Advances', value: moneyStr(advancesTotal) },
+              { label: 'Stock received (this period)', value: moneyStr(stockReceived) },
+              { label: 'Paid for this period\'s stock', value: moneyStr(paymentsForThisStock) },
+              { label: 'Paid toward earlier balances', value: moneyStr(paymentsForOlderBalance) },
+              { label: 'Total payments out (this period)', value: moneyStr(paymentsOut) },
+              { label: 'Payables outstanding (all-time snapshot)', value: moneyStr(payablesTotal) },
+              { label: 'Supplier advances (all-time snapshot)', value: moneyStr(advancesTotal) },
             ],
           },
         ],
@@ -1503,7 +1626,7 @@ exports.suppliersSummary = async (req, res) => {
           pdfTable(
             'Transactions',
             [
-              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Date', key: 'date' },
               { header: 'Type', key: 'type' },
               { header: 'Supplier', key: 'supplier_name' },
               { header: 'Amount', key: 'amount', money: true, align: 'right' },
@@ -1567,7 +1690,7 @@ exports.expensesSummary = async (req, res) => {
 
       expenseRows.push({
         id: e.id,
-        expense_date: e.expense_date,
+        expense_date: formatDateTime(e.expense_date),
         category: cat,
         description: e.description,
         paid_via: e.paid_via,
@@ -1698,7 +1821,7 @@ exports.expensesSummary = async (req, res) => {
           pdfTable(
             'Expenses',
             [
-              { header: 'Date', key: 'expense_date', render: (row) => dayKey(row.expense_date) },
+              { header: 'Date', key: 'expense_date' },
               { header: 'Category', key: 'category' },
               { header: 'Paid via', key: 'paid_via' },
               { header: 'Amount', key: 'amount', money: true, align: 'right' },
@@ -1777,7 +1900,7 @@ exports.accountingSummary = async (req, res) => {
       voucherRows.push({
         id: v.id,
         voucher_number: v.voucher_number,
-        voucher_date: v.voucher_date,
+        voucher_date: formatDateTime(v.voucher_date),
         voucher_type: v.voucher_type,
         amount,
         narration: v.narration,
@@ -1926,7 +2049,7 @@ exports.accountingSummary = async (req, res) => {
             'Vouchers',
             [
               { header: 'Number', key: 'voucher_number' },
-              { header: 'Date', key: 'voucher_date', render: (row) => dayKey(row.voucher_date) },
+              { header: 'Date', key: 'voucher_date' },
               { header: 'Type', key: 'voucher_type' },
               { header: 'Amount', key: 'amount', money: true, align: 'right' },
             ],
@@ -1993,7 +2116,7 @@ exports.employeesSummary = async (req, res) => {
       const day = dayKey(t.date) || from;
       txnRows.push({
         id: t.id,
-        date: t.date,
+        date: formatDateTime(t.date),
         type: t.type,
         employee_id: t.employee_id,
         employee_name: t.Employee.name,
@@ -2145,7 +2268,7 @@ exports.employeesSummary = async (req, res) => {
           pdfTable(
             'Transactions',
             [
-              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Date', key: 'date' },
               { header: 'Type', key: 'type' },
               { header: 'Employee', key: 'employee_name' },
               { header: 'Amount', key: 'amount', money: true, align: 'right' },
@@ -2204,7 +2327,7 @@ exports.boardSummary = async (req, res) => {
       const memberName = t.BoardMember?.name || '—';
       txnRows.push({
         id: t.id,
-        date: t.date,
+        date: formatDateTime(t.date),
         type: t.type,
         board_member_id: t.board_member_id,
         member_name: memberName,
@@ -2358,7 +2481,7 @@ exports.boardSummary = async (req, res) => {
           pdfTable(
             'Transactions',
             [
-              { header: 'Date', key: 'date', render: (row) => dayKey(row.date) },
+              { header: 'Date', key: 'date' },
               { header: 'Type', key: 'type' },
               { header: 'Member', key: 'member_name' },
               { header: 'Amount', key: 'amount', money: true, align: 'right' },

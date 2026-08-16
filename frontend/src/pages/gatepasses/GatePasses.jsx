@@ -13,6 +13,7 @@ import LocationPicker from '../../components/ui/LocationPicker';
 import { defaultLocation, filterRowsByLocation } from '../../utils/locationUtils';
 import api from '../../api/axios';
 import { useFiscalYearGuard } from '../../hooks/useFiscalYearGuard';
+import { humanize } from '../../utils/textFormat';
 
 const dispatchTypeBadgeColor = {
   sale_dispatch: 'badge-green',
@@ -191,6 +192,20 @@ export default function GatePasses() {
     }
   };
 
+  // Dispatch type raw values (sale_dispatch, pre_sale, transfer, return, other)
+  // don't match a t() key of the same name — the real translated labels live
+  // under these camelCase keys, same ones the create-form dropdown uses.
+  const dispatchTypeLabel = (type) => {
+    const map = {
+      sale_dispatch: t('saleDispatch') || 'Sale Dispatch',
+      pre_sale: t('preSale') || 'Pre-Sale Dispatch',
+      transfer: t('stockTransfer') || 'Stock Transfer',
+      return: t('sampleReturn') || 'Return / Sample',
+      other: t('otherDispatch') || 'Other Dispatch',
+    };
+    return map[type] || humanize(type);
+  };
+
   // Report filters for datatable
   const reportSelects = [
     { key: 'type', label: t('gatepassType') || 'Dispatch Type', options: [
@@ -229,7 +244,7 @@ export default function GatePasses() {
     { header: t('date') || 'Date & Time', render: gp => new Date(gp.gate_pass_date).toLocaleString('en-PK'), width: 1.4 },
     { header: t('receiverName') || 'Receiver / Customer', render: gp => gp.customer_name || gp.Customer?.name || 'Walk-in', width: 1.5 },
     { header: t('userBranch') || 'Branch', render: gp => gp.Branch?.name || '', width: 1.1 },
-    { header: t('gatepassType') || 'Type', render: gp => t(gp.type) || gp.type, width: 1 },
+    { header: t('gatepassType') || 'Type', render: gp => dispatchTypeLabel(gp.type), width: 1 },
     { header: t('vehicleNo') || 'Vehicle #', render: gp => gp.vehicle_no || '—', width: 1 },
     { header: t('driverName') || 'Driver', render: gp => gp.driver_name || '—', width: 1 },
     { header: t('quantity') || 'Items Qty', render: gp => (gp.GatePassItems || []).map(i => `${formatQty(i.quantity)} ${i.unit || 'kg'}`).join(', ') || '—', width: 1.8 }
@@ -384,7 +399,7 @@ export default function GatePasses() {
                   <td className="p-4" style={{ color: 'var(--text-secondary)' }}>{gp.Branch?.name}</td>
                   <td className="p-4">
                     <span className={`badge ${dispatchTypeBadgeColor[gp.type] || 'badge-blue'}`}>
-                      {t(gp.type) || gp.type}
+                      {dispatchTypeLabel(gp.type)}
                     </span>
                   </td>
                   <td className="p-4 text-xs" style={{ color: 'var(--text-secondary)' }}>

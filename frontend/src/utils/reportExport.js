@@ -2,6 +2,7 @@ import { jsPDF } from 'jspdf';
 import api from '../api/axios';
 import translations from '../translations';
 import { SOFTWARE_CREDIT } from '../config/branding';
+import { humanize } from './textFormat';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Shared reporting engine. Turns a column/row (or section/table) model into a
@@ -232,7 +233,10 @@ const isFigureCol = (col) => !!(col.money || col.qty || col.numeric);
 // Resolve a column definition + row into a display string.
 // Column: { header, key, align?, money?, numeric?, qty?, render?(row) }
 function cellText(col, row, { currency = false, style = 'accounting' } = {}) {
-  const v = col.render ? col.render(row) : row[col.key];
+  // A column with no render is a raw DB field — humanize() only touches
+  // values that look like a raw enum token (e.g. "sale_return"), so a
+  // forgotten render can never leak an unformatted status/type into a report.
+  const v = col.render ? col.render(row) : humanize(row[col.key]);
   if (v === null || v === undefined) return '';
   if (col.money) return isNum(v) ? amount(v, { currency, style }) : asText(v);
   if (col.qty) return qty(v);
@@ -962,7 +966,7 @@ const csvCell = (v) => `"${asText(toEnglishText(v)).replace(/"/g, '""')}"`;
 // Figures go out as bare numbers, not "Rs. 1,234" — a CSV whose money column is
 // text can't be summed, sorted, or charted, which defeats the point of it.
 function csvValue(col, row) {
-  const v = col.render ? col.render(row) : (col.key ? row[col.key] : '');
+  const v = col.render ? col.render(row) : (col.key ? humanize(row[col.key]) : '');
   if ((col.money || col.qty || col.numeric) && isNum(v)) return String(parseFloat(v));
   return csvCell(v);
 }

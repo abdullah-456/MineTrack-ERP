@@ -1,26 +1,29 @@
 import { useTheme } from '../../context/ThemeContext';
 import { formatQty } from '../../hooks/useShopApi';
+import { humanize } from '../../utils/textFormat';
 
-export default function StatusBadge({ status }) {
-  const { t } = useTheme();
+const CLASS_MAP = {
+  active:     'badge-green',
+  disabled:   'badge-red',
+  suspended:  'badge-yellow',
+  terminated: 'badge-red',
+  completed:  'badge-green',
+  held:       'badge-yellow',
+  cancelled:  'badge-red',
+  pending:    'badge-yellow',
+  overdue:    'badge-red',
+  paid:       'badge-green',
+  unpaid:     'badge-red',
+  closed:     'badge-green',
+  partial:    'badge-yellow',
+  void:       'badge-red',
+};
 
-  const classMap = {
-    active:     'badge-green',
-    disabled:   'badge-red',
-    suspended:  'badge-yellow',
-    terminated: 'badge-red',
-    completed:  'badge-green',
-    held:       'badge-yellow',
-    cancelled:  'badge-red',
-    pending:    'badge-yellow',
-    overdue:    'badge-red',
-    paid:       'badge-green',
-    unpaid:     'badge-red',
-    closed:     'badge-green',
-    partial:    'badge-yellow',
-    void:       'badge-red',
-  };
-
+// Text-only version of the same label lookup, for report/export columns
+// (which render outside React, as plain strings) — takes `t` as a parameter
+// since it's called from page-level code that already has it in scope.
+export function statusText(t, status) {
+  const normalized = (status || '').toLowerCase();
   const labelMap = {
     active:     t('active') || t('activePlan') || 'Active',
     disabled:   t('disabled') || 'Disabled',
@@ -37,10 +40,14 @@ export default function StatusBadge({ status }) {
     partial:    t('partial') || 'Partial',
     void:       t('void') || 'Void',
   };
+  return labelMap[normalized] || humanize(status);
+}
 
+export default function StatusBadge({ status }) {
+  const { t } = useTheme();
   const normalized = (status || '').toLowerCase();
-  const label = labelMap[normalized] || status;
-  const className = classMap[normalized] || 'badge-blue';
+  const label = statusText(t, status);
+  const className = CLASS_MAP[normalized] || 'badge-blue';
 
   return <span className={`badge ${className}`}>{label}</span>;
 }

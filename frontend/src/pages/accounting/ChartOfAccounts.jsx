@@ -8,6 +8,7 @@ import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
 import api from '../../api/axios';
+import { humanize } from '../../utils/textFormat';
 
 // Liability/equity/income accounts are credit-normal — the raw ledger stores
 // debit-minus-credit, so flip the sign for those types to show a natural,
@@ -287,7 +288,7 @@ export default function ChartOfAccounts() {
                   {account.is_active === false && <span className="ms-2 text-xs uppercase text-red-400">· {t('inactive')}</span>}
                 </td>
                 <td className={`p-4 text-xs uppercase ${depth === 0 ? 'font-bold' : ''} ${TYPE_COLORS[account.account_type] || ''}`}>
-                  {account.account_type}
+                  {t(account.account_type) || humanize(account.account_type)}
                 </td>
                 <td className={`p-4 text-end ${depth === 0 ? 'font-bold' : ''}`} style={{ color: depth === 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                   {formatPKR(displayBalance(account), lang)}
@@ -322,7 +323,7 @@ export default function ChartOfAccounts() {
             <div>
               <FormLabel required>{t('accountType')}</FormLabel>
               <select className="input" required value={form.account_type} onChange={setF('account_type')} disabled={isFundForm}>
-                {ACCOUNT_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+                {ACCOUNT_TYPES.map(type => <option key={type} value={type}>{t(type) || humanize(type)}</option>)}
               </select>
             </div>
             <div>

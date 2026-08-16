@@ -80,7 +80,7 @@ export default function Pits() {
                 { header: t('areaName') || 'Area Name', key: 'area_name', width: 1.6 },
                 { header: t('mineColumnLabel') || 'Mine', render: p => p.Mine?.name || '', width: 1.4 },
                 { header: t('gpsCoordinates') || 'GPS', render: p => p.gps_coordinates || '', width: 1.4 },
-                { header: t('status') || 'Status', key: 'status', width: 1 },
+                { header: t('status') || 'Status', render: p => getMineStatusMeta(t, p.status).label, width: 1 },
               ]}
               rows={filtered}
               filename="pits.pdf"

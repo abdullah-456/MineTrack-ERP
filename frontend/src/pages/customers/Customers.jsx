@@ -8,7 +8,7 @@ import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
-import StatusBadge from '../../components/ui/StatusBadge';
+import StatusBadge, { statusText } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
 import { money } from '../../utils/reportExport';
@@ -116,7 +116,7 @@ export default function Customers() {
     { header: t('cnic') || 'CNIC', render: c => c.cnic || '', width: 1.4 },
     { header: t('phone') || 'Phone', render: c => c.phone || '', width: 1.2 },
     { header: t('balance') || 'Balance', render: c => (parseFloat(c.current_balance) < 0 ? `${money(Math.abs(c.current_balance))} (Adv)` : money(c.current_balance)), align: 'right', width: 1.3 },
-    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+    { header: t('status') || 'Status', render: c => statusText(t, c.status), width: 0.9 },
   ];
   const reportTotals = { __label: t('total') || 'Total' };
 

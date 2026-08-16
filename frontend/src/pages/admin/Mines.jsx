@@ -83,7 +83,7 @@ export default function Mines() {
                 { header: t('province') || 'Province', render: m => m.province || '', width: 1.1 },
                 { header: t('district') || 'District', render: m => m.district || '', width: 1.1 },
                 { header: t('manager') || 'Manager', render: m => m.Manager?.name || '', width: 1.3 },
-                { header: t('status') || 'Status', key: 'status', width: 1 },
+                { header: t('status') || 'Status', render: m => getMineStatusMeta(t, m.status).label, width: 1 },
               ]}
               rows={filtered}
               filename="mines.pdf"

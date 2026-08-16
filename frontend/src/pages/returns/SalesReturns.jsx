@@ -12,7 +12,8 @@ import { useHighlightRow } from '../../hooks/useHighlightRow';
 import { useWizardSteps } from '../../hooks/useWizardSteps';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
-import StatusBadge from '../../components/ui/StatusBadge';
+import StatusBadge, { statusText } from '../../components/ui/StatusBadge';
+import { humanize } from '../../utils/textFormat';
 import ReportActions from '../../components/ui/ReportActions';
 import { BankAccountPicker } from '../../components/ui/PaymentAccountSelect';
 import { money } from '../../utils/reportExport';
@@ -155,7 +156,7 @@ function ProductDropdown({ onSelect, shopParams, error: showError, lang }) {
 
 // ----- Main component --------------------------------------------------------
 export default function SalesReturns() {
-  const { lang } = useTheme();
+  const { t, lang } = useTheme();
   const { success, error } = useToast();
   const { can } = useAuth();
   const { shopParams } = useShopApi();
@@ -415,12 +416,12 @@ export default function SalesReturns() {
               columns={[
                 { header: 'Return #', key: 'return_number', width: 1.2 },
                 { header: 'Date', render: r => new Date(r.return_date || r.created_at).toLocaleDateString('en-PK'), width: 1.1 },
-                { header: 'Type', render: r => r.return_type, width: 0.9 },
+                { header: 'Type', render: r => humanize(r.return_type), width: 0.9 },
                 { header: 'Invoice', render: r => r.Sale?.invoice_number || '', width: 1.3 },
                 { header: 'Customer', render: r => r.Customer?.name || 'Walk-in', width: 1.5 },
                 { header: 'Returned Value', key: 'returned_value', money: true, width: 1.2 },
                 { header: 'Refund/Settle', render: r => (r.return_type === 'refund' ? money(r.refund_amount) : money(r.settlement_amount)), align: 'right', width: 1.2 },
-                { header: 'Status', key: 'status', width: 0.9 },
+                { header: 'Status', render: r => statusText(t, r.status), width: 0.9 },
               ]}
               rows={returns}
               totals={{ __label: 'Total', returned_value: returns.reduce((s, r) => s + parseFloat(r.returned_value || 0), 0) }}
@@ -497,14 +498,14 @@ export default function SalesReturns() {
                     }}
                   >
                     <td className="py-3 pr-4 font-mono text-xs">{r.return_number}</td>
-                    <td className="py-3 pr-4 capitalize">
+                    <td className="py-3 pr-4">
                       <span className="inline-flex items-center gap-1">
                         {r.return_type === 'refund' ? (
                           <Banknote className="w-3.5 h-3.5" />
                         ) : (
                           <Repeat className="w-3.5 h-3.5" />
                         )}
-                        {r.return_type}
+                        {humanize(r.return_type)}
                       </span>
                     </td>
                     <td className="py-3 pr-4 font-mono text-xs">{r.Sale?.invoice_number}</td>
@@ -993,7 +994,7 @@ export default function SalesReturns() {
             <div className="grid grid-cols-2 gap-2">
               <p>
                 <span style={{ color: 'var(--text-secondary)' }}>Type: </span>
-                {detail.return_type}
+                {humanize(detail.return_type)}
               </p>
               <p>
                 <span style={{ color: 'var(--text-secondary)' }}>Date: </span>
@@ -1046,7 +1047,7 @@ export default function SalesReturns() {
               </div>
               {detail.return_type === 'refund' ? (
                 <div className="flex justify-between">
-                  <span>Refunded ({detail.refund_method})</span>
+                  <span>Refunded ({t(detail.refund_method) || humanize(detail.refund_method)})</span>
                   <span className="font-bold">{formatPKR(detail.refund_amount, lang)}</span>
                 </div>
               ) : (

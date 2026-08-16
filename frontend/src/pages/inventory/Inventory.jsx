@@ -13,6 +13,7 @@ import { BankAccountPicker, CashAccountPicker } from '../../components/ui/Paymen
 import LocationPicker from '../../components/ui/LocationPicker';
 import { defaultLocation, filterRowsByLocation, EMPTY_LOCATION } from '../../utils/locationUtils';
 import api from '../../api/axios';
+import { humanize } from '../../utils/textFormat';
 
 export default function Inventory() {
   const { t, lang } = useTheme();
@@ -461,13 +462,14 @@ export default function Inventory() {
 
   const getMovementBadge = (type) => {
     const map = {
-      purchase:   { bg: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20', label: 'Purchase/GRN' },
-      sale:       { bg: 'bg-blue-500/10 text-blue-400 border border-blue-500/20', label: 'Sale' },
-      adjustment: { bg: 'bg-amber-500/10 text-amber-400 border border-amber-500/20', label: 'Adjustment' },
-      transfer:   { bg: 'bg-purple-500/10 text-purple-400 border border-purple-500/20', label: 'Transfer' },
-      return:     { bg: 'bg-red-500/10 text-red-400 border border-red-500/20', label: 'Return' },
+      purchase:   { bg: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20', label: t('purchase') || 'Purchase/GRN' },
+      sale:       { bg: 'bg-blue-500/10 text-blue-400 border border-blue-500/20', label: t('sale') || 'Sale' },
+      sale_return: { bg: 'bg-red-500/10 text-red-400 border border-red-500/20', label: t('sale_return') || 'Sale Return' },
+      adjustment: { bg: 'bg-amber-500/10 text-amber-400 border border-amber-500/20', label: t('adjustment') || 'Adjustment' },
+      transfer:   { bg: 'bg-purple-500/10 text-purple-400 border border-purple-500/20', label: t('transfer') || 'Transfer' },
+      return:     { bg: 'bg-red-500/10 text-red-400 border border-red-500/20', label: t('return') || 'Return' },
     };
-    const s = map[type?.toLowerCase()] || { bg: 'bg-gray-500/10 text-gray-400 border border-gray-500/20', label: type };
+    const s = map[type?.toLowerCase()] || { bg: 'bg-gray-500/10 text-gray-400 border border-gray-500/20', label: humanize(type) };
     return <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider ${s.bg}`}>{s.label}</span>;
   };
 
@@ -491,7 +493,7 @@ export default function Inventory() {
           { header: t('date') || 'Timestamp', render: m => new Date(m.created_at || m.createdAt).toLocaleString('en-PK'), width: 1.6 },
           { header: t('product') || 'Product', render: m => m.Product?.name || '', width: 1.8 },
           { header: t('userBranch') || 'Branch', render: m => m.Branch?.name || '', width: 1.1 },
-          { header: t('type') || 'Type', render: m => m.ref_type || '', width: 1 },
+          { header: t('type') || 'Type', render: m => t(m.ref_type) || humanize(m.ref_type), width: 1 },
           { header: t('quantity') || 'Qty', render: m => `${m.quantity > 0 ? '+' : ''}${formatQty(m.quantity)}`, align: 'right', width: 1 },
           { header: t('currentStock') || 'Balance', render: m => formatQty(m.balance_after), align: 'right', width: 1 },
         ],

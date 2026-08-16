@@ -61,9 +61,9 @@ const MODULES = [
   {
     key: 'customers',
     titleKey: 'customers',
-    title: 'Customers',
+    title: 'Registered Customers',
     descKey: 'customersReportHubDesc',
-    desc: 'Charges, recoveries, returns credit & receivables',
+    desc: 'Charges, recoveries, returns credit & receivables — registered accounts only, not walk-in',
     icon: Users,
     accent: 'text-cyan-400',
     path: '/reports/customers',
@@ -171,22 +171,23 @@ function normalizeModuleExport(mod, data) {
     return { sections, tables };
   }
 
-  // Sales (legacy KPI shape)
+  // Sales (legacy KPI shape). Money-flow rows are read straight from data.flow
+  // (backend's own labels/amounts) rather than re-hardcoded here — a hardcoded
+  // copy is exactly what let this section drift out of sync with the real
+  // Sales Report page (and its bug fixes) before.
   if (data?.kpis) {
     const k = data.kpis;
+    const f = data.flow || {};
+    const flowOrder = [
+      'incomings', 'collected_at_sale', 'credit_booked', 'recovery', 'outgoings',
+      'net_sales', 'cash_in_total', 'refunds_cash_bank', 'net_cash_bank_in',
+      'receivables', 'customer_advances',
+    ];
     sections.push({
       heading: `${title} — Money flow`,
-      rows: [
-        { label: 'Gross sales (billed)', value: moneyEn(k.gross_sales) },
-        { label: 'Collected at sale', value: moneyEn(k.collected_at_sale) },
-        { label: 'Sold on credit', value: moneyEn(k.credit_booked) },
-        { label: 'Customer recoveries', value: moneyEn(k.recovery) },
-        { label: 'Returns / refunds', value: moneyEn(k.returns) },
-        { label: 'Net sales', value: moneyEn(k.net_sales) },
-        { label: 'Total cash/bank in', value: moneyEn(k.cash_in_total) },
-        { label: 'Receivables outstanding', value: moneyEn(k.receivables_outstanding) },
-        { label: 'Customer advances', value: moneyEn(k.customer_advances) },
-      ],
+      rows: flowOrder
+        .filter((key) => f[key])
+        .map((key) => ({ label: f[key].label, value: moneyEn(f[key].amount) })),
     });
     tables.push({
       heading: `${title} — By day`,

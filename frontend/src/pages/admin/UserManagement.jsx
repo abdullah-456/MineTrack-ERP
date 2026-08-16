@@ -305,7 +305,7 @@ export default function UserManagement() {
               { header: t('userName') || 'Name', key: 'name', width: 1.6 },
               { header: t('userRole') || 'Role', render: u => roleLabel(u.Role?.name), width: 1.2 },
               { header: t('userBranch') || 'Branch', render: u => u.Branch?.name || '', width: 1.1 },
-              { header: t('userStatus') || 'Status', key: 'status', width: 0.9 },
+              { header: t('userStatus') || 'Status', render: u => (u.status === 'active' ? t('active') : t('suspended')), width: 0.9 },
             ]}
             rows={filtered}
             filters={[

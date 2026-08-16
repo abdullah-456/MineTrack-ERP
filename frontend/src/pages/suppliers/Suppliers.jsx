@@ -8,7 +8,7 @@ import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
-import StatusBadge from '../../components/ui/StatusBadge';
+import StatusBadge, { statusText } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
 import api from '../../api/axios';
@@ -124,7 +124,7 @@ export default function Suppliers() {
     { header: t('phone') || 'Phone', render: s => s.phone || '', width: 1.2 },
     { header: t('payable') || 'Payable', key: 'current_payable', money: true, width: 1.1 },
     { header: t('creditBalance') || 'Credit', key: 'credit_balance', money: true, width: 1.1 },
-    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+    { header: t('status') || 'Status', render: s => statusText(t, s.status), width: 0.9 },
   ];
   const reportTotals = {
     __label: t('total') || 'Total',

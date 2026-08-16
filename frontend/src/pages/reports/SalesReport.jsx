@@ -12,6 +12,7 @@ import ReportActions from '../../components/ui/ReportActions';
 import FinancialReportFilters, { buildReportFilterList } from '../../components/ui/FinancialReportFilters';
 import Modal from '../../components/ui/Modal';
 import api from '../../api/axios';
+import { humanize } from '../../utils/textFormat';
 
 function monthStart() {
   const d = new Date();
@@ -90,6 +91,7 @@ export default function SalesReport() {
   const { error } = useToast();
   const { shopParams, shopId, branches } = useShopApi();
   const isRTL = lang === 'ur';
+  const methodLabel = (m) => (m ? (t(m) || humanize(m)) : '—');
 
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(todayStr());
@@ -179,7 +181,7 @@ export default function SalesReport() {
         total: kpis.credit_booked,
       },
       recovery: {
-        title: flow.recovery?.label || t('recovery') || 'Customer recoveries',
+        title: flow.recovery?.label || t('recovery') || 'Later recoveries (old dues settled)',
         subtitle: formatPKR(kpis.recovery, lang),
         type: 'recoveries',
         rows: data.recoveries || [],
@@ -202,9 +204,21 @@ export default function SalesReport() {
           { label: t('incomings') || 'Gross sales', value: kpis.gross_sales },
           { label: t('outgoingsReturns') || 'Returns / refunds', value: -(kpis.returns || 0) },
           { label: t('netSales') || 'Net sales', value: kpis.net_sales, bold: true },
-          { label: t('cashInTotal') || 'Total cash/bank in', value: kpis.cash_in_total },
         ],
         total: kpis.net_sales,
+      },
+      cashflow: {
+        title: flow.net_cash_bank_in?.label || t('netCashBankIn') || 'Net cash/bank in',
+        subtitle: `${formatPKR(kpis.cash_in_total, lang)} − ${formatPKR(kpis.refunds_cash_bank, lang)} = ${formatPKR(kpis.net_cash_bank_in, lang)}`,
+        type: 'net',
+        rows: [
+          { label: flow.collected_at_sale?.label || t('collectedAtSale') || 'Collected at sale', value: flow.cash_in_total?.collected_at_sale ?? kpis.collected_at_sale },
+          { label: flow.recovery?.label || t('recovery') || 'Later recoveries (old dues settled)', value: flow.cash_in_total?.recovery ?? kpis.recovery },
+          { label: t('cashInTotal') || 'Total cash/bank in (gross)', value: kpis.cash_in_total, bold: true },
+          { label: t('refundsCashBank') || 'Cash/bank refunds paid out', value: -(kpis.refunds_cash_bank || 0) },
+          { label: t('netCashBankIn') || 'Net cash/bank in', value: kpis.net_cash_bank_in, bold: true },
+        ],
+        total: kpis.net_cash_bank_in,
       },
       receivables: {
         title: flow.receivables?.label || t('receivablesOutstanding') || 'Receivables outstanding',
@@ -255,7 +269,9 @@ export default function SalesReport() {
             { label: t('recovery') || 'Customer recoveries', value: money(k.recovery) },
             { label: t('outgoingsReturns') || 'Returns / refunds', value: money(k.returns) },
             { label: t('netSales') || 'Net sales', value: money(k.net_sales) },
-            { label: t('cashInTotal') || 'Total cash/bank in', value: money(k.cash_in_total) },
+            { label: t('cashInTotal') || 'Total cash/bank in (gross)', value: money(k.cash_in_total) },
+            { label: t('refundsCashBank') || 'Cash/bank refunds paid out', value: money(k.refunds_cash_bank) },
+            { label: t('netCashBankIn') || 'Net cash/bank in', value: money(k.net_cash_bank_in) },
             { label: t('receivablesOutstanding') || 'Receivables outstanding', value: money(k.receivables_outstanding) },
             { label: t('customerAdvances') || 'Customer advances', value: money(k.customer_advances) },
           ],
@@ -283,7 +299,7 @@ export default function SalesReport() {
         {
           heading: t('byPaymentMethod') || 'Collected at sale — by method',
           columns: [
-            { header: t('method') || 'Method', key: 'method', width: 1.5 },
+            { header: t('method') || 'Method', render: r => methodLabel(r.method), width: 1.5 },
             { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.5 },
           ],
           rows: data.by_payment_method || [],
@@ -337,7 +353,7 @@ export default function SalesReport() {
           columns: [
             { header: t('date') || 'Date', render: r => shortDate(r.date), width: 1.1 },
             { header: t('customer') || 'Customer', key: 'customer_name', width: 1.6 },
-            { header: t('method') || 'Method', key: 'method', width: 1 },
+            { header: t('method') || 'Method', render: r => methodLabel(r.method), width: 1 },
             { header: t('amount') || 'Amount', key: 'amount', money: true, width: 1.1 },
             { header: t('notes') || 'Notes', key: 'notes', width: 1.8 },
           ],
@@ -365,7 +381,7 @@ export default function SalesReport() {
           columns: [
             { header: t('date') || 'Date', render: r => shortDate(r.date), width: 1.1 },
             { header: t('customer') || 'Customer', key: 'customer_name', width: 1.6 },
-            { header: t('method') || 'Method', key: 'refund_method', width: 1 },
+            { header: t('method') || 'Method', render: r => methodLabel(r.refund_method), width: 1 },
             { header: t('amount') || 'Amount', key: 'refund_amount', money: true, width: 1.2 },
           ],
           rows: data.returns || [],
@@ -453,6 +469,9 @@ export default function SalesReport() {
                 extra={<p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>{flow.outgoings?.count || 0} {t('returns') || 'returns'}</p>} />
               <FlowCard icon={TrendingUp} tone="violet" title={flow.net_sales?.label || (t('netSales') || 'Net sales')} amount={kpis.net_sales} hint={flow.net_sales?.hint} lang={lang}
                 onClick={() => openCardBreakdown('net')} />
+              <FlowCard icon={Wallet} tone="green" title={flow.net_cash_bank_in?.label || (t('netCashBankIn') || 'Net cash/bank in')} amount={kpis.net_cash_bank_in} hint={flow.net_cash_bank_in?.hint} lang={lang}
+                onClick={() => openCardBreakdown('cashflow')}
+                extra={<p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>{formatPKR(kpis.cash_in_total, lang)} − {formatPKR(kpis.refunds_cash_bank, lang)}</p>} />
               <FlowCard icon={ArrowUpCircle} tone="amber" title={flow.receivables?.label || (t('receivablesOutstanding') || 'Receivables outstanding')} amount={kpis.receivables_outstanding} hint={flow.receivables?.hint} lang={lang}
                 onClick={() => openCardBreakdown('receivables')}
                 extra={<p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>{flow.receivables?.customers || 0} {t('customers') || 'customers'}</p>} />
@@ -515,7 +534,7 @@ export default function SalesReport() {
                   <tbody>
                     {(data.by_payment_method || []).map(r => (
                       <tr key={r.method} style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                        <td className="p-3 capitalize">{r.method}</td>
+                        <td className="p-3">{methodLabel(r.method)}</td>
                         <td className="p-3 text-end font-medium text-emerald-400">{formatPKR(r.amount, lang)}</td>
                       </tr>
                     ))}
@@ -635,6 +654,9 @@ export default function SalesReport() {
 
           {tab === 'recovery' && (
             <div className="glass-card overflow-x-auto">
+              <p className="px-4 pt-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+                {t('recoveriesDedupHint') || 'This lists every ledger payment received, for full traceability. Rows marked "At sale" are already included in "Collected at sale" — only rows marked "Recovery" count toward the Later Recoveries total above.'}
+              </p>
               <table className="w-full text-sm min-w-[640px]">
                 <thead>
                   <tr style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -643,6 +665,7 @@ export default function SalesReport() {
                     <th className="text-start p-3">{t('method')}</th>
                     <th className="text-end p-3">{t('amount')}</th>
                     <th className="text-start p-3">{t('invoice') || 'Linked sale'}</th>
+                    <th className="text-start p-3">{t('countedIn') || 'Counted in'}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -650,7 +673,7 @@ export default function SalesReport() {
                     <tr key={r.id} style={{ borderTop: '1px solid var(--border-subtle)' }} className="hover:bg-white/5">
                       <td className="p-3">{shortDate(r.date)}</td>
                       <td className="p-3">{r.customer_name}</td>
-                      <td className="p-3 capitalize">{r.method || '—'}</td>
+                      <td className="p-3">{methodLabel(r.method)}</td>
                       <td className="p-3 text-end font-medium text-emerald-400">{formatPKR(r.amount, lang)}</td>
                       <td className="p-3">
                         {r.related_sale_id ? (
@@ -658,6 +681,13 @@ export default function SalesReport() {
                             #{r.related_sale_id}
                           </InvoiceLink>
                         ) : '—'}
+                      </td>
+                      <td className="p-3">
+                        {r.already_in_collected_at_sale ? (
+                          <span className="badge" style={{ color: 'var(--text-muted)' }}>{t('atSale') || 'At sale'}</span>
+                        ) : (
+                          <span className="badge text-emerald-400">{t('recovery') || 'Recovery'}</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -719,7 +749,7 @@ export default function SalesReport() {
             <div className="mb-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
               {cardModal.methods.map(m => (
                 <div key={m.method} className="rounded-lg p-3" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                  <div className="text-[11px] uppercase tracking-wide capitalize mb-1" style={{ color: 'var(--text-muted)' }}>{m.method}</div>
+                  <div className="text-[11px] uppercase tracking-wide mb-1" style={{ color: 'var(--text-muted)' }}>{methodLabel(m.method)}</div>
                   <div className="text-sm font-bold text-emerald-400">{formatPKR(m.amount, lang)}</div>
                 </div>
               ))}
@@ -796,7 +826,7 @@ export default function SalesReport() {
                     <tr key={r.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                       <td className="p-3">{shortDate(r.date)}</td>
                       <td className="p-3">{r.customer_name}</td>
-                      <td className="p-3 capitalize">{r.method || '—'}</td>
+                      <td className="p-3">{methodLabel(r.method)}</td>
                       <td className="p-3 text-end text-emerald-400 font-medium">{formatPKR(r.amount, lang)}</td>
                       <td className="p-3">
                         {r.related_sale_id
@@ -809,7 +839,7 @@ export default function SalesReport() {
                     <tr key={r.id || i} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                       <td className="p-3">{shortDate(r.date)}</td>
                       <td className="p-3">{r.customer_name}</td>
-                      <td className="p-3 capitalize">{r.refund_method || '—'}</td>
+                      <td className="p-3">{methodLabel(r.refund_method)}</td>
                       <td className="p-3 text-end text-rose-400 font-medium">{formatPKR(r.refund_amount, lang)}</td>
                     </tr>
                   ))}
@@ -931,7 +961,7 @@ export default function SalesReport() {
                     {customerModal.recoveries.map(r => (
                       <tr key={r.id} style={{ borderTop: '1px solid var(--border-subtle)' }}>
                         <td className="p-3">{shortDate(r.date)}</td>
-                        <td className="p-3 capitalize">{r.method || '—'}</td>
+                        <td className="p-3">{methodLabel(r.method)}</td>
                         <td className="p-3 text-end text-emerald-400 font-medium">{formatPKR(r.amount, lang)}</td>
                         <td className="p-3">
                           {r.related_sale_id ? (

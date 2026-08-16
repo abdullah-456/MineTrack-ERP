@@ -88,7 +88,7 @@ export default function Benches() {
                 { header: t('pitColumnLabel') || 'Pit', render: b => b.Pit?.area_name || '', width: 1.4 },
                 { header: t('mineColumnLabel') || 'Mine', render: b => b.Pit?.Mine?.name || '', width: 1.4 },
                 { header: t('elevation') || 'Elevation', render: b => b.elevation || '', width: 1 },
-                { header: t('status') || 'Status', key: 'status', width: 1 },
+                { header: t('status') || 'Status', render: b => getMineStatusMeta(t, b.status).label, width: 1 },
               ]}
               rows={filtered}
               filename="benches.pdf"

@@ -7,7 +7,7 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import { useHighlightRow } from '../../hooks/useHighlightRow';
 import PageHeader from '../../components/ui/PageHeader';
 import LocationPicker from '../../components/ui/LocationPicker';
-import StatusBadge from '../../components/ui/StatusBadge';
+import StatusBadge, { statusText } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { filterByDate, activeFilterList } from '../../components/ui/ReportFilters';
 import { useAuth } from '../../context/AuthContext';
@@ -105,7 +105,7 @@ export default function Employees() {
     { header: t('suspendedOn') || 'Suspended On', render: e => dateCell(e.suspended_at), width: 1.1 },
     { header: t('terminatedOn') || 'Terminated On', render: e => dateCell(e.terminated_at), width: 1.1 },
     { header: t('currentPayable') || 'Payable', key: 'current_payable', money: true, width: 1.1 },
-    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+    { header: t('status') || 'Status', render: e => statusText(t, e.status), width: 0.9 },
   ];
   const reportTotals = {
     __label: t('total') || 'Total',

@@ -795,10 +795,14 @@ async function runGiveSalary(shopId, userId, employeeId, body, transaction) {
   }
 
   // Dr Salaries Expense (net of tax, attendance, and temp deductions) = Cr advance recovery + Cr Cash/Bank paid out.
+  // Always a real cash/bank outflow — assertCashAvailable/debitBankAccount above
+  // already took the money unconditionally, there's no "unpaid" path here — so
+  // this posts as 'payment', not 'journal', or every payroll run vanished from
+  // the Accounting report's "Payments out" while genuinely draining Cash/Bank.
   const netExpense = Math.max(0, Math.round((grossSalary - taxDeduction - attendanceDeduction - tempDeductionAmt) * 100) / 100);
   if (netExpense > 0) {
     await postVoucher(shopId, {
-      type: 'journal',
+      type: 'payment',
       // Was hardcoded to new Date() — a payroll run entered with an explicit
       // backdated `date` still posted its ledger voucher as of today, so the
       // EmployeeTransaction rows above (which DO carry txnDate) and the

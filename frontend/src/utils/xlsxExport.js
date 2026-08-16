@@ -16,6 +16,7 @@
 // Imported from the browser bundle specifically — plain `exceljs` pulls in
 // Node core modules (stream/buffer) that Vite doesn't polyfill by default.
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
+import { humanize } from './textFormat';
 
 const asText = (v) => (v === null || v === undefined ? '' : String(v));
 const isNum = (v) => v !== null && v !== undefined && v !== '' && !isNaN(parseFloat(v));
@@ -23,7 +24,10 @@ const cellAlign = (col) => col.align || (col.money || col.qty || col.numeric ? '
 const isFigureCol = (col) => !!(col.money || col.qty || col.numeric);
 
 function cellValue(col, row) {
-  const v = col.render ? col.render(row) : row[col.key];
+  // A column with no render is a raw DB field — humanize() only touches
+  // values that look like a raw enum token, so a forgotten render can never
+  // leak an unformatted status/type into the spreadsheet.
+  const v = col.render ? col.render(row) : humanize(row[col.key]);
   return v === null || v === undefined ? '' : v;
 }
 

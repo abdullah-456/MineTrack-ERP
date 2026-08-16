@@ -6,7 +6,7 @@ import { useShopApi, formatPKR } from '../../hooks/useShopApi';
 import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FormLabel from '../../components/ui/FormLabel';
-import StatusBadge, { StockBadge } from '../../components/ui/StatusBadge';
+import StatusBadge, { StockBadge, statusText } from '../../components/ui/StatusBadge';
 import ReportActions from '../../components/ui/ReportActions';
 import ReportFilters, { activeFilterList } from '../../components/ui/ReportFilters';
 import { BankAccountPicker, CashAccountPicker } from '../../components/ui/PaymentAccountSelect';
@@ -194,7 +194,7 @@ export default function Products() {
     { header: t('costPrice') || 'Cost', key: 'cost_price', money: true, width: 1 },
     { header: t('salePrice') || 'Sale', key: 'sale_price', money: true, width: 1 },
     { header: t('stockValue') || 'Stock Value', key: 'stock_value', render: p => totalStock(p) * parseFloat(p.cost_price || 0), money: true, width: 1.1 },
-    { header: t('status') || 'Status', key: 'status', width: 0.9 },
+    { header: t('status') || 'Status', render: p => statusText(t, p.status), width: 0.9 },
   ];
   const reportTotals = {
     __label: t('total') || 'Total',

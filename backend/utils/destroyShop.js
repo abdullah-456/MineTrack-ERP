@@ -25,6 +25,7 @@ async function destroyShopCompletely(shopId, transaction) {
   const returnIds = await idsFor(db.SaleReturn, { shop_id: shopId }, transaction);
   const poIds = await idsFor(db.PurchaseOrder, { shop_id: shopId }, transaction);
   const grnIds = await idsFor(db.GoodsReceiptNote, { shop_id: shopId }, transaction);
+  const fiscalYearIds = await idsFor(db.FiscalYear, { shop_id: shopId }, transaction);
 
   const loanIds = employeeIds.length
     ? await idsFor(db.EmployeeLoan, { employee_id: { [Op.in]: employeeIds } }, transaction)
@@ -43,6 +44,34 @@ async function destroyShopCompletely(shopId, transaction) {
         transaction,
       })).map(r => r.id)
     : [];
+
+  // Workshops: WorkshopJob has ON DELETE CASCADE down to WorkshopJobItem, and
+  // WorkshopItem cascades to WorkshopStock/WorkshopStockMovement — but
+  // WorkshopJob.branch_id, WorkshopJobItem.branch_id/workshop_item_id, and
+  // WorkshopJob.vehicle_id are all RESTRICT, so these rows must be gone before
+  // Branch/Vehicle are deleted below.
+  await destroyWhere(db.WorkshopJob, { shop_id: shopId }, transaction);
+  await destroyWhere(db.WorkshopItem, { shop_id: shopId }, transaction);
+
+  // Heavy Machinery: HeavyMachineryLog cascades from HeavyMachinery, but
+  // HeavyMachinery.assigned_branch_id is RESTRICT — must be gone before Branch.
+  await destroyWhere(db.HeavyMachinery, { shop_id: shopId }, transaction);
+
+  // Vehicles — no DB-level FK to shops, but shop-scoped data; delete after
+  // WorkshopJob above (which RESTRICTs on vehicle_id).
+  await destroyWhere(db.Vehicle, { shop_id: shopId }, transaction);
+
+  // Purchase workflow: DepartmentalApproval.purchase_requisition_id has no
+  // cascade back to PurchaseRequisition, so it must go first.
+  await destroyWhere(db.DepartmentalApproval, { shop_id: shopId }, transaction);
+  await destroyWhere(db.PurchaseRequisition, { shop_id: shopId }, transaction);
+
+  // Truck loading — TruckLoadingDay/TruckLoadingEmployee cascade from the log.
+  await destroyWhere(db.TruckLoadingLog, { shop_id: shopId }, transaction);
+
+  // Fixed assets — all its FKs (voucher/bank account/chart of account) are
+  // SET NULL, so order relative to those doesn't matter.
+  await destroyWhere(db.Asset, { shop_id: shopId }, transaction);
 
   if (voucherIds.length) {
     await destroyWhere(db.GeneralLedger, { voucher_id: { [Op.in]: voucherIds } }, transaction);
@@ -96,6 +125,9 @@ async function destroyShopCompletely(shopId, transaction) {
     await destroyWhere(db.Payroll, { employee_id: { [Op.in]: employeeIds } }, transaction);
     await destroyWhere(db.Attendance, { employee_id: { [Op.in]: employeeIds } }, transaction);
     await destroyWhere(db.EmployeeLoan, { employee_id: { [Op.in]: employeeIds } }, transaction);
+    await destroyWhere(db.EmployeeDocument, { employee_id: { [Op.in]: employeeIds } }, transaction);
+    await destroyWhere(db.EmployeeCommission, { employee_id: { [Op.in]: employeeIds } }, transaction);
+    await destroyWhere(db.LeaveRecord, { employee_id: { [Op.in]: employeeIds } }, transaction);
   }
 
   if (transferIds.length) {
@@ -115,12 +147,23 @@ async function destroyShopCompletely(shopId, transaction) {
     db.EmployeeTransaction, db.BoardMemberTransaction, db.Expense, db.Sale,
     db.Voucher, db.BankAccount, db.CashSession, db.Product, db.Customer,
     db.Supplier, db.Employee, db.BoardMember, db.Category, db.Godown,
-    db.DeletionRequest, db.AuditLog,
+    db.DeletionRequest, db.AuditLog, db.Document, db.Notification,
   ]) {
     await destroyWhere(Model, { shop_id: shopId }, transaction);
   }
 
   await destroyWhere(db.ChartOfAccount, { shop_id: shopId }, transaction);
+
+  // Designation/LeaveType/Holiday have no dependents left now that Employee
+  // (and its LeaveRecord/Attendance rows) are gone.
+  await destroyWhere(db.Designation, { shop_id: shopId }, transaction);
+  await destroyWhere(db.LeaveType, { shop_id: shopId }, transaction);
+  await destroyWhere(db.Holiday, { shop_id: shopId }, transaction);
+
+  if (fiscalYearIds.length) {
+    await destroyWhere(db.FiscalYearSnapshot, { fiscal_year_id: { [Op.in]: fiscalYearIds } }, transaction);
+  }
+  await destroyWhere(db.FiscalYear, { shop_id: shopId }, transaction);
 
   const roleIds = await idsFor(db.Role, { shop_id: shopId }, transaction);
   if (roleIds.length) {
